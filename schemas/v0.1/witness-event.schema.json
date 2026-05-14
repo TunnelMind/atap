@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/schemas/v0.1/witness-event.schema.json",
+  "title": "ATAP v0.1 Witness Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "@context",
+    "@type",
+    "id",
+    "ait",
+    "witnessed_at",
+    "event_type",
+    "payload",
+    "prev_event_hash",
+    "self_hash",
+    "witness_signature"
+  ],
+  "properties": {
+    "@context": { "const": "https://tunnelmind.ai/atap/context.jsonld" },
+    "@type": { "const": "WitnessEvent" },
+    "id": {
+      "type": "string",
+      "pattern": "^ATAP-WE-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "ait": {
+      "type": "string",
+      "pattern": "^AIT-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "witnessed_at": { "type": "string", "format": "date-time" },
+    "event_type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)+$",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "payload": {
+      "type": "object",
+      "description": "Profile-defined event payload. Canonical-bytes serialization MUST NOT exceed 16384 bytes (16 KB). MUST NOT contain PII per §7.6 of the standard."
+    },
+    "prev_event_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "self_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "witness_signature": {
+      "type": "string",
+      "pattern": "^ed25519:0x[0-9a-f]{128}$"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@vocab": "https://tunnelmind.ai/atap/vocab#",
+    "atap": "https://tunnelmind.ai/atap/vocab#",
+    "oai": "https://tunnelmind.ai/oai/vocab#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+
+    "AgentIdentityToken": "atap:AgentIdentityToken",
+    "WitnessEvent": "atap:WitnessEvent",
+    "AttestationBlock": "atap:AttestationBlock",
+    "Receipt": "atap:Receipt",
+
+    "id": "@id",
+    "ait_version": "atap:ait_version",
+    "ab_version": "atap:ab_version",
+    "issued_at": { "@id": "atap:issued_at", "@type": "xsd:dateTime" },
+    "expires_at": { "@id": "atap:expires_at", "@type": "xsd:dateTime" },
+    "witnessed_at": { "@id": "atap:witnessed_at", "@type": "xsd:dateTime" },
+    "period_start": { "@id": "atap:period_start", "@type": "xsd:dateTime" },
+    "period_end": { "@id": "atap:period_end", "@type": "xsd:dateTime" },
+    "generated_at": { "@id": "atap:generated_at", "@type": "xsd:dateTime" },
+
+    "agent_type": "atap:agent_type",
+    "profile": "atap:profile",
+    "operator": { "@id": "atap:operator", "@type": "@id" },
+    "witness": { "@id": "atap:witness", "@type": "@id" },
+
+    "capabilities": "atap:capabilities",
+    "constraints": "atap:constraints",
+    "attestation_policy": "atap:attestation_policy",
+    "witness_granularity": "atap:witness_granularity",
+    "block_interval_seconds": { "@id": "atap:block_interval_seconds", "@type": "xsd:integer" },
+    "receipt_generation": "atap:receipt_generation",
+
+    "ait": { "@id": "atap:ait", "@type": "@id" },
+    "event_type": "atap:event_type",
+    "payload": "atap:payload",
+    "prev_event_hash": "atap:prev_event_hash",
+    "self_hash": "atap:self_hash",
+    "witness_signature": "atap:witness_signature",
+
+    "first_event": { "@id": "atap:first_event", "@type": "@id" },
+    "last_event": { "@id": "atap:last_event", "@type": "@id" },
+    "event_count": { "@id": "atap:event_count", "@type": "xsd:integer" },
+    "chain_head_hash": "atap:chain_head_hash",
+    "period_summary": "atap:period_summary",
+    "prev_block_hash": "atap:prev_block_hash",
+    "log_index": { "@id": "atap:log_index", "@type": "xsd:integer" },
+
+    "block_count": { "@id": "atap:block_count", "@type": "xsd:integer" },
+    "first_block": { "@id": "atap:first_block", "@type": "@id" },
+    "last_block": { "@id": "atap:last_block", "@type": "@id" },
+    "format": "atap:format",
+    "verifier_url": { "@id": "atap:verifier_url", "@type": "xsd:anyURI" },
+    "keys_url": { "@id": "atap:keys_url", "@type": "xsd:anyURI" },
+    "files": "atap:files",
+    "path": "atap:path",
+    "sha256": "atap:sha256"
+  }
+}

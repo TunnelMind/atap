@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/schemas/v0.1/ait.schema.json",
+  "title": "ATAP v0.1 Agent Identity Token (AIT)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "@context",
+    "@type",
+    "id",
+    "ait_version",
+    "issued_at",
+    "expires_at",
+    "agent_type",
+    "profile",
+    "operator",
+    "witness",
+    "capabilities",
+    "attestation_policy",
+    "witness_signature"
+  ],
+  "properties": {
+    "@context": { "const": "https://tunnelmind.ai/atap/context.jsonld" },
+    "@type": { "const": "AgentIdentityToken" },
+    "id": {
+      "type": "string",
+      "pattern": "^AIT-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "ait_version": { "const": "0.1" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "agent_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "profile": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*){2,}$",
+      "maxLength": 128
+    },
+    "operator": {
+      "type": "string",
+      "pattern": "^OAI-[0-9]{4}-[0-9]{7}$"
+    },
+    "witness": {
+      "type": "string",
+      "pattern": "^OAI-[0-9]{4}-[0-9]{7}$"
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)+$",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "description": "Profile-defined constraint object. Profile schemas MUST validate this object. v0.1 imposes no constraints on shape beyond JSON-validity."
+    },
+    "attestation_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["witness_granularity", "block_interval_seconds", "receipt_generation"],
+      "properties": {
+        "witness_granularity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "block_interval_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 3600
+        },
+        "receipt_generation": {
+          "type": "string",
+          "enum": ["on_demand", "per_block", "per_period"]
+        }
+      }
+    },
+    "witness_signature": {
+      "type": "string",
+      "pattern": "^ed25519:0x[0-9a-f]{128}$"
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/schemas/v0.1/keys.schema.json",
+  "title": "ATAP v0.1 Public Key Endpoint Response",
+  "description": "Response shape for GET https://tunnelmind.ai/atap/keys",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["keys", "updated_at"],
+  "properties": {
+    "keys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["witness", "key_id", "algorithm", "public_key", "valid_from", "valid_until", "status"],
+        "properties": {
+          "witness": {
+            "type": "string",
+            "pattern": "^OAI-[0-9]{4}-[0-9]{7}$"
+          },
+          "key_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "algorithm": { "const": "ed25519" },
+          "public_key": {
+            "type": "string",
+            "pattern": "^0x[0-9a-f]{64}$"
+          },
+          "valid_from": { "type": "string", "format": "date-time" },
+          "valid_until": { "type": "string", "format": "date-time" },
+          "status": {
+            "type": "string",
+            "enum": ["active", "rotated", "compromised"]
+          },
+          "rotated_to": {
+            "oneOf": [
+              { "type": "string", "minLength": 1, "maxLength": 32 },
+              { "type": "null" }
+            ]
+          },
+          "compromise_notice": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["disclosed_at", "detected_at", "summary_url"],
+                "properties": {
+                  "disclosed_at": { "type": "string", "format": "date-time" },
+                  "detected_at": { "type": "string", "format": "date-time" },
+                  "summary_url": { "type": "string", "format": "uri" }
+                }
+              },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}
