@@ -19,7 +19,7 @@ order, without trusting the agent's self-report.
 | [`schemas/v0.1/`](./schemas/v0.1/) | JSON Schemas for AIT, Witness Event, Attestation Block, Receipt, and the public-key endpoint. |
 | [`context.jsonld`](./context.jsonld) | JSON-LD context for ATAP artifacts. |
 | [`verify.sh`](./verify.sh) | Reference verifier (bash + openssl + jq + python3). Anyone can audit it in one sitting. |
-| [`packages/atap-js/`](./packages/atap-js/) | Reference TypeScript wrapper — `@tunnelmind/atap` on npm. |
+| [`packages/atap-js/`](./packages/atap-js/) | Reference TypeScript wrapper — `@tunnelmindai/atap` on npm. |
 
 ## What ATAP solves
 
@@ -74,7 +74,7 @@ Requirements: bash 4+, openssl 3.0+ (or 1.1.1 with `-rawin`), jq 1.6+, python3.
 Install the reference TypeScript wrapper:
 
 ```bash
-npm install @tunnelmind/atap
+npm install @tunnelmindai/atap
 ```
 
 See [`packages/atap-js/README.md`](./packages/atap-js/README.md) for the API.

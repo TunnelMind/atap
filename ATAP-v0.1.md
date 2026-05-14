@@ -79,7 +79,7 @@ ATAP v0.1 specifies a protocol and a receipt format for the following:
 | Per-action witnessing | Record of each action the agent took, signed by a trusted witness service. |
 | Periodic roll-up | Aggregation of witness events into hash-chained blocks. |
 | Compliance export | Portable archive (Receipt ZIP) suitable for an auditor to verify independently. |
-| Independent verification | Public reference verifier (`verify.sh`) and reference TypeScript wrapper (`@tunnelmind/atap`). |
+| Independent verification | Public reference verifier (`verify.sh`) and reference TypeScript wrapper (`@tunnelmindai/atap`). |
 
 Application-specific extensions (the witness vocabulary for media buying, e-commerce, data brokerage, etc.) are out of scope for the base protocol and live in **application profiles** (Section 9). The base protocol provides the structural envelope; the profile fills it with domain-specific event types and aggregation rules.
 
@@ -667,7 +667,7 @@ and is included verbatim in every Receipt ZIP. The verifier:
 A TypeScript implementation of `witness(event)` is published as:
 
 ```
-npm: @tunnelmind/atap
+npm: @tunnelmindai/atap
 source: https://github.com/TunnelMind/atap/tree/main/packages/atap-js
 ```
 
@@ -799,7 +799,7 @@ The append-only log of Attestation Block heads (Section 10.4) is the highest-lev
 | JSON Schemas | `tunnelmind-site/public/atap/schemas/v0.1/` |
 | JSON-LD context | `https://tunnelmind.ai/atap/context.jsonld` |
 | Reference verifier | `tunnelmind-site/public/atap/verify.sh` and bundled inside every Receipt ZIP |
-| Reference TypeScript wrapper | `@tunnelmind/atap` on npm · source at `github.com/TunnelMind/atap/packages/atap-js` |
+| Reference TypeScript wrapper | `@tunnelmindai/atap` on npm · source at `github.com/TunnelMind/atap/packages/atap-js` |
 | Profile registry | `github.com/TunnelMind/atap-profiles` (rendered at `tunnelmind.ai/atap/profiles`) |
 | Public key endpoint | `https://tunnelmind.ai/atap/keys` |
 | Reference profile: media buyer | Sigil P32 — landing once the Sigil build ships |

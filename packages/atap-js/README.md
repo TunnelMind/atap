@@ -1,4 +1,4 @@
-# @tunnelmind/atap
+# @tunnelmindai/atap
 
 Reference TypeScript wrapper for **ATAP v0.1** — the Agent Trust Attestation Protocol.
 
@@ -18,7 +18,7 @@ Implementations in other languages are welcomed and need only conform to
 ## Install
 
 ```bash
-npm install @tunnelmind/atap
+npm install @tunnelmindai/atap
 ```
 
 Node 20+ is required (uses the built-in `node:crypto` Ed25519 + SHA-256
@@ -33,7 +33,7 @@ import {
   privateKeyFromRaw,
   publicKeyFromRaw,
   verifyReceipt,
-} from '@tunnelmind/atap'
+} from '@tunnelmindai/atap'
 import { generateKeyPairSync } from 'node:crypto'
 
 // 1. Generate (or load) an Ed25519 keypair for the witness service.
@@ -81,7 +81,7 @@ const receipt = await witness.generateReceipt(
 ## Verifying
 
 ```ts
-import { verifyReceipt } from '@tunnelmind/atap'
+import { verifyReceipt } from '@tunnelmindai/atap'
 
 const result = verifyReceipt({
   receipt,           // Parsed manifest.json
