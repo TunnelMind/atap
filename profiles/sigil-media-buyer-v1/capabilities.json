@@ -1,0 +1,14 @@
+{
+  "profile": "sigil:media_buyer:v1",
+  "description": "Canonical capability vocabulary for the sigil:media_buyer:v1 profile. An AIT's `capabilities` array MUST draw only from these tokens. The witness rejects an AIT declaring a capability outside this set.",
+  "capabilities": {
+    "bid:submit":               "Submit a bid into an exchange auction.",
+    "bid:read_response":        "Read the auction response (won / lost / clearing price).",
+    "supply:verify_via_sigil":  "Call Sigil supply-path verification before bidding.",
+    "budget:read":              "Read remaining campaign budget.",
+    "budget:decrement":         "Decrement campaign budget on a won impression.",
+    "creative:select":          "Select which creative to attach to a bid.",
+    "report:generate":          "Generate an internal performance report.",
+    "report:export_receipt":    "Request an ATAP compliance receipt for a period."
+  }
+}

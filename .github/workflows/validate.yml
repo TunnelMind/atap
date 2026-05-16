@@ -1,0 +1,20 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install
+        run: npm install
+      - name: Validate schemas, examples, and PII rejection (ATAP §9.4 1-2)
+        run: npm run validate
+      - name: Verify signed example chains round-trip (ATAP §9.4 4)
+        run: npm run verify

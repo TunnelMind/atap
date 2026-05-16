@@ -1,0 +1,14 @@
+{
+  "keys": [
+    {
+      "witness": "OAI-2026-0009002",
+      "key_id": "example-key-1",
+      "algorithm": "ed25519",
+      "public_key": "0xfd41f3f3dab2585057f945383c38c50c6a9b197da97848a21a05b96f72e7d42b",
+      "valid_from": "2026-05-16T00:00:00Z",
+      "valid_until": "2027-05-16T00:00:00Z",
+      "status": "active"
+    }
+  ],
+  "updated_at": "2026-05-16T12:00:00Z"
+}

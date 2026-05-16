@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/schemas/v0.1/receipt.schema.json",
+  "title": "ATAP v0.1 Receipt (manifest.json)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "@context",
+    "@type",
+    "id",
+    "ait",
+    "profile",
+    "period_start",
+    "period_end",
+    "block_count",
+    "event_count",
+    "first_block",
+    "last_block",
+    "chain_head_hash",
+    "witness",
+    "format",
+    "generated_at",
+    "verifier_url",
+    "keys_url",
+    "files",
+    "witness_signature"
+  ],
+  "properties": {
+    "@context": { "const": "https://tunnelmind.ai/atap/context.jsonld" },
+    "@type": { "const": "Receipt" },
+    "id": {
+      "type": "string",
+      "pattern": "^ATAP-RCPT-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "ait": {
+      "type": "string",
+      "pattern": "^AIT-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "profile": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*){2,}$",
+      "maxLength": 128
+    },
+    "period_start": { "type": "string", "format": "date-time" },
+    "period_end": { "type": "string", "format": "date-time" },
+    "block_count": { "type": "integer", "minimum": 1 },
+    "event_count": { "type": "integer", "minimum": 1 },
+    "first_block": {
+      "type": "string",
+      "pattern": "^ATAP-AB-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "last_block": {
+      "type": "string",
+      "pattern": "^ATAP-AB-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "chain_head_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "witness": {
+      "type": "string",
+      "pattern": "^OAI-[0-9]{4}-[0-9]{7}$"
+    },
+    "format": {
+      "type": "string",
+      "enum": ["full", "summary"]
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "verifier_url": { "type": "string", "format": "uri" },
+    "keys_url": { "type": "string", "format": "uri" },
+    "files": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sha256": {
+            "oneOf": [
+              { "type": "string", "pattern": "^0x[0-9a-f]{64}$" },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "witness_signature": {
+      "type": "string",
+      "pattern": "^ed25519:0x[0-9a-f]{128}$"
+    }
+  }
+}

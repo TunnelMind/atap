@@ -1,0 +1,35 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "AttestationBlock",
+  "id": "ATAP-AB-019e3175-25c9-715d-a8ad-dcd909b06935",
+  "ait": "AIT-019e30a8-5a00-7204-a771-e1bcff3c4001",
+  "ab_version": "0.1",
+  "profile": "sigil:media_buyer:v1",
+  "period_start": "2026-05-16T12:00:01.500Z",
+  "period_end": "2026-05-16T12:00:10.500Z",
+  "first_event": "ATAP-WE-019e30a8-5fdc-742f-b15c-eb2aee93f18e",
+  "last_event": "ATAP-WE-019e30a8-8304-7a49-8c6e-9efadc08711a",
+  "event_count": 7,
+  "chain_head_hash": "0x1ffe5666e00692bf1f31c48f2f6c8883059fe4f2b7b5d757b3e4ad562f6346a9",
+  "period_summary": {
+    "bids_submitted": 1,
+    "bids_won": 1,
+    "total_spend": 2.8,
+    "currency": "USD",
+    "unique_publishers": 1,
+    "unique_exchanges": 2,
+    "supply_verifications": 1,
+    "supply_rejections": 1,
+    "average_trust_score": 0.585,
+    "constraint_violations": 1,
+    "channels_used": [
+      "display"
+    ],
+    "geos_reached": [
+      "US"
+    ]
+  },
+  "prev_block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "self_hash": "0xa2b5e5a93462fc12f18d41204d974d082b200571be9fdbe073c617e05de76c15",
+  "witness_signature": "ed25519:0xec56188c82ea4996a6cf6c65a65d3e6092d4d01aca24160464c09d438a009eec060d5e84d186c053daffc72c7aaeb418f6b01b8262451427fd9f49d7f496bc04"
+}

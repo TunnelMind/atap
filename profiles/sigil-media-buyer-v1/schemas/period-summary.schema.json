@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/sigil-media-buyer-v1/period-summary.schema.json",
+  "title": "sigil:media_buyer:v1 — Attestation Block period_summary",
+  "description": "Validates the `period_summary` object of an ATAP v0.1 Attestation Block under the sigil:media_buyer:v1 profile. Every field is an aggregate over the block's events — counts, sums, and a mean. No field resolves to a natural person (ATAP v0.1 §7.6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bids_submitted", "bids_won", "total_spend", "currency",
+    "unique_publishers", "unique_exchanges", "supply_verifications",
+    "supply_rejections", "average_trust_score", "constraint_violations",
+    "channels_used", "geos_reached"
+  ],
+  "properties": {
+    "bids_submitted":       { "type": "integer", "minimum": 0 },
+    "bids_won":             { "type": "integer", "minimum": 0 },
+    "total_spend":          { "type": "number",  "minimum": 0 },
+    "currency":             { "type": "string",  "pattern": "^[A-Z]{3}$" },
+    "unique_publishers":    { "type": "integer", "minimum": 0 },
+    "unique_exchanges":     { "type": "integer", "minimum": 0 },
+    "supply_verifications": { "type": "integer", "minimum": 0 },
+    "supply_rejections":    { "type": "integer", "minimum": 0 },
+    "average_trust_score":  { "type": "number",  "minimum": 0, "maximum": 1 },
+    "constraint_violations":{ "type": "integer", "minimum": 0 },
+    "channels_used": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["display", "video", "ctv", "audio", "native"] }
+    },
+    "geos_reached": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z]{2}$" }
+    }
+  }
+}
