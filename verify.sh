@@ -47,9 +47,14 @@ def canon(o):
     if isinstance(o, int):
         return str(o)
     if isinstance(o, float):
-        # RFC 8785 number serialization (subset): use repr, strip trailing zeros
-        s = format(o, ".17g")
-        return s
+        # RFC 8785 §3.2.2.3 number serialization is the ECMAScript
+        # Number->String algorithm: the shortest string that round-trips.
+        # Python repr() provides that; an integer-valued float serializes
+        # with no fractional part. (An earlier ".17g" form was non-conformant
+        # — it expanded 0.7 to 0.69999999999999996 and broke verification.)
+        if o == int(o) and abs(o) < 1e21:
+            return str(int(o))
+        return repr(o)
     return json.dumps(o, ensure_ascii=False)
 print(canon(json.load(sys.stdin)), end="")
 '

@@ -2,6 +2,18 @@
 
 All notable changes to ATAP are recorded here.
 
+## Unreleased
+
+### Fixed
+
+- `verify.sh`: the JSON canonicalizer serialized non-integer numbers with
+  `format(o, ".17g")`, which is not RFC 8785 — it expanded values such as
+  `0.7` to `0.69999999999999996`, so the recomputed hashes never matched and
+  every Receipt containing a non-integer number failed verification. The
+  canonicalizer now emits the RFC 8785 / ECMAScript shortest round-trip form
+  (`repr`), with integer-valued floats serialized without a fractional part.
+  This is a verifier bug fix, not a protocol change.
+
 ## v0.1 — 2026-05-14
 
 Initial public draft. Public comment window through **2026-08-12**.
