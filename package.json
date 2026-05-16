@@ -11,7 +11,7 @@
     "test": "npm run validate && npm run verify"
   },
   "devDependencies": {
-    "@tunnelmindai/atap": "^0.1.0",
+    "@tunnelmindai/atap": "^0.1.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1"
   },

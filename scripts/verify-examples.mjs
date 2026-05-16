@@ -7,7 +7,7 @@
  * (verify.sh) does — proving the examples round-trip.
  */
 import {
-  canonicalizeBytes, sha256, ed25519Verify, publicKeyFromHex, GENESIS_HASH,
+  canonicalizeBytes, sha256, ed25519Verify, fromHex, publicKeyFromHex, GENESIS_HASH,
 } from '@tunnelmindai/atap';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -52,7 +52,7 @@ for (const profile of readdirSync(join(root, 'profiles'))) {
     check(recomputed === evt.self_hash, `event[${i}] (${evt.event_type}) self_hash recomputes`);
     check(evt.prev_event_hash === prev, `event[${i}] (${evt.event_type}) links to previous event`);
     check(
-      ed25519Verify(canonicalizeBytes(evt.self_hash), evt.witness_signature, pub),
+      ed25519Verify(fromHex(evt.self_hash), evt.witness_signature, pub),
       `event[${i}] (${evt.event_type}) signature verifies`,
     );
     prev = evt.self_hash;
@@ -65,7 +65,7 @@ for (const profile of readdirSync(join(root, 'profiles'))) {
   check(block.chain_head_hash === events.at(-1).self_hash, 'block chain_head_hash matches last event');
   check(block.event_count === events.length, 'block event_count matches chain length');
   check(
-    ed25519Verify(canonicalizeBytes(block.self_hash), block.witness_signature, pub),
+    ed25519Verify(fromHex(block.self_hash), block.witness_signature, pub),
     'block signature verifies',
   );
 
