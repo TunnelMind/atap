@@ -11,7 +11,7 @@ import {
   ATAP_CONTEXT,
 } from './types.js'
 import { canonicalizeBytes } from './canonicalize.js'
-import { ed25519Verify, publicKeyFromHex, sha256 } from './crypto.js'
+import { ed25519Verify, fromHex, publicKeyFromHex, sha256 } from './crypto.js'
 
 export interface VerifyOptions {
   receipt: Receipt
@@ -86,7 +86,7 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
       }
     }
     const blockOk = ed25519Verify(
-      canonicalizeBytes(self_hash),
+      fromHex(self_hash), // ATAP §7.7: signature is over the raw 32-byte digest
       witness_signature,
       publicKeyFromHex(blockKey.public_key),
     )

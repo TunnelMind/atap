@@ -24,7 +24,7 @@ import {
   MAX_AIT_LIFETIME_DAYS,
 } from './types.js'
 import { canonicalizeBytes } from './canonicalize.js'
-import { ed25519Sign, sha256 } from './crypto.js'
+import { ed25519Sign, fromHex, sha256 } from './crypto.js'
 import { uuidv7 } from './uuid.js'
 
 export interface WitnessStorage {
@@ -149,7 +149,8 @@ export class WitnessService {
       prev_event_hash: prev,
     }
     const selfHash = sha256(canonicalizeBytes(unsigned))
-    const sig = ed25519Sign(canonicalizeBytes(selfHash), this.cfg.privateKey)
+    // ATAP §7.7 step 4: sign the 32-byte SHA-256 digest that self_hash encodes.
+    const sig = ed25519Sign(fromHex(selfHash), this.cfg.privateKey)
     const event: WitnessEvent = { ...unsigned, self_hash: selfHash, witness_signature: sig }
     await this.cfg.storage.saveEvent(event)
     return event
@@ -185,7 +186,8 @@ export class WitnessService {
       prev_block_hash: prev,
     }
     const selfHash = sha256(canonicalizeBytes(unsigned))
-    const sig = ed25519Sign(canonicalizeBytes(selfHash), this.cfg.privateKey)
+    // ATAP §7.7 step 4: sign the 32-byte SHA-256 digest that self_hash encodes.
+    const sig = ed25519Sign(fromHex(selfHash), this.cfg.privateKey)
     const block: AttestationBlock = {
       ...unsigned,
       self_hash: selfHash,

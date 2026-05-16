@@ -1,6 +1,6 @@
 {
   "name": "@tunnelmindai/atap",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reference TypeScript wrapper for ATAP v0.1 — Agent Trust Attestation Protocol. Witness service helpers, hash-chain construction, receipt assembly, in-process verification.",
   "type": "module",
   "main": "./dist/index.js",

@@ -13,6 +13,22 @@ All notable changes to ATAP are recorded here.
   canonicalizer now emits the RFC 8785 / ECMAScript shortest round-trip form
   (`repr`), with integer-valued floats serialized without a fractional part.
   This is a verifier bug fix, not a protocol change.
+- `@tunnelmindai/atap` (npm `0.1.1`): the Witness Event and Attestation Block
+  `witness_signature` was computed over `canonicalizeBytes(self_hash)` — the
+  canonicalized hex *string* — instead of the 32-byte SHA-256 digest that
+  `self_hash` encodes. `verify.sh` already verified the raw digest, so the
+  two reference implementations disagreed and no artifact could satisfy both.
+  `witness.ts` and `verify.ts` now sign and verify the raw digest, matching
+  `verify.sh` and §7.7.
+
+### Changed
+
+- §7.7 reworded to state unambiguously that the Witness Event and Attestation
+  Block `witness_signature` covers the raw 32-byte SHA-256 digest encoded by
+  `self_hash`, while the AIT and Receipt signatures cover the object's
+  canonical JSON bytes directly (neither carries a `self_hash`). Editorial
+  clarification of intent — no behavioural change for a conformant
+  implementation.
 
 ## v0.1 — 2026-05-14
 
