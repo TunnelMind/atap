@@ -30,6 +30,10 @@ const w = new WitnessService({
   witnessOAI: WITNESS_OAI,
   privateKey,
   storage: new InMemoryStorage(),
+  // Sigil's reference deployment runs in a CF Worker under OS-enforced
+  // isolation — ATAP §7.4.1 attestation strength = 'software'. Example
+  // receipts carry this so verifiers exercise the full forward path.
+  attestationStrength: 'software',
   now: () => new Date(clock),
 });
 
@@ -140,6 +144,9 @@ const publicKeys = {
     valid_from: '2026-05-16T00:00:00Z',
     valid_until: '2027-05-16T00:00:00Z',
     status: 'active',
+    // ATAP §8.1 — matches the witness service's deployment strength.
+    // Verifiers cross-check receipt.attestation_strength against this.
+    attestation_strength: 'software',
   }],
   updated_at: '2026-05-16T12:00:00Z',
 };

@@ -34,6 +34,11 @@
             "type": "string",
             "enum": ["active", "rotated", "compromised"]
           },
+          "attestation_strength": {
+            "type": "string",
+            "enum": ["self-asserted", "software", "tee-tpm", "silicon-root"],
+            "description": "Trust root the witness service ran under during this key's validity window (ATAP §7.4.1, §8.1). Optional in v0.1.x; missing values are treated as 'self-asserted'. Required at v0.2."
+          },
           "rotated_to": {
             "oneOf": [
               { "type": "string", "minLength": 1, "maxLength": 32 },

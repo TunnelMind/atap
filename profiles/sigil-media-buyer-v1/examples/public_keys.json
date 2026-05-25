@@ -4,10 +4,11 @@
       "witness": "OAI-2026-0009002",
       "key_id": "example-key-1",
       "algorithm": "ed25519",
-      "public_key": "0xd870c878c5c941540b28b41f7de9ddf79348b6b295a37d366a2214d0ea158320",
+      "public_key": "0x5a8e104c6964be69d7dbdbbef13e96747ba2b6bff7863c31a68d6ec49d207f30",
       "valid_from": "2026-05-16T00:00:00Z",
       "valid_until": "2027-05-16T00:00:00Z",
-      "status": "active"
+      "status": "active",
+      "attestation_strength": "software"
     }
   ],
   "updated_at": "2026-05-16T12:00:00Z"
