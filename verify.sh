@@ -2,7 +2,7 @@
 #
 # ATAP v0.1 Receipt Verifier
 # Standard:   https://tunnelmind.ai/atap/standard
-# License:    MIT
+# License:    Apache-2.0
 #
 # Usage: verify.sh [RECEIPT_DIR]
 #   RECEIPT_DIR defaults to the current directory. The directory MUST contain

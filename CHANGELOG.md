@@ -4,6 +4,18 @@ All notable changes to ATAP are recorded here.
 
 ## Unreleased
 
+### Changed
+
+- **Code, schemas, and the reference verifier relicensed from MIT to
+  Apache-2.0.** The Apache license adds an explicit patent grant that
+  MIT does not — load-bearing for a protocol library that may face
+  patent claims as it sees adoption. The CC BY 4.0 license on the spec
+  text (`ATAP-v0.1.md`) is unchanged; the spec lives under
+  [`LICENSE-SPEC`](./LICENSE-SPEC) and the Apache-2.0 [`LICENSE`](./LICENSE)
+  covers everything else in the repository. The `@tunnelmindai/atap`
+  npm package's `license` field is updated to `Apache-2.0`. The
+  reference `verify.sh` header is updated to match.
+
 ### Added
 
 - `attestation_strength` (§7.4.1) — a four-tier ordered scale (`self-asserted` <

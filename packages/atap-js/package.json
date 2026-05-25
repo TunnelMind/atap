@@ -34,7 +34,7 @@
     "tunnelmind"
   ],
   "author": "TunnelMind",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://tunnelmind.ai/atap/standard",
   "repository": {
     "type": "git",

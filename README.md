@@ -8,7 +8,7 @@ order, without trusting the agent's self-report.
 
 - **Standard:** [tunnelmind.ai/atap/standard](https://tunnelmind.ai/atap/standard) · raw markdown: [`ATAP-v0.1.md`](./ATAP-v0.1.md)
 - **Status:** v0.1 — Public comment through **2026-08-12**
-- **License:** CC BY 4.0 (spec) · MIT (code in `packages/`)
+- **License:** CC BY 4.0 (spec — `ATAP-v0.1.md`) · Apache-2.0 (code, schemas, verifier)
 - **Editor:** TunnelMind
 
 ## What's in this repo
@@ -118,9 +118,14 @@ deferred). The big ones:
 
 ## License
 
-- Spec ([`ATAP-v0.1.md`](./ATAP-v0.1.md)) is licensed [CC BY 4.0](./LICENSE).
-- Code in [`packages/`](./packages/) is licensed MIT (see each package's own LICENSE).
-- The reference verifier ([`verify.sh`](./verify.sh)) is licensed MIT.
+- Spec ([`ATAP-v0.1.md`](./ATAP-v0.1.md)) is licensed [CC BY 4.0](./LICENSE-SPEC).
+- Everything else in this repository — JSON Schemas, JSON-LD context, the
+  reference verifier ([`verify.sh`](./verify.sh)), and the reference
+  TypeScript wrapper in [`packages/atap-js/`](./packages/atap-js/) — is
+  licensed [Apache-2.0](./LICENSE). The Apache patent grant is the reason
+  for the change from earlier MIT; the spec text continues under CC BY 4.0
+  so it remains free to cite and republish under the long-standing
+  standards-text norm.
 
 You may cite, redistribute, fork, and build on ATAP without asking. The
 only ask is attribution — link to [tunnelmind.ai/atap/standard](https://tunnelmind.ai/atap/standard)
