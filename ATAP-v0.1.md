@@ -352,6 +352,7 @@ A Receipt is a metadata record that describes the contents of a Receipt ZIP. The
   "last_block": "ATAP-AB-018f3c4d-...",
   "chain_head_hash": "0xab12cd34...",
   "witness": "OAI-2026-0000017",
+  "attestation_strength": "software",
   "format": "full",
   "generated_at": "2026-05-14T09:00:00Z",
   "verifier_url": "https://tunnelmind.ai/atap/verify.sh",
@@ -379,9 +380,29 @@ A Receipt is a metadata record that describes the contents of a Receipt ZIP. The
 | `first_block` / `last_block` | string | Yes | First and last Attestation Block IDs included. |
 | `chain_head_hash` | string | Yes | `self_hash` of `last_block`. |
 | `witness` | string | Yes | Canonical OAI of the witness service. |
+| `attestation_strength` | string | No (v0.1.x) | One of `self-asserted` \| `software` \| `tee-tpm` \| `silicon-root`. Declares the trust root the witness service ran under for this receipt's period. See §7.4.1. Mandatory at v0.2; receipts that omit the field MUST be treated as `self-asserted`. |
 | `format` | string | Yes | `full` or `summary`. `summary` omits the per-event chain. |
 | `files` | array of object | Yes | Manifest of every file in the ZIP with SHA-256. Empty `sha256` permitted for directories. |
 | `witness_signature` | string | Yes | Ed25519 signature over canonical bytes of this Receipt minus the signature field. Format `ed25519:0x{128hex}`. |
+
+#### 7.4.1 Attestation strength tier
+
+A Receipt carries `attestation_strength` to declare the environment the witness service ran in over the receipt's period. The four values are ordered from weakest to strongest:
+
+| Tier | Meaning |
+|---|---|
+| `self-asserted` | The witness service publishes its own key and signs its own events. There is no independent attestation that the signing key was generated, stored, or used inside a particular environment. A compromise of the signing host can forge any history. |
+| `software` | The witness service runs under operating-system-enforced isolation (process boundaries, memory protection, file ACLs) on a host the operator controls. Trust depends on the operator's operational discipline; a root compromise on the host can forge any history. The reference Sigil witness ships at this tier. |
+| `tee-tpm` | The witness service runs inside a hardware-isolated execution environment (Intel SGX / TDX, AMD SEV-SNP, ARM TrustZone, Apple Secure Enclave, or an equivalent TPM-backed measured boot configuration) such that the signing key is sealed to the measured environment and a remote attestation report can be reproduced from a third-party verifier. A host-level root compromise outside the enclave cannot forge new history; an enclave-level break can. |
+| `silicon-root` | The witness service runs on a custom hardware root of trust whose signing key is generated and used exclusively inside non-reprogrammable silicon, with the operator publishing an attestation chain rooted in a certificate issued by the silicon manufacturer. A host-level root compromise cannot forge new history; replacing the silicon is the threat boundary. |
+
+`self-asserted` is the floor: any conformant ATAP receipt today is **at least** self-asserted, and a verifier MAY treat a receipt with no `attestation_strength` field as self-asserted without further qualification. The field is OPTIONAL in v0.1.x and REQUIRED in v0.2.
+
+A verifier MUST NOT promote a receipt above its declared tier. A consumer of a receipt MAY refuse to act on a receipt below a policy floor (e.g. a high-value buyer may require `tee-tpm` or stronger before accepting a witness's verdict).
+
+The tier reflects the witness service over the receipt period, not the agent operating under the AIT. The agent's behavior is what the witness records; the tier is how trustworthy that recording is. A `software`-tier witness's `witnessed` evidence is strictly more trustworthy than `asserted` evidence under any tier — the per-event evidence grades (Section 7.2 and the Sigil media-buyer profile) and the per-receipt attestation tier are orthogonal dimensions of the same trust question.
+
+Per-event override of the per-receipt tier is reserved for v2 (witness federation) and is OUT OF SCOPE for v0.1.x and v0.2.
 
 ### 7.5 Receipt ZIP layout
 
@@ -466,6 +487,7 @@ GET https://tunnelmind.ai/atap/keys
       "valid_from": "2026-05-01T00:00:00Z",
       "valid_until": "2027-05-01T00:00:00Z",
       "status": "active",
+      "attestation_strength": "software",
       "rotated_to": null,
       "compromise_notice": null
     },
@@ -477,6 +499,7 @@ GET https://tunnelmind.ai/atap/keys
       "valid_from": "2025-05-01T00:00:00Z",
       "valid_until": "2026-05-01T00:00:00Z",
       "status": "rotated",
+      "attestation_strength": "software",
       "rotated_to": "k1",
       "compromise_notice": null
     }
@@ -492,6 +515,8 @@ A key per witness service:
 | `active` | Currently signing new events. |
 | `rotated` | Superseded by `rotated_to`. Verifies historical events whose `witnessed_at` falls within `[valid_from, valid_until]`. |
 | `compromised` | Withdrawn. Verifiers MUST reject signatures from this key when validating receipts whose `witnessed_at` is later than `compromise_notice.disclosed_at`. Receipts whose `witnessed_at` predates `disclosed_at` SHOULD be marked `unverified` rather than valid; downstream policy MAY treat them differently. |
+
+Each key entry carries an `attestation_strength` value (§7.4.1) declaring the environment under which the key signed during its validity window. Strength is recorded **per key**, not per witness service — a witness that upgrades from software to TEE-attested hosting publishes the successor key with the higher strength while older keys retain their original strength for historical verification. A verifier that needs to confirm a receipt's `attestation_strength` claim against the key record MUST compare receipt-period `attestation_strength` against the matching key's `attestation_strength`; if the receipt declares a strength higher than the key declares, the verifier MUST reject the receipt. The field is OPTIONAL in v0.1.x for the same reason it is optional on the Receipt (legacy v0.1.0/v0.1.1 keys predate this addition) and REQUIRED at v0.2; missing values are treated as `self-asserted`.
 
 When `status` is `compromised`, the `compromise_notice` object is required:
 
@@ -775,6 +800,14 @@ Zero-knowledge proofs over sensitive aggregate signals (e.g. attesting "total sp
 ### 14.7 Transparency log: SCHEDULED for v1.x
 
 The append-only log of Attestation Block heads (Section 10.4) is the highest-leverage near-term addition to the trust model and is the first v1.x priority once external adoption is measurable. URL `/atap/log` is reserved.
+
+### 14.8 Attestation strength tiers: LOCKED at four levels, OPTIONAL in v0.1.x and REQUIRED in v0.2
+
+The four tiers `self-asserted` / `software` / `tee-tpm` / `silicon-root` defined in Section 7.4.1 are the v0.1.x and v0.2 enumeration. The set is ordered and totally ordered — `silicon-root` strictly dominates `tee-tpm` strictly dominates `software` strictly dominates `self-asserted`. The editor commits to this ordering and to the absence of intermediate tiers at v0.2.
+
+Rationale: a single ordered scale lets agents and verifiers express policy with a single comparison rather than a feature vector. The four tiers are chosen to match the trust-root taxonomy that hardware exists for today (process isolation, TEE/TPM measured boot, custom silicon roots) plus a floor (self-asserted) that any signing witness can claim without external attestation. Adding tiers later is additive at the high end (e.g. a `silicon-root-with-formal-verification` value beyond `silicon-root`); the prior values do not need to shift, so v0.1.x consumers continue to behave correctly when newer tiers appear. Subdividing existing tiers is not envisioned and would require v2.
+
+Per-event override of the per-receipt tier (a single receipt mixing TEE-attested and software-only periods) is DEFERRED to v2 alongside witness federation. v0.1.x and v0.2 declare strength at the receipt and at the key, both of which span a clean interval.
 
 ---
 

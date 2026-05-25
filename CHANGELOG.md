@@ -4,6 +4,18 @@ All notable changes to ATAP are recorded here.
 
 ## Unreleased
 
+### Added
+
+- `attestation_strength` (§7.4.1) — a four-tier ordered scale (`self-asserted` <
+  `software` < `tee-tpm` < `silicon-root`) declaring the trust root the witness
+  service ran under for a Receipt's period. The field appears on the Receipt
+  manifest (§7.4) and on each key entry at `/atap/keys` (§8.1). OPTIONAL in
+  v0.1.x — receipts and keys that omit the field MUST be treated as
+  `self-asserted` by verifiers, with a stderr warning. REQUIRED at v0.2 (see
+  §14.8). Per-event override is reserved for v2.
+- §14.8 — locked position recording that the four-tier set, its ordering, and
+  receipt-and-key placement are committed for the lifetime of v0.1.x and v0.2.
+
 ### Fixed
 
 - `verify.sh`: the JSON canonicalizer serialized non-integer numbers with

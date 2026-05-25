@@ -149,5 +149,35 @@ done < <(jq -c '.[]' attestation_chain.json)
 MANIFEST_HEAD=$(jq -r '.chain_head_hash' manifest.json)
 [ "$MANIFEST_HEAD" = "$PREV" ] || err "manifest chain_head_hash $MANIFEST_HEAD != last block self_hash $PREV"
 
-echo "==> Receipt verifies (blocks=$COUNT)"
+##############################################################################
+# 5. Attestation strength (ATAP §7.4.1 — optional in v0.1.x, required at v0.2)
+##############################################################################
+RCPT_STRENGTH=$(jq -r '.attestation_strength // "MISSING"' manifest.json)
+if [ "$RCPT_STRENGTH" = "MISSING" ]; then
+  echo "WARN: manifest.attestation_strength missing — treating as 'self-asserted' (ATAP §7.4.1). Required at v0.2." >&2
+  RCPT_STRENGTH="self-asserted"
+fi
+case "$RCPT_STRENGTH" in
+  self-asserted|software|tee-tpm|silicon-root) ;;
+  *) err "manifest.attestation_strength has unrecognized value '$RCPT_STRENGTH' (expected self-asserted | software | tee-tpm | silicon-root)";;
+esac
+# Cross-check against the matching key entry, if the key declares a strength.
+KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" '
+  .keys[] |
+  select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
+  select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
+  .attestation_strength // empty
+' public_keys.json | head -1)
+if [ -n "$KEY_STRENGTH" ]; then
+  STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }
+  R_RANK=$(STRENGTH_RANK "$RCPT_STRENGTH")
+  K_RANK=$(STRENGTH_RANK "$KEY_STRENGTH")
+  [ "$R_RANK" -le "$K_RANK" ] || err "manifest.attestation_strength=$RCPT_STRENGTH exceeds key.attestation_strength=$KEY_STRENGTH"
+  ok "attestation_strength=$RCPT_STRENGTH (key-attested)"
+else
+  echo "WARN: matching key entry omits attestation_strength — receipt's $RCPT_STRENGTH claim is not key-attested (ATAP §8.1). Required at v0.2." >&2
+  ok "attestation_strength=$RCPT_STRENGTH (self-attested by receipt)"
+fi
+
+echo "==> Receipt verifies (blocks=$COUNT, attestation_strength=$RCPT_STRENGTH)"
 exit 0

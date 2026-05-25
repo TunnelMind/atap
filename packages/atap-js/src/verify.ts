@@ -3,6 +3,8 @@
 import {
   AIT,
   AttestationBlock,
+  AttestationStrength,
+  ATTESTATION_STRENGTH_RANK,
   GENESIS_HASH,
   HexHash,
   KeysDocument,
@@ -23,6 +25,10 @@ export interface VerifyOptions {
 export interface VerifyResult {
   ok: boolean
   blocks: number
+  /** Effective attestation strength of this receipt (defaults to 'self-asserted' if the receipt omits the field). */
+  attestation_strength?: AttestationStrength
+  /** Non-fatal advisories. v0.1.x omissions become entries here. */
+  warnings?: string[]
   reason?: string
 }
 
@@ -104,5 +110,45 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
     }
   }
 
-  return { ok: true, blocks: chain.length }
+  // 3. Attestation strength (ATAP §7.4.1 — optional in v0.1.x, required at v0.2)
+  const warnings: string[] = []
+  let effectiveStrength: AttestationStrength = 'self-asserted'
+  if (receipt.attestation_strength) {
+    if (!(receipt.attestation_strength in ATTESTATION_STRENGTH_RANK)) {
+      return {
+        ok: false,
+        blocks: chain.length,
+        reason: `unrecognized attestation_strength '${receipt.attestation_strength}'`,
+      }
+    }
+    effectiveStrength = receipt.attestation_strength
+  } else {
+    warnings.push(
+      "manifest.attestation_strength missing — treated as 'self-asserted' (ATAP §7.4.1). Required at v0.2.",
+    )
+  }
+  // Cross-check against the AIT-period key, if that key declares a strength.
+  const aitPeriodKey = pickKey(keys, ait.witness, ait.issued_at)
+  if (aitPeriodKey?.attestation_strength) {
+    const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength]
+    const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]
+    if (rcptRank > keyRank) {
+      return {
+        ok: false,
+        blocks: chain.length,
+        reason: `attestation_strength=${effectiveStrength} exceeds key attestation_strength=${aitPeriodKey.attestation_strength}`,
+      }
+    }
+  } else if (receipt.attestation_strength) {
+    warnings.push(
+      "matching key entry omits attestation_strength — receipt's claim is not key-attested (ATAP §8.1). Required at v0.2.",
+    )
+  }
+
+  return {
+    ok: true,
+    blocks: chain.length,
+    attestation_strength: effectiveStrength,
+    ...(warnings.length ? { warnings } : {}),
+  }
 }

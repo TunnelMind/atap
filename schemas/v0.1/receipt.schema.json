@@ -61,6 +61,11 @@
       "type": "string",
       "pattern": "^OAI-[0-9]{4}-[0-9]{7}$"
     },
+    "attestation_strength": {
+      "type": "string",
+      "enum": ["self-asserted", "software", "tee-tpm", "silicon-root"],
+      "description": "Trust root the witness service ran under for this receipt's period (ATAP §7.4.1). Optional in v0.1.x; missing values are treated as 'self-asserted'. Required at v0.2."
+    },
     "format": {
       "type": "string",
       "enum": ["full", "summary"]

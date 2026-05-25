@@ -10,6 +10,24 @@ export type WE_ID = `ATAP-WE-${string}`
 export type AB_ID = `ATAP-AB-${string}`
 export type RCPT_ID = `ATAP-RCPT-${string}`
 
+/**
+ * Attestation strength tier — the trust root the witness service ran under.
+ * Ordered from weakest to strongest (ATAP §7.4.1).
+ * Optional in v0.1.x (missing = treated as 'self-asserted'). Required at v0.2.
+ */
+export type AttestationStrength =
+  | 'self-asserted'
+  | 'software'
+  | 'tee-tpm'
+  | 'silicon-root'
+
+export const ATTESTATION_STRENGTH_RANK: Record<AttestationStrength, number> = {
+  'self-asserted': 0,
+  software: 1,
+  'tee-tpm': 2,
+  'silicon-root': 3,
+}
+
 export interface AttestationPolicy {
   witness_granularity: 'per_action' | 'per_decision' | string
   block_interval_seconds: number
@@ -90,6 +108,12 @@ export interface Receipt {
   verifier_url: string
   keys_url: string
   files: ReceiptFile[]
+  /**
+   * Trust root the witness service ran under for this receipt's period
+   * (ATAP §7.4.1). Optional in v0.1.x; missing values are treated as
+   * 'self-asserted'. REQUIRED at v0.2.
+   */
+  attestation_strength?: AttestationStrength
   witness_signature: Ed25519Sig
 }
 
@@ -101,6 +125,12 @@ export interface PublicKey {
   valid_from: Iso8601
   valid_until: Iso8601
   status: 'active' | 'rotated' | 'compromised'
+  /**
+   * Trust root the witness service ran under during this key's validity
+   * window (ATAP §7.4.1, §8.1). Optional in v0.1.x; missing values are
+   * treated as 'self-asserted'. REQUIRED at v0.2.
+   */
+  attestation_strength?: AttestationStrength
   rotated_to: string | null
   compromise_notice: {
     disclosed_at: Iso8601

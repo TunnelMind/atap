@@ -7,6 +7,7 @@ import {
   AIT_ID,
   AttestationBlock,
   AttestationPolicy,
+  AttestationStrength,
   AB_ID,
   GENESIS_HASH,
   HexHash,
@@ -58,6 +59,15 @@ export interface WitnessConfig {
   witnessOAI: OAI
   privateKey: KeyObject
   storage: WitnessStorage
+  /**
+   * Trust root the witness service runs under (ATAP §7.4.1). The witness
+   * service is configured once at startup with the strength of its
+   * deployment; every receipt it generates carries this tier in
+   * `manifest.attestation_strength`. Defaults to 'self-asserted' for
+   * backward compatibility — the most pessimistic interpretation a
+   * verifier can make.
+   */
+  attestationStrength?: AttestationStrength
   now?: () => Date
 }
 
@@ -234,6 +244,9 @@ export class WitnessService {
       verifier_url: 'https://tunnelmind.ai/atap/verify.sh',
       keys_url: 'https://tunnelmind.ai/atap/keys',
       files: [...files],
+      ...(this.cfg.attestationStrength
+        ? { attestation_strength: this.cfg.attestationStrength }
+        : {}),
     }
     const sig = ed25519Sign(canonicalizeBytes(unsigned), this.cfg.privateKey)
     return { ...unsigned, witness_signature: sig }
