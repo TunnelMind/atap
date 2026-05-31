@@ -1,5 +1,9 @@
 # ATAP application profiles
 
+> **Part of TunnelMind — the intelligence layer agents call before they trust the internet.**
+> Three lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker Data API** (*who is watching?*).
+> This repo serves: **the open protocol layer.** Profile registry for ATAP; consumed by lens-specific witnesses across all three. See [tunnelmind.ai](https://tunnelmind.ai).
+
 Source-of-truth registry for [ATAP v0.1](https://tunnelmind.ai/atap/standard)
 application profiles. Published at <https://tunnelmind.ai/atap/profiles>.
 
