@@ -76,6 +76,18 @@ function b64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+/** Decode an Ed25519 public key. Accepts 0x-prefixed hex (legacy /atap/keys
+ *  format) or base64 (raw or padded). Always returns the 32 raw bytes. */
+function decodePublicKey(s: string): Uint8Array<ArrayBuffer> {
+  if (/^0x[0-9a-fA-F]{64}$/.test(s)) {
+    const h = s.slice(2);
+    const out = new Uint8Array(new ArrayBuffer(32));
+    for (let i = 0; i < 32; i++) out[i] = parseInt(h.substring(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+  return b64ToBytes(s);
+}
+
 function bytesToString(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
 }
@@ -138,7 +150,7 @@ export async function verifyJwt(token: string, opts: VerifierOptions = {}): Prom
   } else {
     const pubKey = await subtle.importKey(
       'raw',
-      b64ToBytes(key.public_key),
+      decodePublicKey(key.public_key),
       { name: 'Ed25519' },
       false,
       ['verify'],
