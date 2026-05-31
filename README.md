@@ -1,5 +1,9 @@
 # ATAP — Agent Trust Attestation Protocol
 
+> **Part of TunnelMind — the intelligence layer agents call before they trust the internet.**
+> Three lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker Data API** (*who is watching?*).
+> This repo serves: **the open protocol layer.** ATAP is Apache-2.0 / CC-BY-4.0; its witness signatures back the cross-lens verdicts emitted by all three lenses. See [tunnelmind.ai](https://tunnelmind.ai).
+
 **ATAP v0.1** is an open protocol for **agent behavioral attestation**: a
 canonical receipt format that lets the principal of an agentic system —
 the advertiser, the compliance officer, the regulator, the auditor —
