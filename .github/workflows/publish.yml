@@ -1,0 +1,42 @@
+name: Publish to npm (Trusted Publishing)
+
+# OIDC-based publish — no long-lived npm token. npm trusts this exact
+# repo+workflow via the per-package "Trusted Publisher" config on npmjs.com.
+# Publishes both packages in this monorepo: @tunnelmindai/atap + @tunnelmindai/eat.
+
+on:
+  workflow_dispatch:        # manual trigger (first publish + ad-hoc)
+  push:
+    tags:
+      - 'v*'                # future releases: push a vX.Y.Z tag
+
+permissions:
+  contents: read
+  id-token: write           # required for OIDC trusted publishing + provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      # setup-node ships npm 10.x; trusted publishing needs >= 11.5.1.
+      - name: Use OIDC-capable npm
+        run: npm install -g npm@latest
+
+      - name: Publish @tunnelmindai/atap
+        working-directory: packages/atap-js
+        run: |
+          npm install
+          npm publish --access public --provenance
+
+      - name: Publish @tunnelmindai/eat
+        working-directory: packages/eat-js
+        run: |
+          npm install
+          npm publish --access public --provenance
