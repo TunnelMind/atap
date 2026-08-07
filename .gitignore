@@ -5,3 +5,6 @@ dist/
 .env
 .env.local
 *.log
+
+# generated knowledge graph — rebuilt by /understand, never committed
+.understand-anything/
