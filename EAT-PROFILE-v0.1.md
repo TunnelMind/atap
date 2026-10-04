@@ -448,16 +448,16 @@ of communications. The claim set in this profile is constrained to
 
 ### Companion documents
 
-This profile ships with three companion documents. They live alongside
-this spec at `tunnelmind.ai/docs/` and are versioned together with it.
+This profile ships with three companion documents. They are not yet
+published.
 
-- [EAT IANA registration draft](./EAT-IANA-REGISTRATION-v0.1.md) —
+- EAT IANA registration draft (companion document, not yet published) —
   the claim-allocation ledger and profile-registration template that
   goes to IANA when the profile is submitted.
-- [EAT OAI resolver update](./EAT-OAI-RESOLVER-v0.1.md) — how the
+- EAT OAI resolver update (companion document, not yet published) — how the
   `tunnelmind.ai/id/{OAI}` resolver issues EAT-formatted responses on
   Accept-header negotiation, while preserving its legacy JSON path.
-- [EAT migration plan for existing consumers](./EAT-MIGRATION-PLAN-v0.1.md) —
+- EAT migration plan for existing consumers (companion document, not yet published) —
   the rollout sequence across Scry / Sigil / OAI endpoints, the
   backward-compatibility guarantees, and the client-side migration
   guidance.
