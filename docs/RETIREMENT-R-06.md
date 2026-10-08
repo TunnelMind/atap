@@ -34,11 +34,18 @@ approves an edit inside the subtree.
 
 ## Left for Josh
 
-The crew has pushed nothing and archived nothing. Two clicks remain, after
-the merge is approved:
+The crew has pushed nothing and archived nothing. Two clicks and one
+decision remain, after the merge is approved:
 
 1. Archive the GitHub repo `TunnelMind/atap-profiles` (Settings → Archive).
 2. Archive the GitHub repo `TunnelMind/eat-profile` (Settings → Archive).
+3. Decide on the normative spec. `ATAP-v0.1.md` still names
+   `github.com/TunnelMind/atap-profiles` as the profile registry's source of
+   truth and as the place for profile-proposal PRs and objection issues, at
+   lines 600, 611, 727, 729 and 836. Once that repo is archived it can no
+   longer take PRs or issues, so those processes have nowhere to go. The
+   crew did not edit the spec; Josh decides whether to issue an erratum or
+   make the change in a v0.1.1.
 
 The site docs paths `archive/public-atap` and `archive/public-eat` are
 already archived copies and need no change.
