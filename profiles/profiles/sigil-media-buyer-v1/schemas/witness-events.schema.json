@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/sigil-media-buyer-v1/witness-events.schema.json",
+  "title": "sigil:media_buyer:v1 — Witness Event payloads",
+  "description": "Binds each profile event_type to its payload schema. A conformant Witness Event MUST validate against BOTH the ATAP v0.1 base witness-event schema (the envelope: @context, id, hashes, signature) AND this schema (the event_type vocabulary and payload shape). Every payload sets additionalProperties:false — that is how this profile encodes the ATAP §7.6 no-PII prohibition: a payload carrying an end-user IP, email, cookie, device ID or any other person-resolvable field has no permitted key for it and fails validation.",
+  "type": "object",
+  "required": ["event_type", "payload"],
+  "properties": {
+    "event_type": {
+      "enum": [
+        "bid:submitted",
+        "bid:won",
+        "bid:lost",
+        "budget:decremented",
+        "supply:verified",
+        "supply:rejected",
+        "constraint:violated"
+      ]
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "const": "bid:submitted" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/bid_submitted" } } } },
+    { "if": { "properties": { "event_type": { "const": "bid:won" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/bid_won" } } } },
+    { "if": { "properties": { "event_type": { "const": "bid:lost" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/bid_lost" } } } },
+    { "if": { "properties": { "event_type": { "const": "budget:decremented" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/budget_decremented" } } } },
+    { "if": { "properties": { "event_type": { "const": "supply:verified" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/supply_verified" } } } },
+    { "if": { "properties": { "event_type": { "const": "supply:rejected" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/supply_rejected" } } } },
+    { "if": { "properties": { "event_type": { "const": "constraint:violated" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/constraint_violated" } } } }
+  ],
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "hostname":  { "type": "string", "format": "hostname", "maxLength": 253 },
+    "opaque_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "currency":  { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "channel":   { "enum": ["display", "video", "ctv", "audio", "native"] },
+    "verdict":   { "enum": ["pass", "warn", "fail"] },
+    "trust_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "supply_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publisher_domain", "exchange_domain", "seller_id"],
+      "properties": {
+        "publisher_domain": { "$ref": "#/$defs/hostname" },
+        "exchange_domain":  { "$ref": "#/$defs/hostname" },
+        "seller_id":        { "$ref": "#/$defs/opaque_id" }
+      },
+      "description": "Carries domains and the seller ID only. The device/user IP that Sigil's supply_path verification accepts is deliberately excluded — it is a person-resolvable field forbidden by ATAP §7.6."
+    },
+    "constraint_value": {
+      "type": ["string", "number", "boolean", "array"],
+      "items": { "type": "string" },
+      "description": "A declared or observed constraint value: a scalar, or an array of strings (e.g. a channel list)."
+    },
+
+    "bid_submitted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "exchange", "publisher_domain", "seller_id", "bid_amount", "currency", "creative_id", "channel"],
+      "properties": {
+        "timestamp":          { "$ref": "#/$defs/timestamp" },
+        "exchange":           { "$ref": "#/$defs/hostname" },
+        "publisher_domain":   { "$ref": "#/$defs/hostname" },
+        "seller_id":          { "$ref": "#/$defs/opaque_id" },
+        "bid_amount":         { "type": "number", "minimum": 0 },
+        "currency":           { "$ref": "#/$defs/currency" },
+        "creative_id":        { "$ref": "#/$defs/opaque_id" },
+        "channel":            { "$ref": "#/$defs/channel" },
+        "sigil_token":        { "type": "string", "maxLength": 4096, "description": "The signed sigil_token from pre-bid supply verification. Absent => no verification was done before this bid, itself a signal." },
+        "supply_trust_score": { "$ref": "#/$defs/trust_score" }
+      }
+    },
+    "bid_won": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "exchange", "clearing_price", "currency", "impression_id"],
+      "properties": {
+        "timestamp":      { "$ref": "#/$defs/timestamp" },
+        "exchange":       { "$ref": "#/$defs/hostname" },
+        "clearing_price": { "type": "number", "minimum": 0 },
+        "currency":       { "$ref": "#/$defs/currency" },
+        "impression_id":  { "$ref": "#/$defs/opaque_id" }
+      }
+    },
+    "bid_lost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "exchange"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "exchange":  { "$ref": "#/$defs/hostname" },
+        "reason":    { "type": "string", "maxLength": 256 }
+      }
+    },
+    "budget_decremented": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "amount", "currency", "remaining_total"],
+      "properties": {
+        "timestamp":       { "$ref": "#/$defs/timestamp" },
+        "amount":          { "type": "number", "minimum": 0 },
+        "currency":        { "$ref": "#/$defs/currency" },
+        "remaining_daily": { "type": "number", "minimum": 0 },
+        "remaining_total": { "type": "number", "minimum": 0 }
+      }
+    },
+    "supply_verified": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "supply_path", "sigil_result", "trust_score"],
+      "properties": {
+        "timestamp":    { "$ref": "#/$defs/timestamp" },
+        "supply_path":  { "$ref": "#/$defs/supply_path" },
+        "sigil_result": { "$ref": "#/$defs/verdict" },
+        "trust_score":  { "$ref": "#/$defs/trust_score" },
+        "sigil_token":  { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "supply_rejected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "supply_path", "sigil_result", "rejection_reason"],
+      "properties": {
+        "timestamp":        { "$ref": "#/$defs/timestamp" },
+        "supply_path":      { "$ref": "#/$defs/supply_path" },
+        "sigil_result":     { "$ref": "#/$defs/verdict" },
+        "rejection_reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "trust_score":      { "$ref": "#/$defs/trust_score" }
+      }
+    },
+    "constraint_violated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "constraint_name", "declared_value", "actual_value"],
+      "properties": {
+        "timestamp":       { "$ref": "#/$defs/timestamp" },
+        "constraint_name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "declared_value":  { "$ref": "#/$defs/constraint_value" },
+        "actual_value":    { "$ref": "#/$defs/constraint_value" }
+      }
+    }
+  }
+}
