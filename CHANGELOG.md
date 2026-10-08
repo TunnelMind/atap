@@ -6,6 +6,15 @@ All notable changes to ATAP are recorded here.
 
 ### Changed
 
+- **Editorial (2026-10-08): the profile registry's repository moved.** The
+  registry now lives in the `profiles/` directory of this repository; the
+  separate `atap-profiles` repository was folded in with its history
+  (retirement R-06, atap#1) and is being archived. §9 and §12 now send profile
+  proposals and objections to `TunnelMind/atap`, and the Appendix B table
+  points at `atap/tree/main/profiles`. The rendered registry URL
+  (`https://tunnelmind.ai/atap/profiles`) is unchanged. No schema, hash,
+  signature or Receipt layout change, so per §13 this is a re-publish in
+  place, not a new version.
 - **Code, schemas, and the reference verifier relicensed from MIT to
   Apache-2.0.** The Apache license adds an explicit patent grant that
   MIT does not — load-bearing for a protocol library that may face

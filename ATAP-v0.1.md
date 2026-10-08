@@ -597,7 +597,7 @@ Profiles are identified by a colon-delimited string of the form `{namespace}:{do
 | `sigil:ecommerce_buyer:v1` | TBD | Reserved. |
 | `sigil:data_broker:v1` | TBD | Reserved. |
 
-The profile registry is published at `https://tunnelmind.ai/atap/profiles` and the source-of-truth repository is `https://github.com/TunnelMind/atap-profiles`. Third-party profiles MAY be registered subject to the constraints in Sections 7.6 (no PII) and 9.4 (acceptance criteria).
+The profile registry is published at `https://tunnelmind.ai/atap/profiles` and the source of truth is the `profiles/` directory of `https://github.com/TunnelMind/atap`. Third-party profiles MAY be registered subject to the constraints in Sections 7.6 (no PII) and 9.4 (acceptance criteria).
 
 ### 9.4 Acceptance criteria
 
@@ -608,7 +608,7 @@ A profile proposal is accepted into the registry if all of the following hold:
 3. The proposed namespace token is not already claimed (first-comer wins).
 4. The proposal includes at least one signed example AIT, Witness Event, Attestation Block, and Receipt that round-trip through the reference verifier.
 
-Profile proposals are PRs to `github.com/TunnelMind/atap-profiles`. CI runs the four checks above and **auto-merges** PRs that pass within 7 calendar days, absent an editorial objection (Section 12.2). The editor's hand-review is reserved for scope and conflict cases.
+Profile proposals are PRs to `github.com/TunnelMind/atap` that change `profiles/`. CI runs the four checks above and **auto-merges** PRs that pass within 7 calendar days, absent an editorial objection (Section 12.2). The editor's hand-review is reserved for scope and conflict cases.
 
 ### 9.5 Profile authority and collisions
 
@@ -724,9 +724,9 @@ The editor's stated commitment is to **not be a bottleneck**. To that end:
 
 | Channel | Automation |
 |---|---|
-| **Profile proposals** | PR to `github.com/TunnelMind/atap-profiles`. CI validates Section 9.4 checks. Schema-conformant PRs auto-merge within **7 calendar days** absent an editorial objection. |
+| **Profile proposals** | PR to `github.com/TunnelMind/atap` that changes `profiles/`. CI validates Section 9.4 checks. Schema-conformant PRs auto-merge within **7 calendar days** absent an editorial objection. |
 | **Schema bug reports** | Issue on `github.com/TunnelMind/atap`. Automated acknowledgment within 24 hours. Editor triage within 7 calendar days. |
-| **Objections** | Issue on `github.com/TunnelMind/atap-profiles` with `objection` label. Automated acknowledgment within 24 hours. Editor written response within **14 calendar days**. Auto-acknowledgment is not a substantive response. |
+| **Objections** | Issue on `github.com/TunnelMind/atap` with `objection` label. Automated acknowledgment within 24 hours. Editor written response within **14 calendar days**. Auto-acknowledgment is not a substantive response. |
 | **Compromise disclosures** | Direct contact (security email TBD) plus public posting at `/atap/compromise/`. Section 8.4 sets SLOs. |
 
 These SLOs are tighter than OAI's because the automation makes them feasible; OAI's longer windows reflect manual issuance decisions that ATAP does not require.
@@ -833,6 +833,6 @@ Per-event override of the per-receipt tier (a single receipt mixing TEE-attested
 | JSON-LD context | `https://tunnelmind.ai/atap/context.jsonld` |
 | Reference verifier | `tunnelmind-site/public/atap/verify.sh` and bundled inside every Receipt ZIP |
 | Reference TypeScript wrapper | `@tunnelmindai/atap` on npm · source at `github.com/TunnelMind/atap/packages/atap-js` |
-| Profile registry | `github.com/TunnelMind/atap-profiles` (rendered at `tunnelmind.ai/atap/profiles`) |
+| Profile registry | `github.com/TunnelMind/atap/tree/main/profiles` (rendered at `tunnelmind.ai/atap/profiles`) |
 | Public key endpoint | `https://tunnelmind.ai/atap/keys` |
 | Reference profile: media buyer | Sigil P32 — landing once the Sigil build ships |
