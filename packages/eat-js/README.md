@@ -77,10 +77,10 @@ These are the explicit gaps. Filing issues for any of them is welcome.
 
 ## License
 
-Apache-2.0. Spec text at [TunnelMind/eat-profile](https://github.com/TunnelMind/eat-profile) is CC BY 4.0.
+Apache-2.0. Spec text at [TunnelMind/atap, eat/](https://github.com/TunnelMind/atap/tree/main/eat) is CC BY 4.0.
 
 ## Related
 
 - [`@tunnelmindai/atap`](../atap-js) — the ATAP receipt format this verifier validates the inner submodule of
 - [TunnelMind/receipt-verify](https://github.com/TunnelMind/receipt-verify) — the JSON serialization verifier for the same claim set
-- Spec repo: [TunnelMind/eat-profile](https://github.com/TunnelMind/eat-profile)
+- Spec repo: [TunnelMind/atap, eat/](https://github.com/TunnelMind/atap/tree/main/eat)

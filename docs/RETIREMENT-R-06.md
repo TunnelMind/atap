@@ -25,6 +25,13 @@ folded `profiles/.github/workflows/validate.yml` never runs here. The root
 or pull request that touches `profiles/**`. The folded file is left as is so
 the subtree stays a clean copy of its origin.
 
+## Follow-ups
+
+`profiles/registry.json:5` (`source`) still names
+https://github.com/TunnelMind/atap-profiles. It should become
+https://github.com/TunnelMind/atap/tree/main/profiles once the coordinator
+approves an edit inside the subtree.
+
 ## Left for Josh
 
 The crew has pushed nothing and archived nothing. Two clicks remain, after
