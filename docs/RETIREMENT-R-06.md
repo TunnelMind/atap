@@ -16,6 +16,15 @@ The source commit is the second parent of each merge commit
 (`git rev-parse 6f3f0d3^2 f3b2589^2`). The README's "Profiles" section
 points to both trees.
 
+## CI
+
+GitHub only runs workflows from the repo-root `.github/workflows`, so the
+folded `profiles/.github/workflows/validate.yml` never runs here. The root
+`.github/workflows/profiles-validate.yml` runs the same steps (`npm install`,
+`npm run validate`, `npm run verify` on Node 20) in `profiles/`, on any push
+or pull request that touches `profiles/**`. The folded file is left as is so
+the subtree stays a clean copy of its origin.
+
 ## Left for Josh
 
 The crew has pushed nothing and archived nothing. Two clicks remain, after
