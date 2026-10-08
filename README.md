@@ -97,8 +97,9 @@ types and aggregation rules lives in **application profiles**:
 | `sigil:data_broker:v1` | TBD | Reserved. |
 
 Profile proposals are PRs against the [`./profiles`](./profiles) directory of this repo.
-CI validates schema conformance, the PII prohibition (§7.6), and example
-round-trip through `verify.sh`. Conformant PRs auto-merge within 7 days
+CI (`.github/workflows/profiles-validate.yml`) validates schema conformance, the PII
+prohibition (§7.6), and example round-trip (`profiles/scripts/verify-examples.mjs`).
+Conformant PRs auto-merge within 7 days
 absent an editorial objection. See §9 and §12.3 of the spec.
 
 ## Profiles

@@ -15,6 +15,9 @@ on:
       - 'profiles/**'
       - '.github/workflows/profiles-validate.yml'
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest

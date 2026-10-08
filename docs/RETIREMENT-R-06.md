@@ -30,7 +30,9 @@ the subtree stays a clean copy of its origin.
 `profiles/registry.json:5` (`source`) still names
 https://github.com/TunnelMind/atap-profiles. It should become
 https://github.com/TunnelMind/atap/tree/main/profiles once the coordinator
-approves an edit inside the subtree.
+approves an edit inside the subtree. The same goes for `eat/EAT-PROFILE-v0.1.md`
+lines 62, 76 and 544 (links to `eat-profile` and `atap-profiles`) and its
+"Examples: … eat-profile (TBD)" row: they go stale when the repos are archived.
 
 ## Left for Josh
 
