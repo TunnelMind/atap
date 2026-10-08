@@ -59,7 +59,7 @@ operational, not abstract.
 | Verifier | Sigil + Scry verification stack on `data.tunnelmind.ai` | Aggregates raw evidence into an EAT token signed by a verifier key. |
 | Relying Party | Any agent or principal querying the verification API | Sends an EAT token, with or without a nonce; consumes claims to make a trust decision. |
 | Endorser | Operator OAI registry at `tunnelmind.ai/id/{OAI}` | Endorses witness identity; the OAI resolver is the canonical endorsement path. |
-| Reference-Value Provider | `atap-profiles` repo + Scry actor-class catalog | Names the values an evidence claim is expected to take. |
+| Reference-Value Provider | ATAP profile registry (`atap/profiles`) + Scry actor-class catalog | Names the values an evidence claim is expected to take. |
 
 In the EAT-over-ATAP composition, the **inner attestation** is the ATAP
 receipt (witness-signed) and the **outer attestation** is the EAT token
@@ -73,7 +73,7 @@ the keys published at `tunnelmind.ai/atap/keys`.
 | Profile name | `urn:tunnelmind:eat-profile:v0.1` |
 | Profile URL  | `https://tunnelmind.ai/eat/profile/v0.1` |
 | Schemas      | `https://tunnelmind.ai/eat/profile/v0.1/schemas/` (TBD) |
-| Examples     | `https://github.com/TunnelMind/eat-profile` (TBD) |
+| Examples     | `https://github.com/TunnelMind/atap/tree/main/eat` (TBD) |
 | Reference verifier | `verify.sh` + `@tunnelmindai/eat` (planned; not yet built) |
 
 The profile URL is the value that MUST appear in the `profile` EAT claim
@@ -541,6 +541,6 @@ will land in three phases:
    conditional on an Accept-header content-negotiation step at the top
    of each endpoint. The default JSON path is untouched.
 3. **Reference relying-party**: `verify-eat.sh` (bash + openssl + jq +
-   a tiny CBOR helper) plus a worked example in `eat-profile` repo
+   a tiny CBOR helper) plus a worked example in `atap/eat`
    that fetches a token, decodes both submodules, and reports the
    final trust decision.

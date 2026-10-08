@@ -27,12 +27,11 @@ the subtree stays a clean copy of its origin.
 
 ## Follow-ups
 
-`profiles/registry.json:5` (`source`) still names
-https://github.com/TunnelMind/atap-profiles. It should become
-https://github.com/TunnelMind/atap/tree/main/profiles once the coordinator
-approves an edit inside the subtree. The same goes for `eat/EAT-PROFILE-v0.1.md`
-lines 62, 76 and 544 (links to `eat-profile` and `atap-profiles`) and its
-"Examples: … eat-profile (TBD)" row: they go stale when the repos are archived.
+Done 2026-10-08: `profiles/registry.json` `source` now names
+https://github.com/TunnelMind/atap/tree/main/profiles, and
+`eat/EAT-PROFILE-v0.1.md` lines 62, 76 and 544 point at `atap/profiles` and
+`atap/eat`. The `urn:tunnelmind:eat-profile:v0.1` identifier is unchanged: it
+names the profile, not the repository. `ATAP-v0.1.md` was repointed in #2.
 
 ## Left for Josh
 

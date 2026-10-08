@@ -2,7 +2,7 @@
   "registry": "ATAP v0.1 application profiles",
   "standard": "https://tunnelmind.ai/atap/standard",
   "published_at": "https://tunnelmind.ai/atap/profiles",
-  "source": "https://github.com/TunnelMind/atap-profiles",
+  "source": "https://github.com/TunnelMind/atap/tree/main/profiles",
   "profiles": [
     {
       "id": "sigil:media_buyer:v1",
