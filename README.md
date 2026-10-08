@@ -96,10 +96,25 @@ types and aggregation rules lives in **application profiles**:
 | `sigil:ecommerce_buyer:v1` | TBD | Reserved. |
 | `sigil:data_broker:v1` | TBD | Reserved. |
 
-Profile proposals are PRs to [`github.com/TunnelMind/atap-profiles`](https://github.com/TunnelMind/atap-profiles) (forthcoming).
+Profile proposals are PRs against the [`./profiles`](./profiles) directory of this repo.
 CI validates schema conformance, the PII prohibition (§7.6), and example
 round-trip through `verify.sh`. Conformant PRs auto-merge within 7 days
 absent an editorial objection. See §9 and §12.3 of the spec.
+
+## Profiles
+
+Two profile repos are folded into this one. Their history was carried in
+by subtree merge, and the origin repos are being archived (retirement memo
+R-06).
+
+| Tree | Origin repo | Contents |
+|---|---|---|
+| [`profiles/`](./profiles) | [`github.com/TunnelMind/atap-profiles`](https://github.com/TunnelMind/atap-profiles) | ATAP application-profile registry. See [`profiles/README.md`](./profiles/README.md). |
+| [`eat/`](./eat) | [`github.com/TunnelMind/eat-profile`](https://github.com/TunnelMind/eat-profile) | EAT profile v0.1. See [`eat/README.md`](./eat/README.md) and [`eat/EAT-PROFILE-v0.1.md`](./eat/EAT-PROFILE-v0.1.md). |
+
+The registry's own check is `cd profiles && npm ci && npm test` (Node 20+;
+needs network once to install its dev dependencies). `eat/` has no checks.
+`verify.sh` stays the receipt verifier and does not run either.
 
 ## Comment, object, or contribute
 
