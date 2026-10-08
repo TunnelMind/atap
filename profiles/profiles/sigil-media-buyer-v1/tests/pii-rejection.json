@@ -1,0 +1,102 @@
+{
+  "description": "ATAP v0.1 §9.4(2) acceptance evidence: each case is a Witness Event whose payload smuggles a person-resolvable field forbidden by ATAP §7.6. Every case MUST FAIL validation against witness-events.schema.json — the profile schemas set additionalProperties:false on every payload, so there is no permitted key for PII. CI asserts each case is rejected; a case that validates is a profile defect.",
+  "must_reject": [
+    {
+      "name": "end_user_ip_in_bid",
+      "reason": "end-user IP address (ATAP §7.6)",
+      "event": {
+        "event_type": "bid:submitted",
+        "payload": {
+          "timestamp": "2026-05-16T12:00:01Z",
+          "exchange": "exchange.example",
+          "publisher_domain": "news.example",
+          "seller_id": "pub-12345",
+          "bid_amount": 3.5,
+          "currency": "USD",
+          "creative_id": "cr-001",
+          "channel": "display",
+          "user_ip": "203.0.113.44"
+        }
+      }
+    },
+    {
+      "name": "email_in_bid",
+      "reason": "end-user email address (ATAP §7.6)",
+      "event": {
+        "event_type": "bid:submitted",
+        "payload": {
+          "timestamp": "2026-05-16T12:00:01Z",
+          "exchange": "exchange.example",
+          "publisher_domain": "news.example",
+          "seller_id": "pub-12345",
+          "bid_amount": 3.5,
+          "currency": "USD",
+          "creative_id": "cr-001",
+          "channel": "display",
+          "user_email": "person@example.com"
+        }
+      }
+    },
+    {
+      "name": "device_ip_in_supply_path",
+      "reason": "device/user IP inside supply_path (ATAP §7.6)",
+      "event": {
+        "event_type": "supply:verified",
+        "payload": {
+          "timestamp": "2026-05-16T12:00:01Z",
+          "supply_path": {
+            "publisher_domain": "news.example",
+            "exchange_domain": "exchange.example",
+            "seller_id": "pub-12345",
+            "ip_address": "203.0.113.44"
+          },
+          "sigil_result": "pass",
+          "trust_score": 0.9
+        }
+      }
+    },
+    {
+      "name": "cookie_in_win",
+      "reason": "cookie / session identifier (ATAP §7.6)",
+      "event": {
+        "event_type": "bid:won",
+        "payload": {
+          "timestamp": "2026-05-16T12:00:02Z",
+          "exchange": "exchange.example",
+          "clearing_price": 2.8,
+          "currency": "USD",
+          "impression_id": "imp-9",
+          "cookie_id": "abc123sessioncookie"
+        }
+      }
+    },
+    {
+      "name": "device_fingerprint_in_constraint",
+      "reason": "browser/device fingerprint (ATAP §7.6)",
+      "event": {
+        "event_type": "constraint:violated",
+        "payload": {
+          "timestamp": "2026-05-16T12:00:03Z",
+          "constraint_name": "max_bid_cpm",
+          "declared_value": 50,
+          "actual_value": 62,
+          "device_fingerprint": "fp-9a8b7c"
+        }
+      }
+    },
+    {
+      "name": "account_holder_in_budget",
+      "reason": "named natural person (ATAP §7.6)",
+      "event": {
+        "event_type": "budget:decremented",
+        "payload": {
+          "timestamp": "2026-05-16T12:00:04Z",
+          "amount": 2.8,
+          "currency": "USD",
+          "remaining_total": 149997.2,
+          "account_holder": "Jane Doe"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/schemas/v0.1/attestation-block.schema.json",
+  "title": "ATAP v0.1 Attestation Block",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "@context",
+    "@type",
+    "id",
+    "ait",
+    "ab_version",
+    "profile",
+    "period_start",
+    "period_end",
+    "first_event",
+    "last_event",
+    "event_count",
+    "chain_head_hash",
+    "period_summary",
+    "prev_block_hash",
+    "self_hash",
+    "witness_signature"
+  ],
+  "properties": {
+    "@context": { "const": "https://tunnelmind.ai/atap/context.jsonld" },
+    "@type": { "const": "AttestationBlock" },
+    "id": {
+      "type": "string",
+      "pattern": "^ATAP-AB-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "ait": {
+      "type": "string",
+      "pattern": "^AIT-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "ab_version": { "const": "0.1" },
+    "profile": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*){2,}$",
+      "maxLength": 128
+    },
+    "period_start": { "type": "string", "format": "date-time" },
+    "period_end": { "type": "string", "format": "date-time" },
+    "first_event": {
+      "type": "string",
+      "pattern": "^ATAP-WE-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "last_event": {
+      "type": "string",
+      "pattern": "^ATAP-WE-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "event_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "chain_head_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "period_summary": {
+      "type": "object",
+      "description": "Profile-defined aggregation. v0.1 imposes only the PII constraint of §7.6."
+    },
+    "log_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional. Position in the transparency log (https://tunnelmind.ai/atap/log). Reserved for v1.x; verifiers MUST tolerate values that cannot yet be checked against a live log."
+    },
+    "prev_block_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "self_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "witness_signature": {
+      "type": "string",
+      "pattern": "^ed25519:0x[0-9a-f]{128}$"
+    }
+  }
+}

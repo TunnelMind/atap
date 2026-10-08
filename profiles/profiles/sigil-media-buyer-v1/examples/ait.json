@@ -1,0 +1,51 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "AgentIdentityToken",
+  "id": "AIT-019e30a8-5a00-7d7f-be75-feea26679b36",
+  "ait_version": "0.1",
+  "issued_at": "2026-05-16T12:00:00.000Z",
+  "expires_at": "2026-07-15T12:00:00.000Z",
+  "agent_type": "media-buyer",
+  "profile": "sigil:media_buyer:v1",
+  "operator": "OAI-2026-0009001",
+  "witness": "OAI-2026-0009002",
+  "capabilities": [
+    "bid:submit",
+    "bid:read_response",
+    "supply:verify_via_sigil",
+    "budget:read",
+    "budget:decrement",
+    "creative:select",
+    "report:generate",
+    "report:export_receipt"
+  ],
+  "constraints": {
+    "currency": "USD",
+    "max_bid_cpm": 50,
+    "supply_trust_minimum": 0.7,
+    "budget_total_cap": 150000,
+    "budget_daily_cap": 10000,
+    "allowed_channels": [
+      "display",
+      "video",
+      "ctv",
+      "audio"
+    ],
+    "blocked_categories": [
+      "IAB25-3",
+      "IAB26"
+    ],
+    "geo_targeting": {
+      "allowed_countries": [
+        "US",
+        "CA"
+      ]
+    }
+  },
+  "attestation_policy": {
+    "witness_granularity": "per_bid",
+    "block_interval_seconds": 300,
+    "receipt_generation": "on_demand"
+  },
+  "witness_signature": "ed25519:0xe192d32a6549337ecd419f67612ed4aac69e7fef3f929ca0ec81512615c6387a84379921663e64f44c6339503711b013f387743c1540c8055a2e6f9d357a2d0d"
+}

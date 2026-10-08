@@ -1,0 +1,21 @@
+{
+  "registry": "ATAP v0.1 application profiles",
+  "standard": "https://tunnelmind.ai/atap/standard",
+  "published_at": "https://tunnelmind.ai/atap/profiles",
+  "source": "https://github.com/TunnelMind/atap-profiles",
+  "profiles": [
+    {
+      "id": "sigil:media_buyer:v1",
+      "title": "Programmatic media-buyer agent",
+      "maintainer": "TunnelMind (via Sigil)",
+      "status": "reference",
+      "path": "profiles/sigil-media-buyer-v1",
+      "atap_version": "0.1",
+      "summary": "Witness vocabulary for AI agents that buy programmatic advertising — bid lifecycle, budget movement, Sigil supply-path verification, and constraint-violation detection."
+    }
+  ],
+  "reserved": [
+    { "id": "sigil:ecommerce_buyer:v1", "maintainer": "TBD" },
+    { "id": "sigil:data_broker:v1", "maintainer": "TBD" }
+  ]
+}

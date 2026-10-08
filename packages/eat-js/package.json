@@ -41,7 +41,7 @@
     "directory": "packages/eat-js"
   },
   "bugs": {
-    "url": "https://github.com/TunnelMind/eat-profile/issues"
+    "url": "https://github.com/TunnelMind/atap/issues"
   },
   "engines": {
     "node": ">=18"
