@@ -23,7 +23,10 @@ openssl, jq and python3 (see the [root README](../../README.md)).
 ## Quickstart
 
 In an empty directory, with `atap-witness` on your PATH. `init` writes a key
-and an AIT to `.atap/`, so no command after it needs flags.
+and an AIT to `.atap/`, so no command after it needs flags. The witness is the
+key's own `did:key` (ATAP-v0.2 §3): it is the AIT's witness and operator, and
+`config.json` records it as `witness_oai` with `oai_origin: "did:key"`. No
+registry is involved; a did:key witness is always `self-asserted`.
 
 ```sh
 atap-witness init
@@ -41,6 +44,13 @@ checks the same receipt: `./receipt/verify.sh receipt`.
 written and times it.
 `atap-witness ait rotate` declares a fresh 365-day AIT in the same store; old receipts keep verifying.
 
+Stores made before v0.2 hold a self-asserted `OAI-0000-*` witness instead.
+`init` no longer creates those, but every command still reads, receipts and
+verifies them. `atap-witness ait rotate --did-key` moves such a store onto its
+key's did:key: a new AIT with the did:key as witness and operator, and
+`config.json` updated; the old AIT and its chain are untouched. To witness
+under an OAI a registry issued you, pass `--witness-oai OAI` as before.
+
 ### Off and uninstall
 
 `ATAP_OFF=1` makes `event` and `block` exit 0 with one stderr line and write
@@ -50,21 +60,23 @@ unaffected. Uninstall is `rm -rf .atap`: nothing is created outside it.
 ## Commands
 
 ```
+atap-witness init [--profile ID] [--dir .atap] [--force]
 atap-witness status
+atap-witness ait rotate [--did-key]
 atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
 atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
 atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
 atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
 atap-witness verify DIR
-atap-witness scitt export DIR --key K --issuer ISS
+atap-witness scitt export DIR --key K [--issuer ISS]
 atap-witness scitt verify DIR
 atap-witness scitt register DIR --service URL
 ```
 
 | Command | Stdin | Stdout |
 |---|---|---|
-| `init` | none | Sets up `./.atap/` (store, key `witness.pem` 0600, its own `.gitignore`, `config.json`) and declares one AIT (365 days). Writes nothing outside `.atap/`; refuses if it exists (`--force` only re-inits an empty store) |
-| `ait rotate` | none | Declares a new AIT in the same store, with the same key and profile, and points `config.json` at it. The old chain stays intact and receiptable |
+| `init` | none | Sets up `./.atap/` (store, key `witness.pem` 0600, its own `.gitignore`, `config.json`) and declares one AIT (365 days) whose witness and operator are the key's did:key. Writes nothing outside `.atap/`; refuses if it exists (`--force` only re-inits an empty store) |
+| `ait rotate` | none | Declares a new AIT in the same store, with the same key and profile, and points `config.json` at it. The old chain stays intact and receiptable. With `--did-key`, the new AIT's witness and operator are the key's did:key and `config.json` gets `witness_oai` = that did:key, `oai_origin: "did:key"` (for `OAI-0000-*` stores) |
 | `status` | none | `{profile, ait, witness_oai, dir, events, blocks, last_receipt}` for the nearest `.atap/` at or above cwd; `last_receipt` is `{out, at, id}` from the last `receipt` run there, or `null`. Exit 1 outside any `.atap/` |
 | `ait declare` | An `AitInput` object (`agentType`, `profile`, `operator`, `capabilities`, `attestationPolicy`, `expiresAt`; lifetime at most 365 days) | The signed AIT |
 | `event` | `{"event_type": string, "payload": object}` | The signed, chained Witness Event |
@@ -78,12 +90,13 @@ Flags:
 | Flag | Used by | Meaning |
 |---|---|---|
 | `--key PATH` | `ait declare`, `event`, `block`, `receipt`, `scitt export` | Ed25519 private key, PEM. Required. |
-| `--witness-oai OAI` | `ait declare`, `event`, `block`, `receipt` | The witness's OAI. Falls back to `$ATAP_WITNESS_OAI`. Required. |
+| `--witness-oai OAI` | `ait declare`, `event`, `block`, `receipt` | The witness's OAI (or did:key). Falls back to `$ATAP_WITNESS_OAI`, then `config.json`. Required outside an init'd project. Without it, `receipt` signs as its AIT's own witness. |
+| `--did-key` | `ait rotate` | Rotate onto the key's did:key as witness and operator; no `--witness-oai` needed. |
 | `--ait ID` | `event`, `block`, `receipt` | The AIT id returned by `ait declare`. |
 | `--out DIR` | `receipt` | Output directory; `DIR.zip` is written next to it. |
 | `--dir DIR` | `ait declare`, `event`, `block`, `receipt` | Witness store (JSONL files). Default `./.atap-witness`. |
 | `--strength TIER` | `ait declare`, `event`, `block`, `receipt` | `attestation_strength` to declare. Default `self-asserted`. See [Evidence tiers](#evidence-tiers). |
-| `--issuer ISS` | `scitt export` | CWT `iss` of every statement (1–8192 chars), e.g. the witness's OAI. Required. |
+| `--issuer ISS` | `scitt export` | CWT `iss` of every statement (1–8192 chars), e.g. the witness's OAI. Optional when the nearest `.atap/config.json` has a did:key witness (that did:key is the default); otherwise required. |
 | `--service URL` | `scitt register` | Transparency service base URL, `http(s)`, no credentials. Required. |
 | `--profiles-dir DIR` | `ait declare`, `event`, `block` | Profile registry and schemas. Default the repo's `profiles/`. See [What the witness enforces](#what-the-witness-enforces). |
 | `--unregistered-profile` | `ait declare` | Declare an AIT whose `profile` is not in the registry. |
@@ -110,7 +123,8 @@ nothing to the store.
   the registry unless `--unregistered-profile` is given. Events on such an AIT
   get the §7.2 and base-schema checks only; no profile schema applies.
 - **Whole-schema write checks.** Every signed object is validated against its
-  complete ATAP v0.1 core schema at the moment it is written, after the
+  complete ATAP core schema (v0.2 for an AIT or block declaring `0.2`, as
+  every did:key AIT does; v0.1 otherwise) at the moment it is written, after the
   library has signed it and before anything is appended: the AIT against
   `ait.schema.json`, each event against `witness-event.schema.json`, each
   block against `attestation-block.schema.json` (`additionalProperties:
@@ -126,7 +140,7 @@ nothing to the store.
   event's `witnessed_at` (read from the store, so it holds across processes).
 
 `--profiles-dir DIR` points at another registry; it must contain
-`registry.json` and `atap-v0.1-schemas/`. Error messages name the schema and
+`registry.json` and `atap-v0.1-schemas/` (and `atap-v0.2-schemas/` for did:key AITs). Error messages name the schema and
 the failing path, never the refused payload values.
 
 ## SCITT export
@@ -153,7 +167,9 @@ bytes. Label `3` (content type) is absent: RFC 9995 §4 says it MUST NOT be
 present in a hash envelope. `verifySignedStatement(bytes, publicKey, artifact)`
 checks alg, hash alg, payload and signature.
 
-**Export.** `scitt export DIR --key K --issuer ISS` writes `DIR/scitt/`:
+**Export.** `scitt export DIR --key K [--issuer ISS]` writes `DIR/scitt/`.
+`--issuer` defaults to the did:key witness of the nearest `.atap/config.json`;
+with no such config (or an OAI witness) it is required.
 
 | File | Statement over |
 |---|---|

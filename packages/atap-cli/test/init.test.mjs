@@ -53,8 +53,9 @@ test('init creates only ./.atap with key, .gitignore, config and a declared AIT'
   assert.deepEqual(out, config)
   assert.equal(config.profile, 'tunnelmind:code_crew:v1')
   assert.equal(config.key, 'witness.pem')
-  assert.match(config.witness_oai, /^OAI-0000-[0-9]{7}$/)
-  assert.equal(config.oai_origin, 'self-asserted')
+  // ATAP-v0.2 §3: init's witness is its key's did:key (was a self-asserted OAI-0000 id).
+  assert.match(config.witness_oai, /^did:key:z6Mk/)
+  assert.equal(config.oai_origin, 'did:key')
   assert.ok(!JSON.stringify(out).includes('PRIVATE KEY'))
 
   const aits = readFileSync(join(dir, 'aits.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))

@@ -23,6 +23,8 @@ import {
   WitnessService,
   canonicalizeBytes,
   cborDecode,
+  didKeyFromPublicKey,
+  isDidKey,
   publicKeyFromHex,
   toSignedStatement,
   verifyReceipt,
@@ -32,6 +34,7 @@ import {
   type AitInput,
   type AttestationBlock,
   type AttestationStrength,
+  type DidKey,
   type HexHash,
   type KeysDocument,
   type OAI,
@@ -68,12 +71,12 @@ const USAGE = `usage:
   atap-witness init [--profile ID] [--dir .atap] [--force]
   atap-witness status
   atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
-  atap-witness ait rotate             (inside an init'd project; no stdin)
+  atap-witness ait rotate [--did-key] (inside an init'd project; no stdin)
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
   atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
   atap-witness verify DIR
-  atap-witness scitt export DIR --key K --issuer ISS
+  atap-witness scitt export DIR --key K [--issuer ISS]
   atap-witness scitt verify DIR
   atap-witness scitt register DIR --service URL
 
@@ -95,6 +98,7 @@ type Values = {
   service?: string
   profile?: string
   force?: boolean
+  'did-key'?: boolean
 }
 
 async function readStdin(): Promise<string> {
@@ -184,6 +188,9 @@ function publicHex(privateKey: KeyObject): string {
 
 const keyId = (hex: string): string => `ed25519-${hex.slice(0, 16)}`
 
+// ATAP-v0.2 §3: the witness id that is the signing key itself.
+const didKeyOf = (privateKey: KeyObject): DidKey => didKeyFromPublicKey(Buffer.from(publicHex(privateKey), 'hex'))
+
 // One key entry, derived from the signing key. valid_from is the start of the
 // AIT's issue day so it precedes issued_at. valid_until is the AIT's
 // expires_at: verifiers look keys up at issued_at and at each block's
@@ -191,7 +198,7 @@ const keyId = (hex: string): string => `ed25519-${hex.slice(0, 16)}`
 // or after expires_at, so every signature in the receipt falls inside it.
 function keysDocument(
   privateKey: KeyObject,
-  witness: OAI,
+  witness: OAI | DidKey,
   ait: AIT,
   strength: AttestationStrength,
 ): KeysDocument {
@@ -233,7 +240,7 @@ async function zipDir(dir: string): Promise<string> {
   return zipPath
 }
 
-async function receipt(svc: WitnessService, storage: DirStorage, v: Values, key: KeyObject, witness: OAI, strength: AttestationStrength): Promise<Receipt> {
+async function receipt(svc: WitnessService, storage: DirStorage, v: Values, key: KeyObject, witness: OAI | DidKey, strength: AttestationStrength): Promise<Receipt> {
   const aitId = requireAit(v)
   if (!v.out) throw new Error('--out <dir> is required')
   const out = resolve(v.out)
@@ -527,15 +534,6 @@ function statementKid(bytes: Uint8Array): string | null {
   }
 }
 
-// A local witness's OAI, derived from its public key: OAI-0000-<7 digits of
-// sha256(public key hex) mod 10^7>. Self-asserted; no registry issued it.
-// D9: Josh: is the OAI-0000 local range acceptable, or should the standard
-// reserve one explicitly?
-function localOai(privateKey: KeyObject): OAI {
-  const n = BigInt('0x' + createHash('sha256').update(publicHex(privateKey)).digest('hex')) % 10_000_000n
-  return `OAI-0000-${n.toString().padStart(7, '0')}` as OAI
-}
-
 // The files init writes, plus the store's. --force deletes only these, never
 // the whole dir, and only in a dir that is already a store (holds aits.jsonl):
 // init refuses any other non-empty dir, so `--dir . --force` in a project
@@ -602,7 +600,10 @@ async function init(v: Values): Promise<Record<string, string>> {
   const caps = await readJsonFile<{ capabilities: Record<string, string> }>(join(profilesDir, entry.path), 'capabilities.json')
 
   const { privateKey } = generateKeyPairSync('ed25519')
-  const witness = localOai(privateKey)
+  // The witness is the key's own did:key (ATAP-v0.2 §3), so a local witness
+  // needs no registry. Stores made before v0.2 hold a self-asserted OAI-0000
+  // id instead; they stay readable, and `ait rotate --did-key` moves them on.
+  const witness = didKeyOf(privateKey)
   // No constraints: they are optional in the core schema, and a profile's
   // constraints (allowed_repos, models, ...) are the operator's to declare.
   // The core's maximum lifetime, so a drop-in outlives its first AIT for a
@@ -628,7 +629,7 @@ async function init(v: Values): Promise<Record<string, string>> {
     const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: 'self-asserted' })
     const ait = await withLock(dir, () => svc.declareAit(input))
     // key is relative to the dir, so the dir can move as a whole.
-    const config = { profile, key: 'witness.pem', witness_oai: witness, oai_origin: 'self-asserted', ait: ait.id }
+    const config = { profile, key: 'witness.pem', witness_oai: witness, oai_origin: 'did:key', ait: ait.id }
     await writeFile(join(dir, 'config.json'), json(config))
     return config
   } catch (e) {
@@ -668,6 +669,7 @@ async function main(argv: string[]): Promise<number> {
       service: { type: 'string' },
       profile: { type: 'string' },
       force: { type: 'boolean' },
+      'did-key': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   }) as { values: Values; positionals: string[] }
@@ -685,7 +687,7 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
 
-  // init makes its own key and OAI, so it runs before the witness/stdin checks.
+  // init makes its own key and did:key, so it runs before the witness/stdin checks.
   if (cmd === 'init') {
     const config = await init(v)
     process.stdout.write(json(config))
@@ -721,6 +723,9 @@ async function main(argv: string[]): Promise<number> {
   // Explicit flags win; for the OAI so does ATAP_WITNESS_OAI. scitt takes only
   // the key: its <dir> is a receipt dir, not the store.
   const atap = await findAtap()
+  // Only a flag or ATAP_WITNESS_OAI names the witness outright; the config's
+  // is a default (receipt prefers the AIT's own witness over it, below).
+  const explicitWitness = v['witness-oai'] ?? process.env.ATAP_WITNESS_OAI
   const str = (x: unknown): string | undefined => (typeof x === 'string' ? x : undefined)
   const atapKey = str(atap?.config.key)
   if (atap && atapKey) v.key ??= resolve(atap.dir, atapKey)
@@ -729,6 +734,8 @@ async function main(argv: string[]): Promise<number> {
     v['witness-oai'] ??= process.env.ATAP_WITNESS_OAI ?? str(atap.config.witness_oai)
     v.ait ??= str(atap.config.ait)
   }
+  // A did:key witness is its own issuer, so export can sign as it unasked.
+  if (cmd === 'scitt' && atap && isDidKey(atap.config.witness_oai)) v.issuer ??= atap.config.witness_oai
 
   // Like verify, scitt reads only the receipt dir: no witness, stdin or lock.
   if (cmd === 'scitt') {
@@ -752,9 +759,12 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const strength = parseStrength(v.strength)
-  const witness = (v['witness-oai'] ?? process.env.ATAP_WITNESS_OAI) as OAI | undefined
-  if (!witness) throw new Error('--witness-oai <OAI> (or ATAP_WITNESS_OAI) is required')
+  // rotate --did-key derives the witness from the key, so needs no OAI.
+  const didRotate = cmd === 'ait rotate' && v['did-key'] === true
+  let witness = (v['witness-oai'] ?? process.env.ATAP_WITNESS_OAI) as OAI | DidKey | undefined
+  if (!witness && !didRotate) throw new Error('--witness-oai <OAI> (or ATAP_WITNESS_OAI) is required')
   const privateKey = await loadKey(v.key)
+  if (didRotate) witness = didKeyOf(privateKey)
   const dir = resolve(v.dir ?? '.atap-witness')
   // rotate rewrites the config it was found through, so it needs one, for this store.
   if (cmd === 'ait rotate' && (!atap || dir !== atap.dir)) {
@@ -766,7 +776,11 @@ async function main(argv: string[]): Promise<number> {
   // Every signed AIT, event and block is checked against its whole core schema
   // as it is written; `receipt` writes nothing, so it needs no guards.
   const storage = new DirStorage(dir, profiles?.coreGuards() ?? {})
-  const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: strength })
+  // A receipt must name its AIT's witness (verifyReceipt checks), and after
+  // `ait rotate --did-key` the config's witness is no longer the old AIT's.
+  // Same key either way, so the AIT's own witness signs unless one was given.
+  if (cmd === 'receipt' && !explicitWitness && v.ait) witness = (await storage.loadAit(v.ait as AIT_ID))?.witness ?? witness
+  const svc = new WitnessService({ witnessOAI: witness!, privateKey, storage, attestationStrength: strength })
 
   // Every check below runs before the svc call, so a refusal writes nothing.
   const profileOf = async (aitId: AIT_ID): Promise<string> => {
@@ -793,13 +807,16 @@ async function main(argv: string[]): Promise<number> {
         const ait = await svc.declareAit({
           agentType: old.agent_type,
           profile: old.profile,
-          operator: old.operator,
+          // --did-key: the key's did:key becomes operator as well as witness.
+          operator: didRotate ? witness! : old.operator,
           capabilities: old.capabilities,
           constraints: old.constraints,
           attestationPolicy: old.attestation_policy,
           expiresAt: new Date(Date.now() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
         })
-        const config = { ...atap!.config, ait: ait.id }
+        const config = didRotate
+          ? { ...atap!.config, witness_oai: witness, oai_origin: 'did:key', ait: ait.id }
+          : { ...atap!.config, ait: ait.id }
         await writeFile(join(dir, 'config.json.tmp'), json(config))
         await rename(join(dir, 'config.json.tmp'), join(dir, 'config.json'))
         return config
@@ -819,7 +836,7 @@ async function main(argv: string[]): Promise<number> {
         return svc.rollUp(aitId, input)
       }
       default:
-        return receipt(svc, storage, v, privateKey, witness, strength)
+        return receipt(svc, storage, v, privateKey, witness!, strength)
     }
   })
   // status reports the latest receipt; the record stays inside .atap, and
