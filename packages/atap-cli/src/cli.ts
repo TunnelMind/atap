@@ -11,7 +11,8 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { existsSync } from 'node:fs'
+import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import {
@@ -64,6 +65,7 @@ const RECEIPT_FILES = [
 
 const USAGE = `usage:
   atap-witness init [--profile ID] [--dir .atap] [--force]
+  atap-witness status
   atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
@@ -534,7 +536,46 @@ function localOai(privateKey: KeyObject): OAI {
 
 // The files init writes, plus the store's. --force deletes only these, never
 // the whole dir, so `--dir . --force` cannot take user files with it.
-const INIT_FILES = ['witness.pem', '.gitignore', 'config.json', 'aits.jsonl', 'events.jsonl', 'blocks.jsonl', 'cleared.jsonl']
+const INIT_FILES = ['witness.pem', '.gitignore', 'config.json', 'aits.jsonl', 'events.jsonl', 'blocks.jsonl', 'cleared.jsonl', 'last-receipt.json']
+
+// One event and one period_summary the default profile accepts, for the
+// recipe init prints (both from tunnelmind:code_crew:v1's schemas).
+const RECIPE_EVENT = {
+  event_type: 'code_crew:task_claimed',
+  payload: { timestamp: '2026-10-08T12:00:01.500Z', evidence: 'asserted', task_id: 'A101', role: 'coder', model: 'claude-opus-5-5' },
+}
+const RECIPE_SUMMARY = { tasks_accepted: 1, tasks_rework: 0, merged_changes: 0, tokens: 0, overturns: {} }
+
+// What init found around the project and what to run next, for a human on
+// stderr (stdout stays the config JSON). Detection only reads files: no
+// subprocess, no network, and it never acts on what it finds. The project is
+// the parent of --dir, which is cwd for the default ./.atap.
+async function nextSteps(dir: string, profile: string): Promise<string> {
+  const project = resolve(dir, '..')
+  const has = (f: string) => existsSync(join(project, f))
+  const onPath = (bin: string) => (process.env.PATH ?? '').split(delimiter).some(d => d !== '' && existsSync(join(d, bin)))
+  const gitConfig = await readFile(join(project, '.git', 'config'), 'utf8').catch(() => '')
+  const yes = (b: boolean) => (b ? 'yes' : 'no')
+  const q = (v: unknown) => `'${JSON.stringify(v)}'`
+  const lines = [
+    `git: ${yes(has('.git'))}`,
+    `claude code: ${yes(has('.claude') || onPath('claude'))}`,
+    `github: ${yes(has('.github') || gitConfig.includes('github.com'))}`,
+    `python: ${yes(has('pyproject.toml') || has('requirements.txt'))}`,
+    '',
+    'next steps (run anywhere inside this project; no flags needed):',
+    // ponytail: the recipe's payloads fit only the default profile; other
+    // profiles get a pointer to their own schemas.
+    profile === 'tunnelmind:code_crew:v1'
+      ? `  echo ${q(RECIPE_EVENT)} | atap-witness event\n  echo ${q(RECIPE_SUMMARY)} | atap-witness block`
+      : `  echo '{"event_type":...,"payload":{...}}' | atap-witness event   (payloads per ${profile}'s schemas)\n  echo '{...period_summary...}' | atap-witness block`,
+    '  atap-witness receipt --out DIR',
+    '  atap-witness verify DIR',
+    '',
+    'The Claude Code plugin, the GitHub Action and the Python package are not released yet.',
+  ]
+  return lines.join('\n') + '\n'
+}
 
 // `init`: one command from nothing to a witness with a declared AIT. Every
 // check (dir, profile, capabilities) runs before the first write; a failure
@@ -632,7 +673,28 @@ async function main(argv: string[]): Promise<number> {
 
   // init makes its own key and OAI, so it runs before the witness/stdin checks.
   if (cmd === 'init') {
-    process.stdout.write(json(await init(v)))
+    const config = await init(v)
+    process.stdout.write(json(config))
+    // A hint must never fail an init that already succeeded.
+    process.stderr.write(await nextSteps(resolve(v.dir ?? '.atap'), config.profile!).catch(() => ''))
+    return 0
+  }
+  // Read-only summary of the nearest .atap: no stdin, key or lock.
+  if (cmd === 'status') {
+    const atap = await findAtap()
+    if (!atap) throw new Error('no .atap/config.json here or in any parent dir; run atap-witness init')
+    const { profile, ait, witness_oai } = atap.config
+    const storage = new DirStorage(atap.dir, {})
+    const lastReceipt = await readFile(join(atap.dir, 'last-receipt.json'), 'utf8').then(JSON.parse).catch(() => null)
+    process.stdout.write(json({
+      profile,
+      ait,
+      witness_oai,
+      dir: atap.dir,
+      events: (await storage.eventsOf(ait as AIT_ID)).length,
+      blocks: (await storage.blocksOf(ait as AIT_ID)).length,
+      last_receipt: lastReceipt,
+    }))
     return 0
   }
   if (cmd === 'verify') {
@@ -672,7 +734,7 @@ async function main(argv: string[]): Promise<number> {
     return result.ok ? 0 : 1
   }
   if (!['ait declare', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
-    throw new Error('usage: atap-witness <init | ait declare | event | block | receipt | verify | scitt> [options]')
+    throw new Error('usage: atap-witness <init | status | ait declare | event | block | receipt | verify | scitt> [options]')
   }
 
   const strength = parseStrength(v.strength)
@@ -722,6 +784,12 @@ async function main(argv: string[]): Promise<number> {
         return receipt(svc, storage, v, privateKey, witness, strength)
     }
   })
+  // status reports the latest receipt; the record stays inside .atap, and
+  // only when this receipt came from that store (not an explicit other --dir).
+  if (cmd === 'receipt' && atap && dir === atap.dir) {
+    const rcpt = result as Receipt
+    await writeFile(join(atap.dir, 'last-receipt.json'), json({ out: resolve(v.out!), at: new Date().toISOString(), id: rcpt.id }))
+  }
   process.stdout.write(json(result))
   return 0
 }

@@ -23,6 +23,7 @@ openssl, jq and python3 (see the [root README](../../README.md)).
 ## Commands
 
 ```
+atap-witness status
 atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
 atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
 atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
@@ -35,6 +36,7 @@ atap-witness scitt register DIR --service URL
 
 | Command | Stdin | Stdout |
 |---|---|---|
+| `status` | none | `{profile, ait, witness_oai, dir, events, blocks, last_receipt}` for the nearest `.atap/` at or above cwd; `last_receipt` is `{out, at, id}` from the last `receipt` run there, or `null`. Exit 1 outside any `.atap/` |
 | `ait declare` | An `AitInput` object (`agentType`, `profile`, `operator`, `capabilities`, `attestationPolicy`, `expiresAt`; lifetime at most 365 days) | The signed AIT |
 | `event` | `{"event_type": string, "payload": object}` | The signed, chained Witness Event |
 | `block` | A `period_summary` object; empty stdin means `{}` (which the profile's schema may refuse) | The signed Attestation Block over the events since the last block |
