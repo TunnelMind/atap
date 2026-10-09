@@ -63,6 +63,8 @@ atap-witness scitt register DIR --service URL
 
 | Command | Stdin | Stdout |
 |---|---|---|
+| `init` | none | Sets up `./.atap/` (store, key `witness.pem` 0600, its own `.gitignore`, `config.json`) and declares one AIT (365 days). Writes nothing outside `.atap/`; refuses if it exists (`--force` only re-inits an empty store) |
+| `ait rotate` | none | Declares a new AIT in the same store, with the same key and profile, and points `config.json` at it. The old chain stays intact and receiptable |
 | `status` | none | `{profile, ait, witness_oai, dir, events, blocks, last_receipt}` for the nearest `.atap/` at or above cwd; `last_receipt` is `{out, at, id}` from the last `receipt` run there, or `null`. Exit 1 outside any `.atap/` |
 | `ait declare` | An `AitInput` object (`agentType`, `profile`, `operator`, `capabilities`, `attestationPolicy`, `expiresAt`; lifetime at most 365 days) | The signed AIT |
 | `event` | `{"event_type": string, "payload": object}` | The signed, chained Witness Event |
