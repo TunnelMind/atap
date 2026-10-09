@@ -5,8 +5,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { createPublicKey, generateKeyPairSync } from 'node:crypto'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash, createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,6 +23,9 @@ import {
 } from '@tunnelmindai/atap'
 
 const REPO_VERIFY_SH = fileURLToPath(new URL('../../../verify.sh', import.meta.url))
+const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url))
+const PROFILE_DIR = fileURLToPath(new URL('../../../profiles/profiles/tunnelmind-code-crew-v1/', import.meta.url))
+const EVENTS = 'profile_artifacts/witness_events.json'
 const POLICY = { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' }
 
 function rawPub(privateKey) {
@@ -31,21 +34,26 @@ function rawPub(privateKey) {
 }
 
 // A did:key-witnessed receipt dir as `atap-witness receipt` lays it out, or an
-// OAI-witnessed one when `oai` is given.
-async function didReceiptDir(oai) {
+// OAI-witnessed one when `oai` is given. With `afterExpiry` the AIT lives one
+// day, three days ago, and the receipt is generated two days after its
+// expires_at, under a key entry whose valid_until is that expires_at.
+async function didReceiptDir(oai, { afterExpiry = false } = {}) {
   const { privateKey } = generateKeyPairSync('ed25519')
   const witness = oai ?? didKeyFromPublicKey(rawPub(privateKey))
-  const svc = new WitnessService({ witnessOAI: witness, privateKey, storage: new InMemoryStorage() })
+  let t = Date.now() - 3 * 86400_000
+  const clock = afterExpiry ? { now: () => new Date(t) } : {}
+  const svc = new WitnessService({ witnessOAI: witness, privateKey, storage: new InMemoryStorage(), ...clock })
   const ait = await svc.declareAit({
     agentType: 'crew-ops',
     profile: 'tunnelmind:crew_ops:v1',
     operator: witness,
     capabilities: ['crew_ops:ratify'],
     attestationPolicy: POLICY,
-    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+    expiresAt: new Date(afterExpiry ? t + 86400_000 : Date.now() + 30 * 86400_000).toISOString(),
   })
   await svc.witness(ait.id, 'crew_ops:ratify', { n: 1 })
   const block = await svc.rollUp(ait.id, { ratifications: 1 })
+  t += 2 * 86400_000
   const receipt = await svc.generateReceipt(ait.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')
   const keys = {
     keys: [{
@@ -54,7 +62,7 @@ async function didReceiptDir(oai) {
       algorithm: 'ed25519',
       public_key: '0x' + toHex(rawPub(privateKey)),
       valid_from: '2000-01-01T00:00:00Z',
-      valid_until: '2100-01-01T00:00:00Z',
+      valid_until: afterExpiry ? ait.expires_at : '2100-01-01T00:00:00Z',
       status: 'active',
       attestation_strength: 'self-asserted',
       rotated_to: null,
@@ -65,12 +73,18 @@ async function didReceiptDir(oai) {
   const dir = mkdtempSync(join(tmpdir(), 'atap-v02-'))
   const files = { 'manifest.json': receipt, 'ait.json': ait, 'attestation_chain.json': [block], 'public_keys.json': keys }
   for (const [f, v] of Object.entries(files)) writeFileSync(join(dir, f), JSON.stringify(v))
-  return { dir, privateKey, witness, ait, block }
+  return { dir, privateKey, witness, ait, block, receipt }
 }
 
 const readJson = (dir, f) => JSON.parse(readFileSync(join(dir, f), 'utf8'))
 function edit(dir, f, fn) { writeFileSync(join(dir, f), JSON.stringify(fn(readJson(dir, f)))) }
 const verifySh = dir => spawnSync('bash', [REPO_VERIFY_SH, dir], { encoding: 'utf8' })
+// `atap-witness verify DIR`: the CLI's verify, i.e. verifyReceipt plus the
+// file-integrity and witness-events checks.
+function cliVerify(dir) {
+  const r = spawnSync(process.execPath, [CLI, 'verify', dir], { encoding: 'utf8', env: { PATH: process.env.PATH } })
+  return { status: r.status, ...JSON.parse(r.stdout) }
+}
 
 function assertFails(r, re) {
   assert.notEqual(r.status, 0, r.stdout)
@@ -90,7 +104,6 @@ test('a valid v0.2 did:key receipt verifies', async () => {
 for (const [what, fn] of [
   ['no key entry', k => ({ ...k, keys: [] })],
   ['only a compromised key entry', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: '2001-01-01T00:00:00Z' } }] })],
-  ['only an expired key entry', k => ({ ...k, keys: [{ ...k.keys[0], valid_until: '2001-01-01T00:00:00Z' }] })],
 ]) {
   test(`a did:key receipt with ${what} fails`, async () => {
     const { dir } = await didReceiptDir()
@@ -192,4 +205,109 @@ test('a did:key key entry valid at a block but not self-asserted fails', async (
     ],
   }))
   assertFails(verifySh(dir), /key entry for did:key:\S+ must declare attestation_strength 'self-asserted', got 'tee-tpm'/)
+})
+
+// ATAP-v0.2 §3.1: a did:key's key has no validity window (R008).
+test('a did:key key entry outside its validity window still verifies', async () => {
+  const { dir } = await didReceiptDir()
+  edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], valid_until: '2001-01-01T00:00:00Z' }] }))
+  const r = verifySh(dir)
+  assert.equal(r.status, 0, r.stderr)
+})
+
+test('a did:key receipt generated after the AIT expired verifies in both verifiers', async () => {
+  const { dir, ait, receipt } = await didReceiptDir(undefined, { afterExpiry: true })
+  assert.ok(receipt.generated_at > ait.expires_at)
+  assert.equal(readJson(dir, 'public_keys.json').keys[0].valid_until, ait.expires_at)
+  const sh = verifySh(dir)
+  assert.equal(sh.status, 0, sh.stderr)
+  const cli = cliVerify(dir)
+  assert.equal(cli.status, 0, cli.reason)
+  assert.equal(cli.ok, true)
+})
+
+test('the same receipt fails both verifiers once its key is disclosed compromised before generated_at', async () => {
+  const { dir, ait, block, receipt } = await didReceiptDir(undefined, { afterExpiry: true })
+  // Disclosed after the AIT and block were signed, before the receipt was.
+  const disclosed_at = ait.expires_at
+  assert.ok(block.period_end < disclosed_at && disclosed_at < receipt.generated_at)
+  edit(dir, 'public_keys.json', k => ({
+    ...k,
+    keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at, detected_at: disclosed_at } }],
+  }))
+  assertFails(verifySh(dir), /no key for/)
+  const cli = cliVerify(dir)
+  assert.equal(cli.status, 1)
+  assert.equal(cli.ok, false)
+  assert.match(cli.reason, /no key for/)
+})
+
+// §3.1: the manifest's own witness_signature binds it to the did:key.
+for (const [what, fn, cliReason] of [
+  ['a tampered manifest witness_signature', m => ({ ...m, witness_signature: m.witness_signature.slice(0, -1) + (m.witness_signature.endsWith('0') ? '1' : '0') }), /receipt signature invalid/],
+  ['an edited event_count, signature left as is', m => ({ ...m, event_count: m.event_count + 1 }), /receipt signature invalid/],
+]) {
+  test(`a did:key receipt with ${what} fails both verifiers`, async () => {
+    const { dir } = await didReceiptDir()
+    edit(dir, 'manifest.json', fn)
+    assertFails(verifySh(dir), /manifest signature invalid/)
+    const cli = cliVerify(dir)
+    assert.equal(cli.status, 1)
+    assert.match(cli.reason, cliReason)
+  })
+}
+
+// A did:key receipt as the bin writes it (init, event, block, receipt), so it
+// carries profile_artifacts/witness_events.json.
+function cliReceipt() {
+  const cwd = mkdtempSync(join(tmpdir(), 'atap-v02-cli-'))
+  const run = (args, input = '') => {
+    const r = spawnSync(process.execPath, [CLI, ...args], { cwd, input, encoding: 'utf8', env: { PATH: process.env.PATH } })
+    assert.equal(r.status, 0, r.stderr)
+  }
+  const [ev] = JSON.parse(readFileSync(join(PROFILE_DIR, 'examples/witness-events.json'), 'utf8'))
+  run(['init'])
+  for (let i = 0; i < 2; i++) run(['event'], JSON.stringify({ event_type: ev.event_type, payload: ev.payload }))
+  run(['block'], JSON.stringify({ tasks_accepted: 1, tasks_rework: 0, merged_changes: 0, tokens: 0, overturns: {} }))
+  run(['receipt', '--out', 'r'])
+  return { dir: join(cwd, 'r'), key: readFileSync(join(cwd, '.atap', 'witness.pem')) }
+}
+
+// Rewrites the events, refreshes their manifest hash and re-signs the manifest,
+// so only the event checks can object (as witness-events.test.mjs's tamper).
+function tamperEvents(src, dst, fn, key) {
+  cpSync(src, dst, { recursive: true })
+  const bytes = Buffer.from(JSON.stringify(fn(readJson(dst, EVENTS))))
+  writeFileSync(join(dst, EVENTS), bytes)
+  edit(dst, 'manifest.json', ({ witness_signature, ...m }) => {
+    m.files = m.files.map(f => (f.path === EVENTS ? { ...f, sha256: '0x' + createHash('sha256').update(bytes).digest('hex') } : f))
+    return { ...m, witness_signature: `ed25519:0x${sign(null, canonicalizeBytes(m), key).toString('hex')}` }
+  })
+  return dst
+}
+
+test('a did:key receipt with a tampered witness event signature fails both verifiers', async () => {
+  const { dir, key } = cliReceipt()
+  assert.equal(verifySh(dir).status, 0, verifySh(dir).stderr)
+  assert.equal(cliVerify(dir).ok, true)
+  // The re-signing helper alone (no edit) still verifies in both.
+  const same = tamperEvents(dir, dir + '-same', e => e, key)
+  assert.equal(verifySh(same).status, 0, verifySh(same).stderr)
+  assert.equal(cliVerify(same).ok, true)
+
+  // A signature by the same key over another hash: well-formed, wrong.
+  const wrongSig = e => {
+    e[1].witness_signature = `ed25519:0x${sign(null, fromHex(e[0].self_hash), key).toString('hex')}`
+    return e
+  }
+  const bad = tamperEvents(dir, dir + '-sig', wrongSig, key)
+  assertFails(verifySh(bad), /event signature invalid on ATAP-WE-/)
+  const cli = cliVerify(bad)
+  assert.equal(cli.status, 1)
+  assert.match(cli.reason, /event 1 .*signature invalid/)
+
+  // An event edited under its old hash and signature: verify.sh rehashes it.
+  const altered = tamperEvents(dir, dir + '-alt', e => (e[0].witnessed_at = '2020-01-01T00:00:00.000Z', e), key)
+  assertFails(verifySh(altered), /self_hash mismatch on event ATAP-WE-/)
+  assert.match(cliVerify(altered).reason, /event 0 .*self_hash mismatch/)
 })

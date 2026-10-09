@@ -24,7 +24,11 @@ import {
   canonicalizeBytes,
   cborDecode,
   didKeyFromPublicKey,
+  ed25519Verify,
+  fromHex,
   isDidKey,
+  pickDidKeyKey,
+  publicKeyFromDidKey,
   publicKeyFromHex,
   toSignedStatement,
   verifyReceipt,
@@ -192,10 +196,15 @@ const keyId = (hex: string): string => `ed25519-${hex.slice(0, 16)}`
 const didKeyOf = (privateKey: KeyObject): DidKey => didKeyFromPublicKey(Buffer.from(publicHex(privateKey), 'hex'))
 
 // One key entry, derived from the signing key. valid_from is the start of the
-// AIT's issue day so it precedes issued_at. valid_until is the AIT's
-// expires_at: verifiers look keys up at issued_at and at each block's
+// AIT's issue day so it precedes issued_at. For an OAI witness valid_until is
+// the AIT's expires_at: verifiers look keys up at issued_at and at each block's
 // period_end (its last event's witnessed_at), and witness() refuses events at
 // or after expires_at, so every signature in the receipt falls inside it.
+// A did:key's key has no validity window (ATAP-v0.2 §3.1) and verifiers ignore
+// both fields, so its entry, which the schema still requires to carry them,
+// says "never expires" rather than tying the key to one AIT.
+const DID_KEY_VALID_UNTIL = '9999-12-31T23:59:59.999Z'
+
 function keysDocument(
   privateKey: KeyObject,
   witness: OAI | DidKey,
@@ -204,7 +213,7 @@ function keysDocument(
 ): KeysDocument {
   const hex = publicHex(privateKey)
   const from = new Date(ait.issued_at.slice(0, 10) + 'T00:00:00Z')
-  const until = new Date(ait.expires_at)
+  const until = new Date(isDidKey(witness) ? DID_KEY_VALID_UNTIL : ait.expires_at)
   return {
     keys: [
       {
@@ -313,9 +322,11 @@ async function readJsonFile<T>(dir: string, name: string): Promise<T> {
 // (ATAP §7.3, §10): each block's chain_head_hash is the self_hash of the last
 // event it covers. Recompute every self_hash (§7.7), walk prev_event_hash from
 // genesis, then slice the events by event_count and match each block's head.
-// No signature check needed: the signed blocks' heads pin every earlier event
-// through the prev_event_hash chain.
-function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT): string | null {
+// For an OAI witness no signature check is needed: the signed blocks' heads pin
+// every earlier event through the prev_event_hash chain. For a did:key witness
+// every witness_signature must verify under the key it encodes (ATAP-v0.2
+// §3.1), as verify.sh checks too, over the raw 32-byte self_hash (§7.7).
+function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
   if (!Array.isArray(events)) return `${WITNESS_EVENTS} is not an array`
   let prev: string = GENESIS_HASH
   for (const [i, e] of events.entries()) {
@@ -324,6 +335,15 @@ function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], a
     if (e.ait !== ait.id) return `event ${i} (${e.id}) is not under ${ait.id}`
     if (sha256(canonicalizeBytes(unsigned)) !== self_hash) return `event ${i} (${e.id}) self_hash mismatch`
     if (e.prev_event_hash !== prev) return `event ${i} (${e.id}) prev_event_hash breaks the chain`
+    if (isDidKey(ait.witness)) {
+      const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at)
+      if (!key) return `no key for ${ait.witness} at ${e.witnessed_at}`
+      if (typeof key === 'string') return key
+      // Malformed input is a verdict, not a TypeError.
+      if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, publicKeyFromHex(key.public_key))) {
+        return `event ${i} (${e.id}) signature invalid`
+      }
+    }
     prev = self_hash
   }
   let at = 0
@@ -372,14 +392,10 @@ async function verify(dir: string): Promise<VerifyResult> {
   }
   const ait = await readJsonFile<AIT>(dir, 'ait.json')
   const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
-  const result = verifyReceipt({
-    receipt,
-    ait,
-    chain,
-    keys: await readJsonFile<KeysDocument>(dir, 'public_keys.json'),
-  })
+  const keys = await readJsonFile<KeysDocument>(dir, 'public_keys.json')
+  const result = verifyReceipt({ receipt, ait, chain, keys })
   if (!result.ok || !receipt.files?.some(f => f.path === WITNESS_EVENTS)) return result
-  const reason = checkWitnessEvents(await readJsonFile<WitnessEvent[]>(dir, WITNESS_EVENTS), chain, ait)
+  const reason = checkWitnessEvents(await readJsonFile<WitnessEvent[]>(dir, WITNESS_EVENTS), chain, ait, keys)
   return reason ? { ok: false, blocks: 0, reason } : result
 }
 

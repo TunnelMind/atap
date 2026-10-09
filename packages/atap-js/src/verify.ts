@@ -57,6 +57,22 @@ function didKeyEntryProblem(k: PublicKey, didRaw: Uint8Array): string | null {
   return null
 }
 
+// Key lookup for a did:key witness (ATAP-v0.2 §3.1). The key is the one the
+// did:key encodes, so it has no validity window: valid_from/valid_until are
+// ignored. An entry is still required, every entry for the witness must pass
+// didKeyEntryProblem (they all describe the one key), and a compromise notice
+// on any of them in force at `at` voids the key. Returns the entry, null for
+// no usable entry, or the reason an entry is refused.
+export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8Array, at: string): PublicKey | string | null {
+  const entries = doc.keys.filter(k => k.witness === witness)
+  for (const k of entries) {
+    const problem = didKeyEntryProblem(k, didRaw)
+    if (problem) return problem
+    if (k.status === 'compromised' && (!k.compromise_notice || at >= k.compromise_notice.disclosed_at)) return null
+  }
+  return entries[0] ?? null
+}
+
 export function verifyReceipt(opts: VerifyOptions): VerifyResult {
   const { receipt, ait, chain, keys } = opts
 
@@ -92,7 +108,7 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
   }
 
   // 1. AIT signature
-  const aitKey = pickKey(keys, ait.witness, ait.issued_at)
+  const aitKey = didRaw ? pickDidKeyKey(keys, ait.witness, didRaw, ait.issued_at) : pickKey(keys, ait.witness, ait.issued_at)
   if (!aitKey) {
     return {
       ok: false,
@@ -100,10 +116,7 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
       reason: `no key for AIT witness ${ait.witness} at ${ait.issued_at}`,
     }
   }
-  if (didRaw) {
-    const problem = didKeyEntryProblem(aitKey, didRaw)
-    if (problem) return { ok: false, blocks: 0, reason: problem }
-  }
+  if (typeof aitKey === 'string') return { ok: false, blocks: 0, reason: aitKey }
   const { witness_signature: aitSig, ...aitMinusSig } = ait
   const aitOk = ed25519Verify(
     canonicalizeBytes(aitMinusSig),
@@ -131,7 +144,9 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
     if (expectedHash !== self_hash) {
       return { ok: false, blocks: 0, reason: `self_hash mismatch on ${block.id}` }
     }
-    const blockKey = pickKey(keys, receipt.witness, block.period_end)
+    const blockKey = didRaw
+      ? pickDidKeyKey(keys, receipt.witness, didRaw, block.period_end)
+      : pickKey(keys, receipt.witness, block.period_end)
     if (!blockKey) {
       return {
         ok: false,
@@ -139,10 +154,7 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
         reason: `no key for ${receipt.witness} at ${block.period_end}`,
       }
     }
-    if (didRaw) {
-      const problem = didKeyEntryProblem(blockKey, didRaw)
-      if (problem) return { ok: false, blocks: 0, reason: problem }
-    }
+    if (typeof blockKey === 'string') return { ok: false, blocks: 0, reason: blockKey }
     const blockOk = ed25519Verify(
       fromHex(self_hash), // ATAP §7.7: signature is over the raw 32-byte digest
       witness_signature,
@@ -162,18 +174,17 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
     }
   }
 
-  // Receipt signature, over the canonical receipt minus its signature, under
-  // the key valid when it was generated. Only for did:key witnesses
-  // (ATAP-v0.2 §3.1). v0.1 records are not checked here, as in verify.sh: their
-  // key's valid_until is the AIT's expires_at, and a receipt of an expired AIT
-  // is generated after it.
+  // Receipt signature, over the canonical receipt minus its signature. Only for
+  // did:key witnesses (ATAP-v0.2 §3.1), whose key has no validity window, so a
+  // receipt of an expired AIT still verifies. v0.1 records are not checked
+  // here, as in verify.sh: their key's valid_until is the AIT's expires_at,
+  // and a receipt of an expired AIT is generated after it.
   if (didRaw) {
-    const rcptKey = pickKey(keys, receipt.witness, receipt.generated_at)
+    const rcptKey = pickDidKeyKey(keys, receipt.witness, didRaw, receipt.generated_at)
     if (!rcptKey) {
       return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${receipt.generated_at}` }
     }
-    const problem = didKeyEntryProblem(rcptKey, didRaw)
-    if (problem) return { ok: false, blocks: chain.length, reason: problem }
+    if (typeof rcptKey === 'string') return { ok: false, blocks: chain.length, reason: rcptKey }
     const { witness_signature: rcptSig, ...rcptMinusSig } = receipt
     if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, publicKeyFromHex(rcptKey.public_key))) {
       return { ok: false, blocks: chain.length, reason: 'receipt signature invalid' }
@@ -207,7 +218,8 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
     )
   }
   // Cross-check against the AIT-period key, if that key declares a strength.
-  const aitPeriodKey = pickKey(keys, ait.witness, ait.issued_at)
+  // Step 1 looked it up already (pickKey for an OAI, pickDidKeyKey for a did:key).
+  const aitPeriodKey = aitKey
   if (aitPeriodKey?.attestation_strength) {
     const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength]
     const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]

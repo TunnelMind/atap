@@ -98,34 +98,42 @@ verify_sig() {
 }
 
 # Look up the public key (hex, no 0x) for a given witness OAI at a given RFC-3339 timestamp.
-# A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1): a
-# matching entry must carry that same key and declare 'self-asserted' (§3.2).
-# The entry is still required, as for an OAI: the did:key alone does not
-# replace it, so an expired or compromised entry is honoured. With no valid
-# entry this prints an empty line and the caller fails "no key for ...".
+# With no valid entry this prints an empty line and the caller fails "no key for ...".
 lookup_key() {
-  local witness="$1" t="$2" entry did_hex strength
-  entry=$(jq -r --arg w "$witness" --arg t "$t" '
+  local witness="$1" t="$2"
+  if [[ "$witness" =~ ^did:key: ]]; then lookup_did_key "$witness" "$t"; return; fi
+  jq -r --arg w "$witness" --arg t "$t" '
     .keys[] |
     select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
     select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
     .public_key
-  ' public_keys.json | head -1 | sed 's/^0x//')
-  if [[ "$witness" =~ ^did:key: && -n "$entry" ]]; then
-    did_hex=$(didkey_to_hex "$witness") || err "witness $witness is not an Ed25519 did:key (ATAP-v0.2 §3)"
-    [ "${entry,,}" = "$did_hex" ] \
+  ' public_keys.json | head -1 | sed 's/^0x//'
+}
+
+# A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1), so
+# it has no validity window: valid_from/valid_until are ignored. An entry is
+# still required (the did:key alone does not replace it), every entry for the
+# witness must carry that same key and declare 'self-asserted' (§3.2), and a
+# compromise notice on any of them in force at $t voids the key. Mirrors
+# pickDidKeyKey in packages/atap-js/src/verify.ts.
+lookup_did_key() {
+  local witness="$1" t="$2" did_hex pk strength first=""
+  did_hex=$(didkey_to_hex "$witness") || err "witness $witness is not an Ed25519 did:key (ATAP-v0.2 §3)"
+  while IFS=$'\t' read -r pk strength; do
+    [ "${pk,,}" = "$did_hex" ] \
       || err "key entry for $witness carries a public_key other than the key it encodes (ATAP-v0.2 §3.1)"
-    # Same entry as above; an entry without the field must be told apart from no entry.
-    strength=$(jq -r --arg w "$witness" --arg t "$t" '
-      .keys[] |
-      select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
-      select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
-      .attestation_strength // "absent"
-    ' public_keys.json | head -1)
     [ "$strength" = "self-asserted" ] \
       || err "key entry for $witness must declare attestation_strength 'self-asserted', got '$strength' (ATAP-v0.2 §3.2)"
-  fi
-  printf '%s\n' "$entry"
+    first="${first:-$pk}"
+  done < <(jq -r --arg w "$witness" '
+    .keys[] | select(.witness == $w) |
+    [(.public_key | sub("^0x"; "")), (.attestation_strength // "absent")] | @tsv
+  ' public_keys.json)
+  jq -e --arg w "$witness" --arg t "$t" '
+    any(.keys[]; .witness == $w and .status == "compromised"
+      and ((.compromise_notice and $t < .compromise_notice.disclosed_at) | not))
+  ' public_keys.json >/dev/null && first=""
+  printf '%s\n' "$first"
 }
 
 ##############################################################################
@@ -236,12 +244,22 @@ case "$RCPT_STRENGTH" in
   *) err "manifest.attestation_strength has unrecognized value '$RCPT_STRENGTH' (expected self-asserted | software | tee-tpm | silicon-root)";;
 esac
 # Cross-check against the matching key entry, if the key declares a strength.
-KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" '
-  .keys[] |
-  select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
-  select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
-  .attestation_strength // empty
-' public_keys.json | head -1)
+if [[ "$WITNESS" =~ ^did:key: ]]; then
+  # No validity window for a did:key's key (ATAP-v0.2 §3.1, as lookup_did_key).
+  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" '
+    .keys[] |
+    select(.witness == $w) |
+    select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
+    .attestation_strength // empty
+  ' public_keys.json | head -1)
+else
+  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" '
+    .keys[] |
+    select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
+    select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
+    .attestation_strength // empty
+  ' public_keys.json | head -1)
+fi
 if [ -n "$KEY_STRENGTH" ]; then
   STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }
   R_RANK=$(STRENGTH_RANK "$RCPT_STRENGTH")
@@ -251,6 +269,48 @@ if [ -n "$KEY_STRENGTH" ]; then
 else
   echo "WARN: matching key entry omits attestation_strength — receipt's $RCPT_STRENGTH claim is not key-attested (ATAP §8.1). Required at v0.2." >&2
   ok "attestation_strength=$RCPT_STRENGTH (self-attested by receipt)"
+fi
+
+##############################################################################
+# 6. did:key manifest and event signatures
+##############################################################################
+# For a did:key witness every witness_signature must verify under its key
+# (ATAP-v0.2 §3.1): the manifest's, and each Witness Event's when the receipt
+# carries them. After step 5 so a §3.2 failure reports as such. OAI-witnessed
+# v0.1 records are not checked here (§3.4).
+if [[ "$WITNESS" =~ ^did:key: ]]; then
+  echo "==> Verifying did:key manifest and event signatures"
+  MAN_TS=$(jq -r '.generated_at' manifest.json)
+  key_hex=$(lookup_key "$WITNESS" "$MAN_TS")
+  [ -n "$key_hex" ] || err "no key for $WITNESS at $MAN_TS"
+  pem_from_raw_ed25519 "$key_hex" "$TMP/man.pub.pem"
+  jq 'del(.witness_signature)' manifest.json | canonicalize > "$TMP/man.canon"
+  sig=$(jq -r '.witness_signature' manifest.json | sed 's/^ed25519:0x//')
+  verify_sig "$TMP/man.canon" "$TMP/man.pub.pem" "$sig" || err "manifest signature invalid"
+  ok "manifest"
+
+  # tunnelmind:code_crew:v1 receipts list their events here (atap-cli WITNESS_EVENTS).
+  EVENTS=profile_artifacts/witness_events.json
+  if jq -e --arg p "$EVENTS" 'any(.files[]?; .path == $p)' manifest.json >/dev/null; then
+    [ -f "$EVENTS" ] || err "$EVENTS missing"
+    while IFS= read -r ev; do
+      id=$(jq -r '.id' <<<"$ev")
+      # The signature is over self_hash, so self_hash must be the event's own
+      # hash, or a signature over some other hash would pass.
+      jq 'del(.self_hash, .witness_signature)' <<<"$ev" | canonicalize > "$TMP/ev.canon"
+      want_self=$(jq -r '.self_hash' <<<"$ev" | sed 's/^0x//')
+      got_self=$(openssl dgst -sha256 -binary "$TMP/ev.canon" | xxd -p -c 256)
+      [ "$got_self" = "$want_self" ] || err "self_hash mismatch on event $id"
+      ts=$(jq -r '.witnessed_at' <<<"$ev")
+      key_hex=$(lookup_key "$WITNESS" "$ts")
+      [ -n "$key_hex" ] || err "no key for $WITNESS at $ts"
+      pem_from_raw_ed25519 "$key_hex" "$TMP/ev.pub.pem"
+      printf '%s' "$got_self" | xxd -r -p > "$TMP/ev.selfhash"
+      sig=$(jq -r '.witness_signature' <<<"$ev" | sed 's/^ed25519:0x//')
+      verify_sig "$TMP/ev.selfhash" "$TMP/ev.pub.pem" "$sig" || err "event signature invalid on $id"
+    done < <(jq -c '.[]' "$EVENTS")
+    ok "$EVENTS signatures"
+  fi
 fi
 
 echo "==> Receipt verifies (blocks=$COUNT, attestation_strength=$RCPT_STRENGTH)"
