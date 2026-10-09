@@ -392,7 +392,7 @@ async function scittArtifacts(dir: string): Promise<{ ait: AIT; chain: Attestati
   const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
   const manifest = await readJsonFile<Receipt>(dir, 'manifest.json')
   if (!isObject(ait) || !Array.isArray(chain) || !isObject(manifest)) throw new Error('receipt files have the wrong shape')
-  return { ait, chain, manifest, manifestId: String(manifest.id ?? manifest.ait) }
+  return { ait, chain, manifest, manifestId: String(manifest.id) }
 }
 
 async function scittExport(dir: string, v: Values): Promise<{ dir: string; statements: number; issuer: string; kid: string }> {
