@@ -535,7 +535,9 @@ function localOai(privateKey: KeyObject): OAI {
 }
 
 // The files init writes, plus the store's. --force deletes only these, never
-// the whole dir, so `--dir . --force` cannot take user files with it.
+// the whole dir, and only in a dir that is already a store (holds aits.jsonl):
+// init refuses any other non-empty dir, so `--dir . --force` in a project
+// cannot replace its own .gitignore or config.json.
 const INIT_FILES = ['witness.pem', '.gitignore', 'config.json', 'aits.jsonl', 'events.jsonl', 'blocks.jsonl', 'cleared.jsonl', 'last-receipt.json']
 
 // One event and one period_summary the default profile accepts, for the
@@ -584,7 +586,9 @@ async function init(v: Values): Promise<Record<string, string>> {
   const dir = resolve(v.dir ?? '.atap')
   const profile = v.profile ?? 'tunnelmind:code_crew:v1'
   const exists = await stat(dir).then(() => true, () => false)
-  if (exists && !v.force) throw new Error(`${dir} exists; pass --force to re-initialise it`)
+  const listing = exists ? await readdir(dir) : []
+  if (listing.length && !listing.includes('aits.jsonl')) throw new Error(`${dir} is not an atap store; choose an empty dir or the default .atap`)
+  if (listing.length && !v.force) throw new Error(`${dir} exists; pass --force to re-initialise it`)
   if (exists && (await readFile(join(dir, 'events.jsonl'), 'utf8').catch(() => '')).trim() !== '') {
     throw new Error(`${dir} already holds witness events; refusing to re-initialise it`)
   }

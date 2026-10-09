@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -96,6 +96,26 @@ test('--force re-inits an event-free store but refuses once it holds events', as
   assert.equal(r.code, 1)
   assert.match(r.stderr, /events/)
   assert.deepEqual(snapshot(cwd), before)
+})
+
+test('init refuses a non-empty dir that is not a store, with or without --force', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'atap-init-'))
+  writeFileSync(join(cwd, '.gitignore'), 'node_modules\n# mine\n')
+  writeFileSync(join(cwd, 'config.json'), '{"mine":true}\n')
+  const before = snapshot(cwd)
+  for (const args of [['--force'], []]) {
+    const r = await run(cwd, ['init', '--dir', '.', ...args])
+    assert.equal(r.code, 1)
+    assert.match(r.stderr, /not an atap store/)
+    assert.deepEqual(snapshot(cwd), before)
+  }
+})
+
+test('init accepts an existing empty dir without --force', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'atap-init-'))
+  mkdirSync(join(cwd, 'store'))
+  await initOk(cwd, ['--dir', 'store'])
+  assert.ok(existsSync(join(cwd, 'store', 'aits.jsonl')))
 })
 
 test('unknown --profile exits 1 and leaves no dir', async () => {
