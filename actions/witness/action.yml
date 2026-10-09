@@ -1,0 +1,52 @@
+name: ATAP witness
+description: >
+  Witness a CI test run with ATAP: run the test command, record a signed
+  change_committed + verify_run under an ephemeral did:key, write a Receipt and
+  verify it. The ephemeral key proves integrity only (self-asserted). Never
+  changes the test's pass/fail.
+inputs:
+  test-command:
+    description: Shell command to run as the test (run with sh -c).
+    required: true
+  profile:
+    description: ATAP profile short name; code_crew means tunnelmind:code_crew:v1.
+    default: code_crew
+  fail-on-error:
+    description: When true, an error inside the Action itself fails the step.
+    default: 'false'
+  upload:
+    # Consumed by the upload step (C902); declared now so callers can pin it.
+    description: Upload the Receipt dir + zip as a workflow artifact.
+    default: 'true'
+outputs:
+  receipt-path:
+    description: The Receipt directory (the zip sits beside it as <dir>.zip).
+    value: ${{ steps.witness.outputs.receipt-path }}
+  verified:
+    description: true when both verify.sh and atap-witness verify pass.
+    value: ${{ steps.witness.outputs.verified }}
+  did:
+    description: The ephemeral did:key that witnessed the run.
+    value: ${{ steps.witness.outputs.did }}
+runs:
+  using: composite
+  steps:
+    - id: witness
+      shell: bash
+      # Inputs reach the script only through env, never interpolated into this
+      # text, so a test-command cannot inject shell into the Action itself.
+      env:
+        INPUT_TEST_COMMAND: ${{ inputs.test-command }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+      run: |
+        # The Action runs from a checkout of the atap repo; build the CLI once
+        # if this checkout has no dist. A failed build is not fatal here:
+        # run.mjs still runs the test and reports the Action error its own way.
+        pkgs="$GITHUB_ACTION_PATH/../../packages"
+        if [ ! -f "$pkgs/atap-cli/dist/cli.js" ]; then
+          (cd "$pkgs/atap-js" && npm ci --no-audit --no-fund && npm run build \
+            && cd ../atap-cli && npm ci --no-audit --no-fund && npm run build) \
+            || echo "::warning::atap-witness: building the CLI failed"
+        fi
+        node "$GITHUB_ACTION_PATH/run.mjs"
