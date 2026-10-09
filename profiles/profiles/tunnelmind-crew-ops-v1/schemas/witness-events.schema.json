@@ -13,7 +13,8 @@
       "enum": [
         "crew_ops:autonomy_decision",
         "crew_ops:ratification",
-        "crew_ops:intake_decision"
+        "crew_ops:intake_decision",
+        "crew_ops:owner_command"
       ]
     }
   },
@@ -71,6 +72,25 @@
         "properties": {
           "payload": {
             "$ref": "#/$defs/intake_decision"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "crew_ops:owner_command"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/owner_command"
           }
         }
       }
@@ -353,6 +373,115 @@
           "description": "Where an acted-on idea goes; empty when it is parked or dropped."
         }
       }
+    },
+    "owner_command": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A command the owner gave the crew (by mail through the secretary, or at the CLI) and what came of it. Not an autonomy decision: the owner is not an agent under the rails.",
+      "required": [
+        "timestamp",
+        "evidence",
+        "role",
+        "command",
+        "target_sha256",
+        "channel",
+        "outcome"
+      ],
+      "properties": {
+        "timestamp": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "evidence": {
+          "enum": [
+            "asserted",
+            "anchored"
+          ],
+          "description": "anchored for a mail command (the secretary DKIM-verified its Message-ID); asserted for a CLI command."
+        },
+        "role": {
+          "const": "owner",
+          "description": "An owner command records the role, never the person (ATAP \u00a77.6)."
+        },
+        "command": {
+          "enum": [
+            "crew_stop",
+            "crew_start",
+            "ratify_yes",
+            "ratify_no"
+          ],
+          "description": "`crew stop <agent>`, `crew start <agent>`, `ratify yes <id>`, `ratify no <id>`. Closed: a new command needs a new profile version."
+        },
+        "target_sha256": {
+          "$ref": "#/$defs/sha256",
+          "description": "sha256 of the command's target: the agent id for crew_stop/crew_start, the ratify id for ratify_yes/ratify_no."
+        },
+        "channel": {
+          "enum": [
+            "mail",
+            "cli"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "done",
+            "refused",
+            "failed"
+          ],
+          "description": "done: the command took effect. refused: the crew declined it. failed: it was accepted but did not complete."
+        },
+        "message_sha256": {
+          "$ref": "#/$defs/sha256",
+          "description": "sha256 of the Message-ID of the DKIM-verified command mail; the Message-ID itself stays out of the payload."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "channel": {
+                "const": "mail"
+              }
+            },
+            "required": [
+              "channel"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "const": "anchored"
+              }
+            },
+            "required": [
+              "message_sha256"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "channel": {
+                "const": "cli"
+              }
+            },
+            "required": [
+              "channel"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "const": "asserted"
+              }
+            },
+            "not": {
+              "required": [
+                "message_sha256"
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }

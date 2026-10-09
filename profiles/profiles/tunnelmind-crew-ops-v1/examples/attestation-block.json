@@ -1,16 +1,16 @@
 {
   "@context": "https://tunnelmind.ai/atap/context.jsonld",
   "@type": "AttestationBlock",
-  "id": "ATAP-AB-01a1210d-b309-76ad-a7d7-2e82b1558380",
-  "ait": "AIT-01a12088-d200-72a9-9fbc-04eb7891de5a",
+  "id": "ATAP-AB-01a121cf-a398-7503-868d-bdd3fc42af0a",
+  "ait": "AIT-01a12088-d200-75a6-8ac4-7b7887021f04",
   "ab_version": "0.1",
   "profile": "tunnelmind:crew_ops:v1",
   "period_start": "2026-10-09T12:00:01.500Z",
-  "period_end": "2026-10-09T12:00:06.000Z",
-  "first_event": "ATAP-WE-01a12088-d7dc-71cc-9d53-ee8615a1efed",
-  "last_event": "ATAP-WE-01a12088-e970-7945-9674-695bec5df504",
-  "event_count": 4,
-  "chain_head_hash": "0x6dfdfaad479e223f1597e2054e7f737dcca10a436566944858e0f25eeae37e9c",
+  "period_end": "2026-10-09T12:00:07.500Z",
+  "first_event": "ATAP-WE-01a12088-d7dc-73fc-baa9-4a5c45a826f6",
+  "last_event": "ATAP-WE-01a12088-ef4c-7e80-8a33-dea66a093bb1",
+  "event_count": 5,
+  "chain_head_hash": "0xeb1d0073248a02b57bf7afa2dbac2459a26710d6514e7dcef64e01702a97601b",
   "period_summary": {
     "autonomy_decisions": {
       "allow": 1,
@@ -26,9 +26,31 @@
       "park": 0,
       "drop": 0
     },
-    "ratifications": 1
+    "ratifications": 1,
+    "owner_commands": {
+      "crew_stop": {
+        "done": 1,
+        "refused": 0,
+        "failed": 0
+      },
+      "crew_start": {
+        "done": 0,
+        "refused": 0,
+        "failed": 0
+      },
+      "ratify_yes": {
+        "done": 0,
+        "refused": 0,
+        "failed": 0
+      },
+      "ratify_no": {
+        "done": 0,
+        "refused": 0,
+        "failed": 0
+      }
+    }
   },
   "prev_block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-  "self_hash": "0x6c666e175b251d7498aa676f2899d772031e758669cfc52e7f81b23f693041c7",
-  "witness_signature": "ed25519:0xff12810096e983d0885d2b12995847656153ede42311d5b14bd861074632b031355ced50ca14f5a402dee95ce96c1ed4dd6b6658162ad8478d2b6c12054b320a"
+  "self_hash": "0x2cb64bba36e4f4f212d44a8930b2f8662a8b2895d8ef448267b74846ace5c05e",
+  "witness_signature": "ed25519:0x2748b570e3167edb4d9b170a0a283db4e32dd8d719b72f557be4d35ed1da4f131c10df66f918ab514292d54c07b3c8093ad924b6a92c6e9fc1c7bb8c56136e0a"
 }

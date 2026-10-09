@@ -2,8 +2,8 @@
   {
     "@context": "https://tunnelmind.ai/atap/context.jsonld",
     "@type": "WitnessEvent",
-    "id": "ATAP-WE-01a12088-d7dc-71cc-9d53-ee8615a1efed",
-    "ait": "AIT-01a12088-d200-72a9-9fbc-04eb7891de5a",
+    "id": "ATAP-WE-01a12088-d7dc-73fc-baa9-4a5c45a826f6",
+    "ait": "AIT-01a12088-d200-75a6-8ac4-7b7887021f04",
     "witnessed_at": "2026-10-09T12:00:01.500Z",
     "event_type": "crew_ops:autonomy_decision",
     "payload": {
@@ -16,14 +16,14 @@
       "target_sha256": "56083e68b267977dcb5447f0a14c27a530af40632f3afdec4647a960afb6ca07"
     },
     "prev_event_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-    "self_hash": "0x17fa47453c6e35e90ed7602080c5e37aa62501a4e35f6a69e2ed9a67833ae61a",
-    "witness_signature": "ed25519:0x40e94c91150a45e87973db4d05e0e08f626c88819a5bd3c9f8cf6ea02401ce93ffe83ad1cd5b219c5031cccded65f4fc01dc4673ee41baa1bc7fce73e609570b"
+    "self_hash": "0x0a57fad7c99f1e7d501297a6d7a8406635dda5262277ca1bb43c7d14c2fa34bb",
+    "witness_signature": "ed25519:0x475c843e6f67a30cea2e4447086f0d9cd9a518221e7358843513801b7d8db8235ee1954a4775bf9b2490b9a992cfe8b1f08b20a54f736dcb187fe957ad00e901"
   },
   {
     "@context": "https://tunnelmind.ai/atap/context.jsonld",
     "@type": "WitnessEvent",
-    "id": "ATAP-WE-01a12088-ddb8-7b5a-bedf-a63a0e12f246",
-    "ait": "AIT-01a12088-d200-72a9-9fbc-04eb7891de5a",
+    "id": "ATAP-WE-01a12088-ddb8-78e9-8faa-2e8f287ed7af",
+    "ait": "AIT-01a12088-d200-75a6-8ac4-7b7887021f04",
     "witnessed_at": "2026-10-09T12:00:03.000Z",
     "event_type": "crew_ops:ratification",
     "payload": {
@@ -35,15 +35,15 @@
       "text_sha256": "254f2cf24b3e40b32185ae29e64a0d60161b5555379730ccc6ab50d3675354b4",
       "dkim_message_id_sha256": "076288757c7ebb0ec081ff7a05fd5093f251997fec411d0d97a9e93ac2cc9d23"
     },
-    "prev_event_hash": "0x17fa47453c6e35e90ed7602080c5e37aa62501a4e35f6a69e2ed9a67833ae61a",
-    "self_hash": "0x8057b183a902cdfeb705303ba386e54f3fb159f68e2a8bd18b957c8943d03717",
-    "witness_signature": "ed25519:0xfb9c52d0dd05951d5077bec3eeafcd97b65a3b74b69bedebdf762008422cb166304507e7a3cfee132fb4a158be27fce71f59755aa31babfc03af4c66782df903"
+    "prev_event_hash": "0x0a57fad7c99f1e7d501297a6d7a8406635dda5262277ca1bb43c7d14c2fa34bb",
+    "self_hash": "0x8b02cf141703d2d4f936537457bd5669b586944743082d396981ded1de82b285",
+    "witness_signature": "ed25519:0xc223a12230d8c25b12ed0e830f1697734f1c5c769b3996b2e25d013f39c47c5b6e9b365bf009de9e8995d1e3c39c1644e2d845e69e5e746b654fe1a1286bc30f"
   },
   {
     "@context": "https://tunnelmind.ai/atap/context.jsonld",
     "@type": "WitnessEvent",
-    "id": "ATAP-WE-01a12088-e394-7b6f-b6b8-50d7e24d8d23",
-    "ait": "AIT-01a12088-d200-72a9-9fbc-04eb7891de5a",
+    "id": "ATAP-WE-01a12088-e394-7c5a-b920-db02e93ef811",
+    "ait": "AIT-01a12088-d200-75a6-8ac4-7b7887021f04",
     "witnessed_at": "2026-10-09T12:00:04.500Z",
     "event_type": "crew_ops:autonomy_decision",
     "payload": {
@@ -56,15 +56,15 @@
       "target_sha256": "56083e68b267977dcb5447f0a14c27a530af40632f3afdec4647a960afb6ca07",
       "reason_sha256": "e486f82e15581cb1c71fb4774d4989d40d27e00c9bad2a139484c67073ccc9a5"
     },
-    "prev_event_hash": "0x8057b183a902cdfeb705303ba386e54f3fb159f68e2a8bd18b957c8943d03717",
-    "self_hash": "0x7533683fdb8961aeb59daf72bcbaa20c18ba81849ffaccc7490d7b23ec0467ea",
-    "witness_signature": "ed25519:0x7ed24c071db04ce41a24f548ae8c22a0844fc4b9d3ea18882aa53cd2f1917afd28ac7858264d01faeedf9ab1567234c8fe6aaaa976c55f0c630ad25216ad8100"
+    "prev_event_hash": "0x8b02cf141703d2d4f936537457bd5669b586944743082d396981ded1de82b285",
+    "self_hash": "0xd073157a0cb7fd07050f2b530b42813ca3427da7a33df71faf729de9aec51e47",
+    "witness_signature": "ed25519:0x8c51c816ccccbcbd55640897c5d0ba9701663c1fa807e17f7adb58063b2acec7ebe85b9185ef8b2d74e07b9564576fd6890f5d683fa04ff5828e3302cf08fe03"
   },
   {
     "@context": "https://tunnelmind.ai/atap/context.jsonld",
     "@type": "WitnessEvent",
-    "id": "ATAP-WE-01a12088-e970-7945-9674-695bec5df504",
-    "ait": "AIT-01a12088-d200-72a9-9fbc-04eb7891de5a",
+    "id": "ATAP-WE-01a12088-e970-706f-ae0d-61938ac77951",
+    "ait": "AIT-01a12088-d200-75a6-8ac4-7b7887021f04",
     "witnessed_at": "2026-10-09T12:00:06.000Z",
     "event_type": "crew_ops:intake_decision",
     "payload": {
@@ -76,8 +76,29 @@
       "title_sha256": "1b8f54bc1586b58907fd3141f436115d1ee3194df132892921a236fd54ad2c26",
       "route": "workstream"
     },
-    "prev_event_hash": "0x7533683fdb8961aeb59daf72bcbaa20c18ba81849ffaccc7490d7b23ec0467ea",
-    "self_hash": "0x6dfdfaad479e223f1597e2054e7f737dcca10a436566944858e0f25eeae37e9c",
-    "witness_signature": "ed25519:0x1a7dd6ac40d6de1d28516cf62c855afdb46c6cfcd9ee7f50c3c98336a45d662f2c702304da84fd4f8daa9794c3a1090c314cd87cb221cf5fe2f74d2459c78003"
+    "prev_event_hash": "0xd073157a0cb7fd07050f2b530b42813ca3427da7a33df71faf729de9aec51e47",
+    "self_hash": "0x4d565a93e2fe2dc410972b70f01090bb08fddb54d02a0463b801b734e3bfbbf7",
+    "witness_signature": "ed25519:0x3c8aa129e45786cce08ea794cd298890f4d8e449cc5443fc0083375c7440c8a741e15223619bf190b1a5a4b0f5071c6c97f72743dc95deda72d1d90d45823e01"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12088-ef4c-7e80-8a33-dea66a093bb1",
+    "ait": "AIT-01a12088-d200-75a6-8ac4-7b7887021f04",
+    "witnessed_at": "2026-10-09T12:00:07.500Z",
+    "event_type": "crew_ops:owner_command",
+    "payload": {
+      "timestamp": "2026-10-09T12:00:07.500Z",
+      "evidence": "anchored",
+      "role": "owner",
+      "command": "crew_stop",
+      "target_sha256": "c35e074aba31a7ded1b02767696a36d1f60f760b5b529dedeeeec6dd3da70e33",
+      "channel": "mail",
+      "outcome": "done",
+      "message_sha256": "e9f5369f56e21358191ac2271165b72b247a07f729ade4810b912996fad088f1"
+    },
+    "prev_event_hash": "0x4d565a93e2fe2dc410972b70f01090bb08fddb54d02a0463b801b734e3bfbbf7",
+    "self_hash": "0xeb1d0073248a02b57bf7afa2dbac2459a26710d6514e7dcef64e01702a97601b",
+    "witness_signature": "ed25519:0xc8016683718bde39d43a404ea0afeff4603141a70ba0766bcff83c90726d35ae30e79feb22fcb7c6a1d9f1c24321cdaf4e643b658b022c40ab451866a898de09"
   }
 ]

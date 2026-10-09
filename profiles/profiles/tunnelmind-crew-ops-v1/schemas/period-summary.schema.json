@@ -5,7 +5,7 @@
   "description": "Validates the `period_summary` object of an ATAP v0.1 Attestation Block under the tunnelmind:crew_ops:v1 profile. Every field is a non-negative integer count over the block's events. No field resolves to a natural person (ATAP v0.1 §7.6).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["autonomy_decisions", "intake_decisions", "ratifications"],
+  "required": ["autonomy_decisions", "intake_decisions", "ratifications", "owner_commands"],
   "properties": {
     "autonomy_decisions": {
       "type": "object",
@@ -33,9 +33,31 @@
       },
       "description": "`intake_decision` events in the period, per decision."
     },
-    "ratifications": { "$ref": "#/$defs/count", "description": "`ratification` events in the period." }
+    "ratifications": { "$ref": "#/$defs/count", "description": "`ratification` events in the period." },
+    "owner_commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["crew_stop", "crew_start", "ratify_yes", "ratify_no"],
+      "properties": {
+        "crew_stop": { "$ref": "#/$defs/outcomes" },
+        "crew_start": { "$ref": "#/$defs/outcomes" },
+        "ratify_yes": { "$ref": "#/$defs/outcomes" },
+        "ratify_no": { "$ref": "#/$defs/outcomes" }
+      },
+      "description": "`owner_command` events in the period, per command and outcome."
+    }
   },
   "$defs": {
-    "count": { "type": "integer", "minimum": 0 }
+    "count": { "type": "integer", "minimum": 0 },
+    "outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["done", "refused", "failed"],
+      "properties": {
+        "done": { "$ref": "#/$defs/count" },
+        "refused": { "$ref": "#/$defs/count" },
+        "failed": { "$ref": "#/$defs/count" }
+      }
+    }
   }
 }

@@ -53,6 +53,16 @@ All notable changes to ATAP are recorded here.
   for a crew's own operations on one host: autonomy decisions, owner
   ratifications, idea-intake decisions. The `atap-witness` CLI accepts it with
   no source change (`packages/atap-cli/test/crew-ops.test.mjs`).
+- `crew_ops:owner_command` event on `tunnelmind:crew_ops:v1` — a command the
+  owner gave the crew and its outcome: `role` (`owner`), `command`
+  (`crew_stop` | `crew_start` | `ratify_yes` | `ratify_no`), `target_sha256`,
+  `channel` (`mail` | `cli`), `outcome` (`done` | `refused` | `failed`), and
+  `message_sha256` (required for mail, forbidden for CLI). Evidence is
+  `anchored` for mail (DKIM-verified Message-ID), `asserted` for CLI. Hashes
+  only, no free text or PII. New capability `crew_ops:owner_command`;
+  `period_summary` gains `owner_commands`, counts per command and outcome.
+  Added to the v1 draft rather than a v2 because the draft had no outside
+  users.
 - `@tunnelmindai/atap-cli` ([`packages/atap-cli/`](./packages/atap-cli/)) —
   the `atap-witness` CLI, a file-backed witness on `@tunnelmindai/atap` with
   `ait declare`, `event`, `block`, `receipt` and `verify`, JSON on stdin and

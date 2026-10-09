@@ -12,7 +12,7 @@
 ## 1. Capabilities
 
 From [`capabilities.json`](capabilities.json): `crew_ops:autonomy_decide`,
-`crew_ops:ratify`, `crew_ops:intake_decide`.
+`crew_ops:ratify`, `crew_ops:intake_decide`, `crew_ops:owner_command`.
 
 ## 2. Constraints
 
@@ -31,20 +31,37 @@ Every payload requires `timestamp` and `evidence` and sets
 | `crew_ops:autonomy_decision` | `agent`, `class` (1–4; 4 only with `refuse`), `action` (`propose` \| `deploy` \| `edit` \| `notify` \| `mail-command` \| `grant` \| `ratify` \| a Class 4 word), `decision` (`allow` \| `refuse` \| `grant` \| `expired` \| `request` \| `approved` \| `rejected`), `target_sha256`, optional `reason_sha256` | `asserted` |
 | `crew_ops:ratification` | `role` (`owner`), `decision` (`approved` \| `rejected`), `channel` (`cli` \| `mail`), `text_sha256`, optional `dkim_message_id_sha256` (mail only) | `anchored` only with `channel: mail` and `dkim_message_id_sha256`; otherwise `asserted` |
 | `crew_ops:intake_decision` | `by` (`toolsmith` \| `coordinator` \| crew agent id), `source` (`thinker` \| `scout`), `decision` (`act` \| `park` \| `drop`), `title_sha256`, `route` (`workstream` \| `inbox` \| `""`) | `asserted` |
+| `crew_ops:owner_command` | `role` (`owner`), `command` (`crew_stop` \| `crew_start` \| `ratify_yes` \| `ratify_no`), `target_sha256` (the agent id for `crew_stop`/`crew_start`, the ratify id for `ratify_yes`/`ratify_no`), `channel` (`mail` \| `cli`), `outcome` (`done` \| `refused` \| `failed`), `message_sha256` (sha256 of the DKIM-verified command mail's Message-ID; required with `channel: mail`, forbidden with `channel: cli`) | `anchored` with `channel: mail` (the secretary DKIM-verified the Message-ID); `asserted` with `channel: cli` |
 
 Class 4 actions are never grantable, so a Class 4 event can only be a refusal (the schema enforces `decision: refuse`); the action is named by the Class 4 word it matched.
+
+`crew_ops:owner_command` records a command the owner gave the crew, by mail or
+at the CLI, and what came of it (`done`: it took effect; `refused`: the crew
+declined it; `failed`: it was accepted but did not complete). Owner commands
+are then in the receipted record next to the autonomy decisions and
+ratifications. It is not an autonomy decision: the owner is not an agent under
+the rails. It carries hashes only — the target and the Message-ID as sha256 —
+and no free text or PII. The command list is closed; a new command needs a new
+profile version.
+
+The v1 draft gained this event type (and its capability) before any outside
+use: v1 is a draft with no outside users, so it was added to v1 rather than
+made a v2.
 
 ## 4. Attestation Block `period_summary`
 
 [`schemas/period-summary.schema.json`](schemas/period-summary.schema.json):
 non-negative integers only — `autonomy_decisions` and `intake_decisions` per
-decision value, and `ratifications`.
+decision value, `ratifications`, and `owner_commands` — `owner_command`
+events per command and outcome (`done`, `refused`, `failed`).
 
 ## 5. PII prohibition (ATAP §7.6)
 
 [`tests/pii-rejection.json`](tests/pii-rejection.json) lists events CI
 confirms are rejected: a person's name or email as an agent, an email in any
-field, free text in place of a sha256, Class 4, a ratifier other than `owner`.
+field, free text in place of a sha256, Class 4, a ratifier other than `owner`;
+for `owner_command`, a person's name or email in place of the role or the
+hashed target, and a raw Message-ID in place of its sha256.
 
 ## 6. Examples
 
