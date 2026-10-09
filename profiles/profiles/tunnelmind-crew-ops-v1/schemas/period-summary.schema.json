@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-crew-ops-v1/period-summary.schema.json",
+  "title": "tunnelmind:crew_ops:v1 — Attestation Block period_summary",
+  "description": "Validates the `period_summary` object of an ATAP v0.1 Attestation Block under the tunnelmind:crew_ops:v1 profile. Every field is a non-negative integer count over the block's events. No field resolves to a natural person (ATAP v0.1 §7.6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["autonomy_decisions", "intake_decisions", "ratifications"],
+  "properties": {
+    "autonomy_decisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow", "refuse", "grant", "expired", "request", "approved", "rejected"],
+      "properties": {
+        "allow": { "$ref": "#/$defs/count" },
+        "refuse": { "$ref": "#/$defs/count" },
+        "grant": { "$ref": "#/$defs/count" },
+        "expired": { "$ref": "#/$defs/count" },
+        "request": { "$ref": "#/$defs/count" },
+        "approved": { "$ref": "#/$defs/count" },
+        "rejected": { "$ref": "#/$defs/count" }
+      },
+      "description": "`autonomy_decision` events in the period, per decision."
+    },
+    "intake_decisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["act", "park", "drop"],
+      "properties": {
+        "act": { "$ref": "#/$defs/count" },
+        "park": { "$ref": "#/$defs/count" },
+        "drop": { "$ref": "#/$defs/count" }
+      },
+      "description": "`intake_decision` events in the period, per decision."
+    },
+    "ratifications": { "$ref": "#/$defs/count", "description": "`ratification` events in the period." }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 }
+  }
+}

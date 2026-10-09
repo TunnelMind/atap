@@ -1,0 +1,139 @@
+{
+  "description": "ATAP v0.1 §9.4(2) acceptance evidence: each case is a Witness Event whose payload smuggles a person-resolvable field forbidden by ATAP §7.6, free text, or a value outside the profile's rails (a Class 4 action, a ratifier other than `owner`). Every case MUST FAIL validation against witness-events.schema.json — the profile schemas set additionalProperties:false on every payload, pin ratification.role to `owner`, restrict agents to crew ids or roles and digests to 64-hex sha256, so there is no permitted place for PII. CI asserts each case is rejected; a case that validates is a profile defect.",
+  "must_reject": [
+    {
+      "name": "person_name_as_agent",
+      "reason": "named natural person in place of an agent id (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:autonomy_decision",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "agent": "Jane Doe",
+          "class": 2, "action": "propose", "decision": "allow",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "email_as_agent",
+      "reason": "email address in place of an agent id (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:autonomy_decision",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "agent": "jane@example.com",
+          "class": 2, "action": "propose", "decision": "allow",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "email_as_intake_by",
+      "reason": "email address in place of the deciding agent (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:intake_decision",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "by": "jane@example.com",
+          "source": "thinker", "decision": "act", "route": "workstream",
+          "title_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "email_as_route",
+      "reason": "email address in a closed-enum field (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:intake_decision",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "by": "toolsmith",
+          "source": "scout", "decision": "act", "route": "jane@example.com",
+          "title_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "ratifier_email_in_ratification",
+      "reason": "email address in an extra field (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:ratification",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "role": "owner",
+          "decision": "approved", "channel": "mail",
+          "text_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "from": "jane@example.com"
+        }
+      }
+    },
+    {
+      "name": "person_name_as_ratification_role",
+      "reason": "named natural person in place of the role `owner` (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:ratification",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "role": "Jane Doe",
+          "decision": "approved", "channel": "cli",
+          "text_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "non_owner_role_in_ratification",
+      "reason": "a ratifier other than the role `owner`",
+      "event": {
+        "event_type": "crew_ops:ratification",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "role": "coordinator",
+          "decision": "approved", "channel": "cli",
+          "text_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "free_text_as_title_sha256",
+      "reason": "free text in place of a sha256 digest (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:intake_decision",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "by": "toolsmith",
+          "source": "thinker", "decision": "park", "route": "",
+          "title_sha256": "ask Jane about the billing idea"
+        }
+      }
+    },
+    {
+      "name": "free_text_as_reason_sha256",
+      "reason": "free text in place of a sha256 digest (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:autonomy_decision",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "agent": "crew-toolsmith",
+          "class": 2, "action": "propose", "decision": "refuse",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "reason_sha256": "cap reached, mail jane@example.com"
+        }
+      }
+    },
+    {
+      "name": "class_4_autonomy_decision",
+      "reason": "Class 4 is never grantable, so it has no event",
+      "event": {
+        "event_type": "crew_ops:autonomy_decision",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "agent": "crew-merchant",
+          "class": 4, "action": "deploy", "decision": "allow",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "anchored_cli_ratification",
+      "reason": "anchored evidence needs a mail ratification with a DKIM-verified message id",
+      "event": {
+        "event_type": "crew_ops:ratification",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "owner",
+          "decision": "approved", "channel": "cli",
+          "text_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    }
+  ]
+}

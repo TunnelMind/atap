@@ -5,7 +5,7 @@
   "description": "ATAP v0.1 application profile registry — source of truth for https://tunnelmind.ai/atap/profiles",
   "type": "module",
   "scripts": {
-    "generate": "node profiles/sigil-media-buyer-v1/scripts/generate-examples.mjs && node profiles/tunnelmind-code-crew-v1/scripts/generate-examples.mjs",
+    "generate": "node profiles/sigil-media-buyer-v1/scripts/generate-examples.mjs && node profiles/tunnelmind-code-crew-v1/scripts/generate-examples.mjs && node profiles/tunnelmind-crew-ops-v1/scripts/generate-examples.mjs",
     "validate": "node scripts/validate.mjs",
     "verify": "node scripts/verify-examples.mjs",
     "test": "npm run validate && npm run verify"
