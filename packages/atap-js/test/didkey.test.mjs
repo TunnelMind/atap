@@ -260,3 +260,15 @@ test('the profiles/atap-v0.2-examples did:key encodes its key entry', () => {
   for (const id of [ex('ait').witness, ex('ait').operator, ex('receipt').witness, key.witness]) assert.ok(isDidKey(id), id)
   assert.equal('0x' + toHex(publicKeyFromDidKey(key.witness)), key.public_key)
 })
+
+test('an AIT with a missing or non-string witness or operator is rejected, not thrown', async () => {
+  const c = await didChain()
+  const { operator, ...noOperator } = c.ait
+  const { witness, ...noWitness } = c.ait
+  for (const ait of [noOperator, noWitness, { ...c.ait, operator: 42 }]) {
+    const r = verifyReceipt({ ...c, ait })
+    assert.equal(r.ok, false)
+    assert.equal(r.blocks, 0)
+    assert.match(r.reason, /not a string/)
+  }
+})

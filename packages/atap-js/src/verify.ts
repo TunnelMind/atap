@@ -63,18 +63,13 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
   if (ait['@context'] !== ATAP_CONTEXT) {
     return { ok: false, blocks: 0, reason: `bad @context on AIT` }
   }
-  // ATAP-v0.2 §3.1: for a did:key witness the receipt and AIT name the same
-  // witness. OAI-witnessed records are not held to it, as in v0.1 (§3.4).
-  // Prefix match, as verify.sh: a malformed did:key is still held to it.
-  if ((receipt.witness.startsWith('did:key:') || ait.witness.startsWith('did:key:')) && receipt.witness !== ait.witness) {
-    return { ok: false, blocks: 0, reason: `receipt witness ${receipt.witness} != AIT witness ${ait.witness}` }
-  }
-
   // ATAP-v0.2 §3. `didRaw` is the witness's own public key when the witness is
   // a did:key; null for an OAI witness, which verifies exactly as in v0.1 (§3.4).
   let didRaw: Uint8Array | null = null
   let didIdentified = false
   for (const [field, id] of [['witness', ait.witness], ['operator', ait.operator]] as const) {
+    // Malformed input is a verdict, not a TypeError.
+    if (typeof id !== 'string') return { ok: false, blocks: 0, reason: `AIT ${field} is not a string` }
     if (!id.startsWith('did:')) continue
     didIdentified = true
     if (!isDidKey(id)) {
@@ -85,6 +80,15 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
       return { ok: false, blocks: 0, reason: `AIT with did:key ${field} declares ait_version '${ait.ait_version}', want '0.2' (ATAP-v0.2 §3.3)` }
     }
     if (field === 'witness') didRaw = publicKeyFromDidKey(id) // §3.5: only the witness binds a key
+  }
+
+  // ATAP-v0.2 §3.1: for a did:key witness the receipt and AIT name the same
+  // witness. OAI-witnessed records are not held to it, as in v0.1 (§3.4).
+  // Prefix match, as verify.sh: a malformed did:key is still held to it.
+  // After the loop above, so ait.witness is known to be a string.
+  if (typeof receipt.witness !== 'string') return { ok: false, blocks: 0, reason: 'receipt witness is not a string' }
+  if ((receipt.witness.startsWith('did:key:') || ait.witness.startsWith('did:key:')) && receipt.witness !== ait.witness) {
+    return { ok: false, blocks: 0, reason: `receipt witness ${receipt.witness} != AIT witness ${ait.witness}` }
   }
 
   // 1. AIT signature
