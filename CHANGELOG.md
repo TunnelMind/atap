@@ -48,6 +48,21 @@ All notable changes to ATAP are recorded here.
 
 ### Fixed
 
+- **A Receipt from `atap-witness` sometimes failed verification.** About 1 run
+  in 15–40, a Receipt failed both `verify.sh` and `atap-witness verify`.
+  `witnessed_at` was taken straight from the wall clock, and on a host whose
+  clock steps back (measured at ~1.5 s about every 20 s on WSL2, where
+  systemd-timesyncd and Hyper-V disagree) an event could carry an earlier
+  `witnessed_at` than the event before it. Its block then had `period_start`
+  after `period_end`, `blocksInPeriod` dropped that block, and the Receipt's
+  `chain_head_hash` named the wrong block. `WitnessService.witness` now sets
+  `witnessed_at` to the later of the clock and the previous event's
+  `witnessed_at`, read from storage through the new `lastEventAt` method
+  (`InMemoryStorage` and the CLI's `DirStorage`) so it holds across processes;
+  a Receipt's `generated_at` is never earlier than the last `period_end` it
+  covers; and `generateReceipt` takes an optional `blocks` argument, which the
+  CLI's `receipt` uses to pass the whole chain by order, so chains written
+  before the fix still verify. No protocol, schema or `verify.sh` change.
 - **Signed objects are checked against their whole schema before they are
   stored.** `atap-witness` validated a few AIT fields one by one, so an AIT
   with a witness OAI that was really an e-mail address was signed and written.
