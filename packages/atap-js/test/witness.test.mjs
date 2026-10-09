@@ -2,8 +2,8 @@
 // and writes nothing; a namespaced one is signed.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { generateKeyPairSync } from 'node:crypto'
-import { WitnessService, InMemoryStorage } from '../dist/index.js'
+import { generateKeyPairSync, createPublicKey } from 'node:crypto'
+import { WitnessService, InMemoryStorage, verifyReceipt, toHex } from '../dist/index.js'
 
 const WITNESS = 'OAI-2026-0010002'
 
@@ -83,4 +83,44 @@ test('a clock that steps back never dates an event, block or receipt before the 
   assert.equal(r.block_count, 2)
   assert.equal(r.event_count, 3)
   assert.ok(r.generated_at >= e3.witnessed_at, `${r.generated_at} < ${e3.witnessed_at}`)
+})
+
+// The CLI's keys document ends the key's validity at the AIT's expires_at, and
+// an expired AIT stays receiptable. A v0.1 receipt is not signature-checked
+// (only did:key ones are, ATAP-v0.2 §3.1), so it still verifies, as in verify.sh.
+test('a v0.1 receipt generated after the AIT (and its key) expired still verifies', async () => {
+  const storage = new InMemoryStorage()
+  const { privateKey } = generateKeyPairSync('ed25519')
+  let t = Date.parse('2026-10-09T12:00:00.000Z')
+  const svc = new WitnessService({ witnessOAI: WITNESS, privateKey, storage, now: () => new Date(t) })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(t + 86400_000).toISOString(),
+  })
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const block = await svc.rollUp(ait.id, {})
+  t += 2 * 86400_000
+  const receipt = await svc.generateReceipt(ait.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')
+  assert.ok(receipt.generated_at > ait.expires_at)
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const keys = {
+    keys: [{
+      witness: WITNESS,
+      key_id: 'k1',
+      algorithm: 'ed25519',
+      public_key: '0x' + toHex(new Uint8Array(der.subarray(der.length - 32))),
+      valid_from: ait.issued_at,
+      valid_until: ait.expires_at,
+      status: 'active',
+      rotated_to: null,
+      compromise_notice: null,
+    }],
+    updated_at: receipt.generated_at,
+  }
+  const r = verifyReceipt({ ait, chain: [block], receipt, keys })
+  assert.equal(r.ok, true, r.reason)
 })

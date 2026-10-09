@@ -156,19 +156,21 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
   }
 
   // Receipt signature, over the canonical receipt minus its signature, under
-  // the key valid when it was generated. ATAP-v0.2 §3.1 requires it for
-  // did:key witnesses; v0.1 records get it too.
-  const rcptKey = pickKey(keys, receipt.witness, receipt.generated_at)
-  if (!rcptKey) {
-    return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${receipt.generated_at}` }
-  }
+  // the key valid when it was generated. Only for did:key witnesses
+  // (ATAP-v0.2 §3.1). v0.1 records are not checked here, as in verify.sh: their
+  // key's valid_until is the AIT's expires_at, and a receipt of an expired AIT
+  // is generated after it.
   if (didRaw) {
+    const rcptKey = pickKey(keys, receipt.witness, receipt.generated_at)
+    if (!rcptKey) {
+      return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${receipt.generated_at}` }
+    }
     const problem = didKeyEntryProblem(rcptKey, didRaw)
     if (problem) return { ok: false, blocks: chain.length, reason: problem }
-  }
-  const { witness_signature: rcptSig, ...rcptMinusSig } = receipt
-  if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, publicKeyFromHex(rcptKey.public_key))) {
-    return { ok: false, blocks: chain.length, reason: 'receipt signature invalid' }
+    const { witness_signature: rcptSig, ...rcptMinusSig } = receipt
+    if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, publicKeyFromHex(rcptKey.public_key))) {
+      return { ok: false, blocks: chain.length, reason: 'receipt signature invalid' }
+    }
   }
 
   // ATAP-v0.2 §3.2: a did:key receipt says exactly 'self-asserted'; absent is not enough.
