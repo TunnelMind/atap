@@ -8,9 +8,9 @@
 // Before signing, event payloads and block period_summaries are validated
 // against the AIT's profile schemas; a refused call writes nothing.
 
-import { createHash, createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
@@ -63,6 +63,7 @@ const RECEIPT_FILES = [
 ] as const
 
 const USAGE = `usage:
+  atap-witness init [--profile ID] [--dir .atap] [--force]
   atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
@@ -88,6 +89,8 @@ type Values = {
   'unregistered-profile'?: boolean
   issuer?: string
   service?: string
+  profile?: string
+  force?: boolean
 }
 
 async function readStdin(): Promise<string> {
@@ -520,6 +523,73 @@ function statementKid(bytes: Uint8Array): string | null {
   }
 }
 
+// A local witness's OAI, derived from its public key: OAI-0000-<7 digits of
+// sha256(public key hex) mod 10^7>. Self-asserted; no registry issued it.
+// D9: Josh: is the OAI-0000 local range acceptable, or should the standard
+// reserve one explicitly?
+function localOai(privateKey: KeyObject): OAI {
+  const n = BigInt('0x' + createHash('sha256').update(publicHex(privateKey)).digest('hex')) % 10_000_000n
+  return `OAI-0000-${n.toString().padStart(7, '0')}` as OAI
+}
+
+// The files init writes, plus the store's. --force deletes only these, never
+// the whole dir, so `--dir . --force` cannot take user files with it.
+const INIT_FILES = ['witness.pem', '.gitignore', 'config.json', 'aits.jsonl', 'events.jsonl', 'blocks.jsonl', 'cleared.jsonl']
+
+// `init`: one command from nothing to a witness with a declared AIT. Every
+// check (dir, profile, capabilities) runs before the first write; a failure
+// after that removes the dir if init created it.
+async function init(v: Values): Promise<Record<string, string>> {
+  const dir = resolve(v.dir ?? '.atap')
+  const profile = v.profile ?? 'tunnelmind:code_crew:v1'
+  const exists = await stat(dir).then(() => true, () => false)
+  if (exists && !v.force) throw new Error(`${dir} exists; pass --force to re-initialise it`)
+  if (exists && (await readFile(join(dir, 'events.jsonl'), 'utf8').catch(() => '')).trim() !== '') {
+    throw new Error(`${dir} already holds witness events; refusing to re-initialise it`)
+  }
+  const profilesDir = resolve(v['profiles-dir'] ?? PROFILES_DIR)
+  const profiles = await Profiles.load(profilesDir)
+  if (!profiles.isRegistered(profile)) throw new Error(`profile ${profile} is not in the profile registry`)
+  const { profiles: entries } = await readJsonFile<{ profiles: { id: string; path: string }[] }>(profilesDir, 'registry.json')
+  const entry = entries.find(e => e.id === profile)!
+  const caps = await readJsonFile<{ capabilities: Record<string, string> }>(join(profilesDir, entry.path), 'capabilities.json')
+
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const witness = localOai(privateKey)
+  // No constraints: they are optional in the core schema, and a profile's
+  // constraints (allowed_repos, models, ...) are the operator's to declare.
+  // ponytail: 30-day lifetime like the profile examples; re-run init (or
+  // declare a new AIT) when it expires.
+  const input: AitInput = {
+    agentType: profile.split(':')[1] ?? profile,
+    profile,
+    operator: witness,
+    capabilities: Object.keys(caps.capabilities),
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+  }
+
+  if (exists) for (const f of INIT_FILES) await rm(join(dir, f), { force: true })
+  try {
+    await mkdir(dir, { recursive: true })
+    const keyPath = join(dir, 'witness.pem')
+    await writeFile(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 })
+    // writeFile's mode is masked by umask and ignored for an existing file.
+    await chmod(keyPath, 0o600)
+    await writeFile(join(dir, '.gitignore'), 'witness.pem\n')
+    const storage = new DirStorage(dir, profiles.coreGuards())
+    const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: 'self-asserted' })
+    const ait = await withLock(dir, () => svc.declareAit(input))
+    // key is relative to the dir, so the dir can move as a whole.
+    const config = { profile, key: 'witness.pem', witness_oai: witness, oai_origin: 'self-asserted', ait: ait.id }
+    await writeFile(join(dir, 'config.json'), json(config))
+    return config
+  } catch (e) {
+    if (!exists) await rm(dir, { recursive: true, force: true })
+    throw e
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values: v, positionals: pos } = parseArgs({
     args: argv,
@@ -535,6 +605,8 @@ async function main(argv: string[]): Promise<number> {
       'unregistered-profile': { type: 'boolean' },
       issuer: { type: 'string' },
       service: { type: 'string' },
+      profile: { type: 'string' },
+      force: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   }) as { values: Values; positionals: string[] }
@@ -544,6 +616,11 @@ async function main(argv: string[]): Promise<number> {
   }
   const cmd = pos[0] === 'ait' && pos[1] === 'declare' ? 'ait declare' : pos[0]
 
+  // init makes its own key and OAI, so it runs before the witness/stdin checks.
+  if (cmd === 'init') {
+    process.stdout.write(json(await init(v)))
+    return 0
+  }
   if (cmd === 'verify') {
     if (!pos[1]) throw new Error('usage: atap-witness verify <dir>')
     const result = await verify(pos[1])
@@ -568,7 +645,7 @@ async function main(argv: string[]): Promise<number> {
     return result.ok ? 0 : 1
   }
   if (!['ait declare', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
-    throw new Error('usage: atap-witness <ait declare | event | block | receipt | verify | scitt> [options]')
+    throw new Error('usage: atap-witness <init | ait declare | event | block | receipt | verify | scitt> [options]')
   }
 
   const strength = parseStrength(v.strength)
