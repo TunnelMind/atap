@@ -26,6 +26,7 @@ order, without trusting the agent's self-report.
 | [`verify.sh`](./verify.sh) | Reference verifier (bash + openssl + jq + python3). Anyone can audit it in one sitting. |
 | [`packages/atap-js/`](./packages/atap-js/) | Reference TypeScript wrapper — `@tunnelmindai/atap` on npm. |
 | [`packages/atap-cli/`](./packages/atap-cli/) | `atap-witness` — file-backed witness CLI (`@tunnelmindai/atap-cli`), JSON on stdin and stdout. Source checkout only, not on npm. |
+| [`actions/witness/`](./actions/witness/) | GitHub Action that witnesses a CI test run under an ephemeral did:key and uploads its Receipt (self-asserted: integrity only). |
 
 ## What ATAP solves
 
