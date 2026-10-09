@@ -229,6 +229,28 @@ test('an OAI v0.1 chain still verifies, unchanged', async () => {
   assert.equal(r.attestation_strength, 'self-asserted')
 })
 
+// The receipt/AIT witness equality rule is did:key-only (ATAP-v0.2 §3.1); an
+// OAI receipt naming another witness that has a key still verifies, as in v0.1.
+test('an OAI receipt may name a different OAI witness than its AIT', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  const other = { ...c.keys.keys[0], witness: 'OAI-2026-0010003', key_id: 'k2' }
+  const r = verifyReceipt({
+    ...c,
+    receipt: { ...c.receipt, witness: 'OAI-2026-0010003' },
+    keys: { ...c.keys, keys: [...c.keys.keys, other] },
+  })
+  assert.equal(r.ok, true, r.reason)
+})
+
+test('a did:key receipt naming another did:key witness is rejected', async () => {
+  const c = await didChain()
+  const d = await didChain()
+  const r = verifyReceipt({ ...c, receipt: { ...c.receipt, witness: d.witness } })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /receipt witness/)
+})
+
 // The v0.2 examples are schema fixtures: their AIT and receipt signatures and
 // the block's self_hash do not verify (edited after signing), so they cannot
 // be a verifyReceipt fixture. Check only that their did:key binds their key.

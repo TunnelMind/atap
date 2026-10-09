@@ -149,9 +149,10 @@ AIT_WIT=$(jq -r '.witness'     ait.json)
 AIT_TS=$(jq  -r '.issued_at'   ait.json)
 AIT_SIG=$(jq -r '.witness_signature' ait.json | sed 's/^ed25519:0x//')
 MAN_WIT=$(jq -r '.witness' manifest.json)
-# The receipt and AIT name the same witness (as verifyReceipt checks). When
-# either is a did:key, that is what binds the manifest and blocks to the key
-# the AIT was signed with (ATAP-v0.2 §3.1).
+# For a did:key witness the manifest and AIT must name the same witness (same
+# rule as verifyReceipt): that is what binds the manifest and blocks to the key
+# the AIT was signed with (ATAP-v0.2 §3.1). OAI-witnessed v0.1 records are not
+# held to it (ATAP-v0.2 §3.4).
 if [[ "$AIT_WIT" =~ ^did:key: || "$MAN_WIT" =~ ^did:key: ]]; then
   [ "$MAN_WIT" = "$AIT_WIT" ] || err "manifest witness $MAN_WIT != AIT witness $AIT_WIT"
 fi

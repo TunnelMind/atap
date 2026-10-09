@@ -63,7 +63,10 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
   if (ait['@context'] !== ATAP_CONTEXT) {
     return { ok: false, blocks: 0, reason: `bad @context on AIT` }
   }
-  if (receipt.witness !== ait.witness) {
+  // ATAP-v0.2 §3.1: for a did:key witness the receipt and AIT name the same
+  // witness. OAI-witnessed records are not held to it, as in v0.1 (§3.4).
+  // Prefix match, as verify.sh: a malformed did:key is still held to it.
+  if ((receipt.witness.startsWith('did:key:') || ait.witness.startsWith('did:key:')) && receipt.witness !== ait.witness) {
     return { ok: false, blocks: 0, reason: `receipt witness ${receipt.witness} != AIT witness ${ait.witness}` }
   }
 
