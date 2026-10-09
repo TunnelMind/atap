@@ -107,7 +107,7 @@ test('crew_ops run: 4 example events -> block -> receipt, all three verifiers ok
 
   // Counts over the 4 examples, per the profile's period-summary schema.
   const summary = {
-    autonomy_decisions: { allow: 1, refuse: 0, grant: 0, expire: 0, request: 1, approved: 0, rejected: 0 },
+    autonomy_decisions: { allow: 1, refuse: 0, grant: 0, expired: 0, request: 1, approved: 0, rejected: 0 },
     intake_decisions: { act: 1, park: 0, drop: 0 },
     ratifications: 1,
   }
@@ -122,4 +122,37 @@ test('crew_ops run: 4 example events -> block -> receipt, all three verifiers ok
   assert.equal(sh.status, 0, sh.stdout + sh.stderr)
   assert.equal(lib.ok, true, lib.reason)
   assert.equal((await ok(['verify', out])).ok, true)
+})
+
+test('crew_ops autonomy_decision matches the rails ledger: grant/ratify actions, expired, Class 4 only as refuse', async () => {
+  // Coordinator 2026-10-09 (a5 review): the enums follow agent-crew autonomy.py's real values.
+  const ctx = setup()
+  const common = ['--dir', ctx.store, '--key', ctx.keyPath, '--witness-oai', WITNESS]
+  const example = readJson(PROFILE_DIR, 'examples/ait.json')
+  const ait = await ok(['ait', 'declare', ...common], JSON.stringify({
+    agentType: 'crew-ops', profile: PROFILE, operator: 'OAI-2026-0010001',
+    capabilities: Object.keys(readJson(PROFILE_DIR, 'capabilities.json').capabilities),
+    constraints: example.constraints, attestationPolicy: example.attestation_policy,
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+  }))
+  const event = (p) => JSON.stringify({ event_type: 'crew_ops:autonomy_decision', payload: {
+    timestamp: new Date().toISOString(), evidence: 'asserted', agent: 'crew-merchant',
+    target_sha256: '0x' + 'a'.repeat(64), ...p } })
+  const accepted = [
+    { class: 3, action: 'grant', decision: 'grant' },
+    { class: 3, action: 'ratify', decision: 'expired' },
+    { class: 4, action: 'pay', decision: 'refuse' },
+  ]
+  for (const p of accepted) {
+    const r = await run(['event', '--ait', ait.id, ...common], event(p))
+    assert.equal(r.code, 0, `${JSON.stringify(p)} refused: ${r.stderr}`)
+  }
+  const refused = [
+    { class: 4, action: 'pay', decision: 'allow' },     // Class 4 is never allowed
+    { class: 3, action: 'ratify', decision: 'expire' }, // the ledger writes `expired`
+  ]
+  for (const p of refused) {
+    const r = await run(['event', '--ait', ait.id, ...common], event(p))
+    assert.notEqual(r.code, 0, `${JSON.stringify(p)} was signed`)
+  }
 })

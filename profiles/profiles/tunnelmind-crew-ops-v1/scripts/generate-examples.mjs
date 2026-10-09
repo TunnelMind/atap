@@ -83,7 +83,7 @@ events.push(await w.witness(ait.id, 'crew_ops:intake_decision', {
 }));
 
 const block = await w.rollUp(ait.id, {
-  autonomy_decisions: { allow: 1, refuse: 0, grant: 0, expire: 0, request: 1, approved: 0, rejected: 0 },
+  autonomy_decisions: { allow: 1, refuse: 0, grant: 0, expired: 0, request: 1, approved: 0, rejected: 0 },
   intake_decisions: { act: 1, park: 0, drop: 0 },
   ratifications: 1,
 });

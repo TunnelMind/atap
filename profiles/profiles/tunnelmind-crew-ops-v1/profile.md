@@ -28,11 +28,11 @@ Every payload requires `timestamp` and `evidence` and sets
 
 | `event_type` | Payload (besides `timestamp`, `evidence`) | `evidence` |
 |---|---|---|
-| `crew_ops:autonomy_decision` | `agent`, `class` (1–3), `action` (`propose` \| `deploy` \| `edit` \| `notify` \| `mail-command`), `decision` (`allow` \| `refuse` \| `grant` \| `expire` \| `request` \| `approved` \| `rejected`), `target_sha256`, optional `reason_sha256` | `asserted` |
+| `crew_ops:autonomy_decision` | `agent`, `class` (1–4; 4 only with `refuse`), `action` (`propose` \| `deploy` \| `edit` \| `notify` \| `mail-command` \| `grant` \| `ratify` \| a Class 4 word), `decision` (`allow` \| `refuse` \| `grant` \| `expired` \| `request` \| `approved` \| `rejected`), `target_sha256`, optional `reason_sha256` | `asserted` |
 | `crew_ops:ratification` | `role` (`owner`), `decision` (`approved` \| `rejected`), `channel` (`cli` \| `mail`), `text_sha256`, optional `dkim_message_id_sha256` (mail only) | `anchored` only with `channel: mail` and `dkim_message_id_sha256`; otherwise `asserted` |
 | `crew_ops:intake_decision` | `by` (`toolsmith` \| `coordinator` \| crew agent id), `source` (`thinker` \| `scout`), `decision` (`act` \| `park` \| `drop`), `title_sha256`, `route` (`workstream` \| `inbox` \| `""`) | `asserted` |
 
-Class 4 actions are never grantable, so `class` stops at 3.
+Class 4 actions are never grantable, so a Class 4 event can only be a refusal (the schema enforces `decision: refuse`); the action is named by the Class 4 word it matched.
 
 ## 4. Attestation Block `period_summary`
 

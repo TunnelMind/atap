@@ -10,12 +10,12 @@
     "autonomy_decisions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["allow", "refuse", "grant", "expire", "request", "approved", "rejected"],
+      "required": ["allow", "refuse", "grant", "expired", "request", "approved", "rejected"],
       "properties": {
         "allow": { "$ref": "#/$defs/count" },
         "refuse": { "$ref": "#/$defs/count" },
         "grant": { "$ref": "#/$defs/count" },
-        "expire": { "$ref": "#/$defs/count" },
+        "expired": { "$ref": "#/$defs/count" },
         "request": { "$ref": "#/$defs/count" },
         "approved": { "$ref": "#/$defs/count" },
         "rejected": { "$ref": "#/$defs/count" }
