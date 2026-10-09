@@ -22,4 +22,4 @@ export {
   type AitInput,
 } from './witness.js'
 export { verifyReceipt, type VerifyOptions, type VerifyResult } from './verify.js'
-export { toSignedStatement, verifySignedStatement } from './scitt.js'
+export { toSignedStatement, verifySignedStatement, cborDecode, CborTag } from './scitt.js'
