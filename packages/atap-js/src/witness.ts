@@ -1,7 +1,7 @@
 // Witness service helpers. The Witness class is what an application profile's
 // witness service uses to sign and chain ATAP artifacts.
 
-import { KeyObject } from 'node:crypto'
+import { createPublicKey, KeyObject } from 'node:crypto'
 import {
   AIT,
   AIT_ID,
@@ -9,6 +9,7 @@ import {
   AttestationPolicy,
   AttestationStrength,
   AB_ID,
+  DidKey,
   GENESIS_HASH,
   HexHash,
   OAI,
@@ -27,6 +28,7 @@ import {
 import { canonicalizeBytes } from './canonicalize.js'
 import { ed25519Sign, fromHex, sha256 } from './crypto.js'
 import { uuidv7 } from './uuid.js'
+import { didKeyFromPublicKey, isDidKey } from './didkey.js'
 
 // ATAP §7.2: event_type is a colon-delimited, profile-namespaced identifier.
 const EVENT_TYPE_RE = /^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)+$/
@@ -55,7 +57,7 @@ export interface WitnessStorage {
 export interface AitInput {
   agentType: string
   profile: string
-  operator: OAI
+  operator: OAI | DidKey
   capabilities: string[]
   constraints?: Record<string, unknown>
   attestationPolicy: AttestationPolicy
@@ -63,7 +65,8 @@ export interface AitInput {
 }
 
 export interface WitnessConfig {
-  witnessOAI: OAI
+  /** An issued OAI, or the did:key of `privateKey`'s public half (ATAP-v0.2 §3). */
+  witnessOAI: OAI | DidKey
   privateKey: KeyObject
   storage: WitnessStorage
   /**
@@ -83,6 +86,19 @@ export class WitnessService {
   private now: () => Date
 
   constructor(cfg: WitnessConfig) {
+    if (isDidKey(cfg.witnessOAI)) {
+      // ATAP-v0.2 §3.1: a did:key witness must be the key it signs with.
+      // The last 32 bytes of an Ed25519 SPKI DER are the raw public key.
+      const spki = createPublicKey(cfg.privateKey).export({ format: 'der', type: 'spki' })
+      const own = didKeyFromPublicKey(new Uint8Array(spki.subarray(spki.length - 32)))
+      if (cfg.witnessOAI !== own) {
+        throw new Error(`witness ${cfg.witnessOAI} is not the did:key of the signing key (${own})`)
+      }
+      // ATAP-v0.2 §3.2: a did:key witness is self-asserted, never stronger.
+      if (cfg.attestationStrength && cfg.attestationStrength !== 'self-asserted') {
+        throw new Error(`a did:key witness is 'self-asserted' only, not '${cfg.attestationStrength}'`)
+      }
+    }
     this.cfg = cfg
     this.now = cfg.now ?? (() => new Date())
   }
@@ -93,6 +109,10 @@ export class WitnessService {
     // signing (or crash with a TypeError that names nothing).
     for (const [k, t] of [['agentType', 'string'], ['profile', 'string'], ['operator', 'string'], ['expiresAt', 'string']] as const) {
       if (typeof (input as unknown as Record<string, unknown>)[k] !== t) throw new Error(`${k} must be a ${t}`)
+    }
+    // ATAP-v0.2 §3: only an Ed25519 did:key may stand in for an OAI.
+    if (input.operator.startsWith('did:') && !isDidKey(input.operator)) {
+      throw new Error('operator did must be an Ed25519 did:key (did:key:z6Mk…)')
     }
     if (!Array.isArray(input.capabilities)) throw new Error('capabilities must be an array')
     if (typeof input.attestationPolicy !== 'object' || input.attestationPolicy === null) {
@@ -126,7 +146,9 @@ export class WitnessService {
       '@context': ATAP_CONTEXT,
       '@type': 'AgentIdentityToken',
       id,
-      ait_version: ATAP_VERSION,
+      // ATAP-v0.2 §3.3: a did:key witness or operator makes this a v0.2 AIT.
+      ait_version:
+        isDidKey(this.cfg.witnessOAI) || isDidKey(input.operator) ? '0.2' : ATAP_VERSION,
       issued_at: issuedAt.toISOString(),
       expires_at: expiresAt.toISOString(),
       agent_type: input.agentType,
@@ -211,7 +233,7 @@ export class WitnessService {
       '@type': 'AttestationBlock',
       id,
       ait: aitId,
-      ab_version: ATAP_VERSION,
+      ab_version: ait.ait_version, // ATAP-v0.2 §3.3: blocks follow their AIT's version
       profile: ait.profile,
       period_start: first.witnessed_at,
       period_end: last.witnessed_at,
@@ -276,9 +298,13 @@ export class WitnessService {
       verifier_url: 'https://tunnelmind.ai/atap/verify.sh',
       keys_url: 'https://tunnelmind.ai/atap/keys',
       files: [...files],
-      ...(this.cfg.attestationStrength
-        ? { attestation_strength: this.cfg.attestationStrength }
-        : {}),
+      // ATAP-v0.2 §3.2: a did:key witness always says 'self-asserted' (the
+      // constructor refused any other configured strength).
+      ...(isDidKey(this.cfg.witnessOAI)
+        ? { attestation_strength: 'self-asserted' as const }
+        : this.cfg.attestationStrength
+          ? { attestation_strength: this.cfg.attestationStrength }
+          : {}),
     }
     const sig = ed25519Sign(canonicalizeBytes(unsigned), this.cfg.privateKey)
     return { ...unsigned, witness_signature: sig }

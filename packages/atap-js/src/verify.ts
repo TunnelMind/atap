@@ -13,7 +13,8 @@ import {
   ATAP_CONTEXT,
 } from './types.js'
 import { canonicalizeBytes } from './canonicalize.js'
-import { ed25519Verify, fromHex, publicKeyFromHex, sha256 } from './crypto.js'
+import { ed25519Verify, fromHex, publicKeyFromHex, sha256, toHex } from './crypto.js'
+import { isDidKey, publicKeyFromDidKey } from './didkey.js'
 
 export interface VerifyOptions {
   receipt: Receipt
@@ -44,11 +45,43 @@ function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | nu
   return null
 }
 
+// ATAP-v0.2 §3.1/§3.2: a key entry for a did:key witness must carry the key
+// the did:key encodes and declare 'self-asserted'. Returns why not, or null.
+function didKeyEntryProblem(k: PublicKey, didRaw: Uint8Array): string | null {
+  if (toHex(fromHex(k.public_key)) !== toHex(didRaw)) {
+    return `key ${k.key_id} public_key is not the key ${k.witness} encodes (ATAP-v0.2 §3.1)`
+  }
+  if (k.attestation_strength !== 'self-asserted') {
+    return `key ${k.key_id} for did:key witness must declare attestation_strength 'self-asserted', got '${k.attestation_strength ?? 'absent'}' (ATAP-v0.2 §3.2)`
+  }
+  return null
+}
+
 export function verifyReceipt(opts: VerifyOptions): VerifyResult {
   const { receipt, ait, chain, keys } = opts
 
   if (ait['@context'] !== ATAP_CONTEXT) {
     return { ok: false, blocks: 0, reason: `bad @context on AIT` }
+  }
+  if (receipt.witness !== ait.witness) {
+    return { ok: false, blocks: 0, reason: `receipt witness ${receipt.witness} != AIT witness ${ait.witness}` }
+  }
+
+  // ATAP-v0.2 §3. `didRaw` is the witness's own public key when the witness is
+  // a did:key; null for an OAI witness, which verifies exactly as in v0.1 (§3.4).
+  let didRaw: Uint8Array | null = null
+  let didIdentified = false
+  for (const [field, id] of [['witness', ait.witness], ['operator', ait.operator]] as const) {
+    if (!id.startsWith('did:')) continue
+    didIdentified = true
+    if (!isDidKey(id)) {
+      return { ok: false, blocks: 0, reason: `AIT ${field} ${id} is not an Ed25519 did:key (ATAP-v0.2 §3)` }
+    }
+    // §3.3: a did:key-identified AIT must declare 0.2.
+    if (ait.ait_version !== '0.2') {
+      return { ok: false, blocks: 0, reason: `AIT with did:key ${field} declares ait_version '${ait.ait_version}', want '0.2' (ATAP-v0.2 §3.3)` }
+    }
+    if (field === 'witness') didRaw = publicKeyFromDidKey(id) // §3.5: only the witness binds a key
   }
 
   // 1. AIT signature
@@ -59,6 +92,10 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
       blocks: 0,
       reason: `no key for AIT witness ${ait.witness} at ${ait.issued_at}`,
     }
+  }
+  if (didRaw) {
+    const problem = didKeyEntryProblem(aitKey, didRaw)
+    if (problem) return { ok: false, blocks: 0, reason: problem }
   }
   const { witness_signature: aitSig, ...aitMinusSig } = ait
   const aitOk = ed25519Verify(
@@ -71,6 +108,10 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
   // 2. Block chain
   let prev: HexHash = GENESIS_HASH
   for (const block of chain) {
+    // ATAP-v0.2 §3.3: every block under a did:key-identified AIT declares 0.2.
+    if (didIdentified && block.ab_version !== '0.2') {
+      return { ok: false, blocks: 0, reason: `block ${block.id} declares ab_version '${block.ab_version}' under a v0.2 AIT (ATAP-v0.2 §3.3)` }
+    }
     if (block.prev_block_hash !== prev) {
       return {
         ok: false,
@@ -91,6 +132,10 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
         reason: `no key for ${receipt.witness} at ${block.period_end}`,
       }
     }
+    if (didRaw) {
+      const problem = didKeyEntryProblem(blockKey, didRaw)
+      if (problem) return { ok: false, blocks: 0, reason: problem }
+    }
     const blockOk = ed25519Verify(
       fromHex(self_hash), // ATAP §7.7: signature is over the raw 32-byte digest
       witness_signature,
@@ -107,6 +152,31 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
       ok: false,
       blocks: chain.length,
       reason: `receipt chain_head_hash ${receipt.chain_head_hash} != last block self_hash ${prev}`,
+    }
+  }
+
+  // Receipt signature, over the canonical receipt minus its signature, under
+  // the key valid when it was generated. ATAP-v0.2 §3.1 requires it for
+  // did:key witnesses; v0.1 records get it too.
+  const rcptKey = pickKey(keys, receipt.witness, receipt.generated_at)
+  if (!rcptKey) {
+    return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${receipt.generated_at}` }
+  }
+  if (didRaw) {
+    const problem = didKeyEntryProblem(rcptKey, didRaw)
+    if (problem) return { ok: false, blocks: chain.length, reason: problem }
+  }
+  const { witness_signature: rcptSig, ...rcptMinusSig } = receipt
+  if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, publicKeyFromHex(rcptKey.public_key))) {
+    return { ok: false, blocks: chain.length, reason: 'receipt signature invalid' }
+  }
+
+  // ATAP-v0.2 §3.2: a did:key receipt says exactly 'self-asserted'; absent is not enough.
+  if (didRaw && receipt.attestation_strength !== 'self-asserted') {
+    return {
+      ok: false,
+      blocks: chain.length,
+      reason: `did:key witness receipt must carry attestation_strength 'self-asserted', got '${receipt.attestation_strength ?? 'absent'}' (ATAP-v0.2 §3.2)`,
     }
   }
 

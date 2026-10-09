@@ -13,6 +13,7 @@ export {
   toHex,
   fromHex,
 } from './crypto.js'
+export { didKeyFromPublicKey, publicKeyFromDidKey, isDidKey } from './didkey.js'
 export { uuidv7, isValidUuidv7, UUIDV7_RE } from './uuid.js'
 export {
   WitnessService,

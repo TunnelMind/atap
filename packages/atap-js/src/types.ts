@@ -5,6 +5,8 @@ export type Iso8601 = string
 export type HexHash = `0x${string}`
 export type Ed25519Sig = `ed25519:0x${string}`
 export type OAI = `OAI-${number}-${number}`
+/** Ed25519 did:key (ATAP-v0.2 §3). Valid as witness/operator alongside an issued OAI. */
+export type DidKey = `did:key:z${string}`
 export type AIT_ID = `AIT-${string}`
 export type WE_ID = `ATAP-WE-${string}`
 export type AB_ID = `ATAP-AB-${string}`
@@ -38,13 +40,13 @@ export interface AIT {
   '@context': 'https://tunnelmind.ai/atap/context.jsonld'
   '@type': 'AgentIdentityToken'
   id: AIT_ID
-  ait_version: '0.1'
+  ait_version: '0.1' | '0.2'
   issued_at: Iso8601
   expires_at: Iso8601
   agent_type: string
   profile: string
-  operator: OAI
-  witness: OAI
+  operator: OAI | DidKey
+  witness: OAI | DidKey
   capabilities: string[]
   constraints?: Record<string, unknown>
   attestation_policy: AttestationPolicy
@@ -69,7 +71,7 @@ export interface AttestationBlock {
   '@type': 'AttestationBlock'
   id: AB_ID
   ait: AIT_ID
-  ab_version: '0.1'
+  ab_version: '0.1' | '0.2'
   profile: string
   period_start: Iso8601
   period_end: Iso8601
@@ -102,7 +104,7 @@ export interface Receipt {
   first_block: AB_ID
   last_block: AB_ID
   chain_head_hash: HexHash
-  witness: OAI
+  witness: OAI | DidKey
   format: 'full' | 'summary'
   generated_at: Iso8601
   verifier_url: string
@@ -118,7 +120,7 @@ export interface Receipt {
 }
 
 export interface PublicKey {
-  witness: OAI
+  witness: OAI | DidKey
   key_id: string
   algorithm: 'ed25519'
   public_key: HexHash
