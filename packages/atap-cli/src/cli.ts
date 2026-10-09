@@ -590,6 +590,20 @@ async function init(v: Values): Promise<Record<string, string>> {
   }
 }
 
+// The nearest .atap/config.json at or above `from`, like git finding .git, so
+// commands run anywhere inside an init'd project need no flags. A missing or
+// unparseable config counts as no config: explicit flags still work.
+async function findAtap(from = process.cwd()): Promise<{ dir: string; config: Record<string, unknown> } | null> {
+  for (let d = resolve(from); ; ) {
+    const dir = join(d, '.atap')
+    const config = await readFile(join(dir, 'config.json'), 'utf8').then(JSON.parse).catch(() => null)
+    if (isObject(config)) return { dir, config }
+    const up = resolve(d, '..')
+    if (up === d) return null
+    d = up
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values: v, positionals: pos } = parseArgs({
     args: argv,
@@ -627,6 +641,19 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(json(result))
     return result.ok ? 0 : 1
   }
+  // Flags left out fall back to the nearest .atap/config.json (init's output).
+  // Explicit flags win; for the OAI so does ATAP_WITNESS_OAI. scitt takes only
+  // the key: its <dir> is a receipt dir, not the store.
+  const atap = await findAtap()
+  const str = (x: unknown): string | undefined => (typeof x === 'string' ? x : undefined)
+  const atapKey = str(atap?.config.key)
+  if (atap && atapKey) v.key ??= resolve(atap.dir, atapKey)
+  if (atap && cmd !== 'scitt') {
+    v.dir ??= atap.dir
+    v['witness-oai'] ??= process.env.ATAP_WITNESS_OAI ?? str(atap.config.witness_oai)
+    v.ait ??= str(atap.config.ait)
+  }
+
   // Like verify, scitt reads only the receipt dir: no witness, stdin or lock.
   if (cmd === 'scitt') {
     if (!['export', 'verify', 'register'].includes(pos[1] ?? '') || !pos[2]) {
