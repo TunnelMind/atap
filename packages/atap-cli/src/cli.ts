@@ -10,7 +10,7 @@
 
 import { createHash, createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
@@ -70,6 +70,7 @@ const USAGE = `usage:
   atap-witness verify DIR
   atap-witness scitt export DIR --key K --issuer ISS
   atap-witness scitt verify DIR
+  atap-witness scitt register DIR --service URL
 
 Global: --dir (store, default ./.atap-witness), --strength (default self-asserted),
 --profiles-dir (profile registry + schemas, default the repo's profiles/).
@@ -86,6 +87,7 @@ type Values = {
   'profiles-dir'?: string
   'unregistered-profile'?: boolean
   issuer?: string
+  service?: string
 }
 
 async function readStdin(): Promise<string> {
@@ -458,6 +460,52 @@ async function scittVerify(dir: string): Promise<{ ok: boolean; statements: numb
   }
 }
 
+// Registration is the only command that touches the network, and only when
+// called with --service. Refuses to post unless scitt verify passes first.
+// SCRAPI = draft-ietf-scitt-scrapi-11.
+async function scittRegister(dir: string, service: string | undefined): Promise<{ service: string; registered: number; receipts: string[] }> {
+  let base: URL
+  try {
+    base = new URL(service ?? '')
+  } catch {
+    throw new Error('--service <URL> is required and must be an http(s) URL')
+  }
+  if (base.protocol !== 'http:' && base.protocol !== 'https:') throw new Error('--service must be an http: or https: URL')
+  // fetch would echo a URL with credentials in its error; refuse them here.
+  if (base.username || base.password) throw new Error('--service must not carry credentials')
+  // Only origin + path are ever printed; credentials or a query stay out of output.
+  const shown = base.origin + base.pathname
+  const root = resolve(dir, SCITT_DIR)
+  const index = await readJsonFile<ScittIndexEntry[]>(root, 'index.json')
+  if (!Array.isArray(index)) throw new Error('scitt/index.json is not an array')
+  const checked = await scittVerify(dir)
+  if (!checked.ok) throw new Error(`scitt verify failed, nothing registered: ${checked.reason}`)
+  // SCRAPI §2.3: "POST /entries". The path is a non-normative example, so
+  // --service is taken as the service base and /entries appended to it.
+  const endpoint = new URL(base.pathname.replace(/\/?$/, '/entries'), base)
+  const receipts: string[] = []
+  for (const e of index) {
+    if (escapes(root, e.file)) throw new Error(`${e.file} escapes the scitt directory`)
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      // SCRAPI §2.3: the request body is the COSE_Sign1 as application/cose.
+      headers: { 'content-type': 'application/cose', accept: 'application/cose' },
+      body: await readFile(join(root, e.file)),
+    })
+    // SCRAPI §2.3.1: 201 carries the receipt as its body. §2.3.2's 202 means
+    // registration is still running (receipt later via §2.4 Location polling);
+    // ponytail: no polling or retry, 202 and every other status fail.
+    if (res.status !== 201) throw new Error(`${shown} answered ${res.status} for scitt/${e.file}; no receipt written`)
+    const body = Buffer.from(await res.arrayBuffer())
+    const name = e.file.replace(/\.cose$/, '') + '.receipt'
+    // Whole body read first, then tmp + rename, so a crash leaves no half receipt.
+    await writeFile(join(root, `${name}.tmp`), body)
+    await rename(join(root, `${name}.tmp`), join(root, name))
+    receipts.push(name)
+  }
+  return { service: shown, registered: receipts.length, receipts }
+}
+
 // The kid from a COSE_Sign1's protected header (label 4), or null if the bytes
 // are not a well-formed statement.
 function statementKid(bytes: Uint8Array): string | null {
@@ -486,6 +534,7 @@ async function main(argv: string[]): Promise<number> {
       'profiles-dir': { type: 'string' },
       'unregistered-profile': { type: 'boolean' },
       issuer: { type: 'string' },
+      service: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   }) as { values: Values; positionals: string[] }
@@ -503,8 +552,12 @@ async function main(argv: string[]): Promise<number> {
   }
   // Like verify, scitt reads only the receipt dir: no witness, stdin or lock.
   if (cmd === 'scitt') {
-    if ((pos[1] !== 'export' && pos[1] !== 'verify') || !pos[2]) {
-      throw new Error('usage: atap-witness scitt <export | verify> <dir>')
+    if (!['export', 'verify', 'register'].includes(pos[1] ?? '') || !pos[2]) {
+      throw new Error('usage: atap-witness scitt <export | verify | register> <dir>')
+    }
+    if (pos[1] === 'register') {
+      process.stdout.write(json(await scittRegister(pos[2], v.service)))
+      return 0
     }
     if (pos[1] === 'export') {
       process.stdout.write(json(await scittExport(pos[2], v)))
