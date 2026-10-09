@@ -162,3 +162,6 @@ def off():
     """Stop recording for the rest of the process, as ATAP_OFF=1."""
     global _off
     _off = True
+
+
+from . import code  # noqa: E402
