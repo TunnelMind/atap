@@ -239,10 +239,14 @@ export class WitnessService {
     periodEnd: string,
     format: 'full' | 'summary' = 'full',
     files: ReadonlyArray<{ path: string; sha256: HexHash | null }> = [],
+    // A chain is ordered by its hash links, not by timestamps: blocks written
+    // before witness() clamped the clock can have periods that step back, and
+    // a time filter would drop them. Pass the blocks to cover them by order.
+    blocks?: ReadonlyArray<AttestationBlock>,
   ): Promise<Receipt> {
     const ait = await this.cfg.storage.loadAit(aitId)
     if (!ait) throw new Error(`unknown AIT ${aitId}`)
-    const blocks = await this.cfg.storage.blocksInPeriod(aitId, periodStart, periodEnd)
+    blocks ??= await this.cfg.storage.blocksInPeriod(aitId, periodStart, periodEnd)
     if (blocks.length === 0) {
       throw new Error(`no blocks for ${aitId} in [${periodStart}, ${periodEnd}]`)
     }
