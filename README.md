@@ -27,6 +27,7 @@ order, without trusting the agent's self-report.
 | [`packages/atap-js/`](./packages/atap-js/) | Reference TypeScript wrapper — `@tunnelmindai/atap` on npm. |
 | [`packages/atap-cli/`](./packages/atap-cli/) | `atap-witness` — file-backed witness CLI (`@tunnelmindai/atap-cli`), JSON on stdin and stdout. Source checkout only, not on npm. |
 | [`plugins/claude-code/`](./plugins/claude-code/) | Claude Code plugin that records commits and test runs as witness events. |
+| [`actions/witness/`](./actions/witness/) | GitHub Action that witnesses a CI test run under an ephemeral did:key and uploads its Receipt (self-asserted: integrity only). |
 
 ## What ATAP solves
 

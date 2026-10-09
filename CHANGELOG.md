@@ -27,6 +27,7 @@ All notable changes to ATAP are recorded here.
 
 ### Added
 
+- [`actions/witness/`](./actions/witness/) — a GitHub Action that witnesses a CI test run (ephemeral did:key, self-asserted) and uploads its Receipt as the `atap-receipt` artifact.
 - ATAP v0.2 did:key witnesses (DRAFT, unpublished) —
   [`ATAP-v0.2.md`](./ATAP-v0.2.md) is a delta to v0.1 letting `witness` and
   `operator` be an Ed25519 `did:key` (always `self-asserted`), with schemas in
