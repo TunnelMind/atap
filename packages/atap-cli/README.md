@@ -20,6 +20,26 @@ source checkout.
 `receipt` also needs the `zip` binary. The receipt's `verify.sh` needs bash,
 openssl, jq and python3 (see the [root README](../../README.md)).
 
+## Quickstart
+
+In an empty directory, with `atap-witness` on your PATH. `init` writes a key
+and an AIT to `.atap/`, so no command after it needs flags.
+
+```sh
+atap-witness init
+echo '{"event_type":"code_crew:task_claimed","payload":{"timestamp":"2026-10-08T12:00:01.500Z","evidence":"asserted","task_id":"A101","role":"coder","model":"claude-opus-5-5"}}' | atap-witness event
+echo '{"event_type":"code_crew:task_claimed","payload":{"timestamp":"2026-10-08T12:00:02.500Z","evidence":"asserted","task_id":"A102","role":"coder","model":"claude-opus-5-5"}}' | atap-witness event
+echo '{"event_type":"code_crew:task_claimed","payload":{"timestamp":"2026-10-08T12:00:03.500Z","evidence":"asserted","task_id":"A103","role":"coder","model":"claude-opus-5-5"}}' | atap-witness event
+echo '{"tasks_accepted":3,"tasks_rework":0,"merged_changes":0,"tokens":0,"overturns":{}}' | atap-witness block
+atap-witness receipt --out receipt
+atap-witness verify receipt
+```
+
+The last command prints `"ok": true` and `"blocks": 1` and exits 0. The bundled verifier
+checks the same receipt: `./receipt/verify.sh receipt`.
+[`test/quickstart.test.mjs`](./test/quickstart.test.mjs) runs this block as
+written and times it.
+
 ## Commands
 
 ```
