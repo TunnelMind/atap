@@ -20,6 +20,7 @@ order, without trusting the agent's self-report.
 | Path | Purpose |
 |---|---|
 | [`ATAP-v0.1.md`](./ATAP-v0.1.md) | The canonical specification. |
+| [`ATAP-v0.2.md`](./ATAP-v0.2.md) | DRAFT delta to v0.1: did:key witnesses. Not published; v0.1 remains the standard in force. |
 | [`schemas/v0.1/`](./schemas/v0.1/) | JSON Schemas for AIT, Witness Event, Attestation Block, Receipt, and the public-key endpoint. |
 | [`context.jsonld`](./context.jsonld) | JSON-LD context for ATAP artifacts. |
 | [`verify.sh`](./verify.sh) | Reference verifier (bash + openssl + jq + python3). Anyone can audit it in one sitting. |
