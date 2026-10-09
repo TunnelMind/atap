@@ -163,3 +163,68 @@ test('crew_ops autonomy_decision matches the rails ledger: grant/ratify actions,
     assert.notEqual(r.code, 0, `${JSON.stringify(p)} was signed`)
   }
 })
+
+test('crew_ops owner_command: done and refused per command, both verifiers pass, PII cases refused', async () => {
+  const ctx = setup()
+  const common = ['--dir', ctx.store, '--key', ctx.keyPath, '--witness-oai', WITNESS]
+  const example = readJson(PROFILE_DIR, 'examples/ait.json')
+  const ait = await ok(['ait', 'declare', ...common], JSON.stringify({
+    agentType: 'crew-ops', profile: PROFILE, operator: 'OAI-2026-0010001',
+    capabilities: Object.keys(readJson(PROFILE_DIR, 'capabilities.json').capabilities),
+    constraints: example.constraints, attestationPolicy: example.attestation_policy,
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+  }))
+
+  // Mail commands are anchored on the Message-ID digest; CLI commands are
+  // asserted and carry none. crew_start and ratify_no come in over the CLI.
+  const commands = ['crew_stop', 'crew_start', 'ratify_yes', 'ratify_no']
+  const payloads = commands.flatMap(command => ['done', 'refused'].map(outcome => ({
+    timestamp: new Date().toISOString(), role: 'owner', command, outcome,
+    target_sha256: 'b'.repeat(64),
+    ...(command === 'crew_start' || command === 'ratify_no'
+      ? { channel: 'cli', evidence: 'asserted' }
+      : { channel: 'mail', evidence: 'anchored', message_sha256: 'c'.repeat(64) }),
+  })))
+  assert.equal(payloads.length, 8)
+
+  // Halfway, every owner_command PII case is refused before signing; the next
+  // event still chaining from the pre-refusal head proves the store untouched.
+  const pii = readJson(PROFILE_DIR, 'tests/pii-rejection.json').must_reject
+    .filter(c => c.event.event_type === 'crew_ops:owner_command')
+  assert.equal(pii.length, 9)
+  let last
+  for (const [i, payload] of payloads.entries()) {
+    if (i === 4) {
+      for (const c of pii) {
+        const r = await run(['event', '--ait', ait.id, ...common], JSON.stringify(c.event))
+        assert.notEqual(r.code, 0, `${c.name} was signed`)
+        assert.match(r.stderr, /witness-events\.schema\.json/, c.name)
+        for (const v of Object.values(c.event.payload)) {
+          if (/[@<]|\s/.test(v)) assert.ok(!r.stderr.includes(v), `${c.name} echoed ${v}`)
+        }
+      }
+    }
+    const ev = await ok(['event', '--ait', ait.id, ...common],
+      JSON.stringify({ event_type: 'crew_ops:owner_command', payload }))
+    if (last) assert.equal(ev.prev_event_hash, last.self_hash)
+    last = ev
+  }
+
+  const outcomes = { done: 1, refused: 1, failed: 0 }
+  const summary = {
+    autonomy_decisions: { allow: 0, refuse: 0, grant: 0, expired: 0, request: 0, approved: 0, rejected: 0 },
+    intake_decisions: { act: 0, park: 0, drop: 0 },
+    ratifications: 0,
+    owner_commands: Object.fromEntries(commands.map(c => [c, outcomes])),
+  }
+  const block = await ok(['block', '--ait', ait.id, ...common], JSON.stringify(summary))
+  assert.equal(block.event_count, payloads.length)
+  assert.equal(block.chain_head_hash, last.self_hash)
+
+  const out = join(ctx.tmp, 'receipt')
+  await ok(['receipt', '--ait', ait.id, '--out', out, ...common], '')
+  const { sh, lib } = verifyBoth(out)
+  assert.equal(sh.status, 0, sh.stdout + sh.stderr)
+  assert.equal(lib.ok, true, lib.reason)
+  assert.equal((await ok(['verify', out])).ok, true)
+})
