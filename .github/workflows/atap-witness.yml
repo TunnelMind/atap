@@ -8,6 +8,8 @@ on:
   pull_request:
     paths:
       - 'packages/**'
+      - 'profiles/**'
+      - 'verify.sh'
       - 'actions/witness/**'
       - '.github/workflows/atap-witness.yml'
 

@@ -40,10 +40,14 @@ function runTest(command, env) {
     const child = spawn('sh', ['-c', command], { env, stdio: ['inherit', 'pipe', 'pipe'] })
     child.stdout.on('data', d => { hash.update(d); process.stdout.write(d) })
     child.stderr.on('data', d => { hash.update(d); process.stderr.write(d) })
-    child.on('error', () => resolve({ code: 1, outputSha: hash.digest('hex') }))
+    // A spawn failure fires 'error' and then 'close'; digest() may only run once (a second call
+    // throws in an event handler, an uncaught crash: review low, 2026-10-09). First event wins.
+    let done = false
+    const finish = code => { if (done) return; done = true; resolve({ code, outputSha: hash.digest('hex') }) }
+    child.on('error', () => finish(1))
     child.on('close', (code, signal) => {
       const sig = signal && constants.signals[signal]
-      resolve({ code: code ?? (sig ? 128 + sig : 1), outputSha: hash.digest('hex') })
+      finish(code ?? (sig ? 128 + sig : 1))
     })
   })
 }
