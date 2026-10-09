@@ -8,15 +8,17 @@
 // Before signing, event payloads and block period_summaries are validated
 // against the AIT's profile schemas; a refused call writes nothing.
 
-import { createHash, createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import {
   ATTESTATION_STRENGTH_RANK,
   GENESIS_HASH,
+  MAX_AIT_LIFETIME_DAYS,
   CborTag,
   WitnessService,
   canonicalizeBytes,
@@ -63,7 +65,10 @@ const RECEIPT_FILES = [
 ] as const
 
 const USAGE = `usage:
+  atap-witness init [--profile ID] [--dir .atap] [--force]
+  atap-witness status
   atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
+  atap-witness ait rotate             (inside an init'd project; no stdin)
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
   atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
@@ -88,6 +93,8 @@ type Values = {
   'unregistered-profile'?: boolean
   issuer?: string
   service?: string
+  profile?: string
+  force?: boolean
 }
 
 async function readStdin(): Promise<string> {
@@ -520,6 +527,130 @@ function statementKid(bytes: Uint8Array): string | null {
   }
 }
 
+// A local witness's OAI, derived from its public key: OAI-0000-<7 digits of
+// sha256(public key hex) mod 10^7>. Self-asserted; no registry issued it.
+// D9: Josh: is the OAI-0000 local range acceptable, or should the standard
+// reserve one explicitly?
+function localOai(privateKey: KeyObject): OAI {
+  const n = BigInt('0x' + createHash('sha256').update(publicHex(privateKey)).digest('hex')) % 10_000_000n
+  return `OAI-0000-${n.toString().padStart(7, '0')}` as OAI
+}
+
+// The files init writes, plus the store's. --force deletes only these, never
+// the whole dir, and only in a dir that is already a store (holds aits.jsonl):
+// init refuses any other non-empty dir, so `--dir . --force` in a project
+// cannot replace its own .gitignore or config.json.
+const INIT_FILES = ['witness.pem', '.gitignore', 'config.json', 'aits.jsonl', 'events.jsonl', 'blocks.jsonl', 'cleared.jsonl', 'last-receipt.json']
+
+// One event and one period_summary the default profile accepts, for the
+// recipe init prints (both from tunnelmind:code_crew:v1's schemas).
+const RECIPE_EVENT = {
+  event_type: 'code_crew:task_claimed',
+  payload: { timestamp: '2026-10-08T12:00:01.500Z', evidence: 'asserted', task_id: 'A101', role: 'coder', model: 'claude-opus-5-5' },
+}
+const RECIPE_SUMMARY = { tasks_accepted: 1, tasks_rework: 0, merged_changes: 0, tokens: 0, overturns: {} }
+
+// What init found around the project and what to run next, for a human on
+// stderr (stdout stays the config JSON). Detection only reads files: no
+// subprocess, no network, and it never acts on what it finds. The project is
+// the parent of --dir, which is cwd for the default ./.atap.
+async function nextSteps(dir: string, profile: string): Promise<string> {
+  const project = resolve(dir, '..')
+  const has = (f: string) => existsSync(join(project, f))
+  const onPath = (bin: string) => (process.env.PATH ?? '').split(delimiter).some(d => d !== '' && existsSync(join(d, bin)))
+  const gitConfig = await readFile(join(project, '.git', 'config'), 'utf8').catch(() => '')
+  const yes = (b: boolean) => (b ? 'yes' : 'no')
+  const q = (v: unknown) => `'${JSON.stringify(v)}'`
+  const lines = [
+    `git: ${yes(has('.git'))}`,
+    `claude code: ${yes(has('.claude') || onPath('claude'))}`,
+    `github: ${yes(has('.github') || gitConfig.includes('github.com'))}`,
+    `python: ${yes(has('pyproject.toml') || has('requirements.txt'))}`,
+    '',
+    'next steps (run anywhere inside this project; no flags needed):',
+    // ponytail: the recipe's payloads fit only the default profile; other
+    // profiles get a pointer to their own schemas.
+    profile === 'tunnelmind:code_crew:v1'
+      ? `  echo ${q(RECIPE_EVENT)} | atap-witness event\n  echo ${q(RECIPE_SUMMARY)} | atap-witness block`
+      : `  echo '{"event_type":...,"payload":{...}}' | atap-witness event   (payloads per ${profile}'s schemas)\n  echo '{...period_summary...}' | atap-witness block`,
+    '  atap-witness receipt --out DIR',
+    '  atap-witness verify DIR',
+    '',
+    'The Claude Code plugin, the GitHub Action and the Python package are not released yet.',
+  ]
+  return lines.join('\n') + '\n'
+}
+
+// `init`: one command from nothing to a witness with a declared AIT. Every
+// check (dir, profile, capabilities) runs before the first write; a failure
+// after that removes the dir if init created it.
+async function init(v: Values): Promise<Record<string, string>> {
+  const dir = resolve(v.dir ?? '.atap')
+  const profile = v.profile ?? 'tunnelmind:code_crew:v1'
+  const exists = await stat(dir).then(() => true, () => false)
+  const listing = exists ? await readdir(dir) : []
+  if (listing.length && !listing.includes('aits.jsonl')) throw new Error(`${dir} is not an atap store; choose an empty dir or the default .atap`)
+  if (listing.length && !v.force) throw new Error(`${dir} exists; pass --force to re-initialise it`)
+  if (exists && (await readFile(join(dir, 'events.jsonl'), 'utf8').catch(() => '')).trim() !== '') {
+    throw new Error(`${dir} already holds witness events; refusing to re-initialise it`)
+  }
+  const profilesDir = resolve(v['profiles-dir'] ?? PROFILES_DIR)
+  const profiles = await Profiles.load(profilesDir)
+  if (!profiles.isRegistered(profile)) throw new Error(`profile ${profile} is not in the profile registry`)
+  const { profiles: entries } = await readJsonFile<{ profiles: { id: string; path: string }[] }>(profilesDir, 'registry.json')
+  const entry = entries.find(e => e.id === profile)!
+  const caps = await readJsonFile<{ capabilities: Record<string, string> }>(join(profilesDir, entry.path), 'capabilities.json')
+
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const witness = localOai(privateKey)
+  // No constraints: they are optional in the core schema, and a profile's
+  // constraints (allowed_repos, models, ...) are the operator's to declare.
+  // The core's maximum lifetime, so a drop-in outlives its first AIT for a
+  // year; `ait rotate` declares the next one in the same store.
+  const input: AitInput = {
+    agentType: profile.split(':')[1] ?? profile,
+    profile,
+    operator: witness,
+    capabilities: Object.keys(caps.capabilities),
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(Date.now() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
+  }
+
+  if (exists) for (const f of INIT_FILES) await rm(join(dir, f), { force: true })
+  try {
+    await mkdir(dir, { recursive: true })
+    const keyPath = join(dir, 'witness.pem')
+    await writeFile(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 })
+    // writeFile's mode is masked by umask and ignored for an existing file.
+    await chmod(keyPath, 0o600)
+    await writeFile(join(dir, '.gitignore'), 'witness.pem\n')
+    const storage = new DirStorage(dir, profiles.coreGuards())
+    const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: 'self-asserted' })
+    const ait = await withLock(dir, () => svc.declareAit(input))
+    // key is relative to the dir, so the dir can move as a whole.
+    const config = { profile, key: 'witness.pem', witness_oai: witness, oai_origin: 'self-asserted', ait: ait.id }
+    await writeFile(join(dir, 'config.json'), json(config))
+    return config
+  } catch (e) {
+    if (!exists) await rm(dir, { recursive: true, force: true })
+    throw e
+  }
+}
+
+// The nearest .atap/config.json at or above `from`, like git finding .git, so
+// commands run anywhere inside an init'd project need no flags. A missing or
+// unparseable config counts as no config: explicit flags still work.
+async function findAtap(from = process.cwd()): Promise<{ dir: string; config: Record<string, unknown> } | null> {
+  for (let d = resolve(from); ; ) {
+    const dir = join(d, '.atap')
+    const config = await readFile(join(dir, 'config.json'), 'utf8').then(JSON.parse).catch(() => null)
+    if (isObject(config)) return { dir, config }
+    const up = resolve(d, '..')
+    if (up === d) return null
+    d = up
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values: v, positionals: pos } = parseArgs({
     args: argv,
@@ -535,6 +666,8 @@ async function main(argv: string[]): Promise<number> {
       'unregistered-profile': { type: 'boolean' },
       issuer: { type: 'string' },
       service: { type: 'string' },
+      profile: { type: 'string' },
+      force: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   }) as { values: Values; positionals: string[] }
@@ -542,14 +675,61 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(USAGE)
     return 0
   }
-  const cmd = pos[0] === 'ait' && pos[1] === 'declare' ? 'ait declare' : pos[0]
+  const cmd = pos[0] === 'ait' && (pos[1] === 'declare' || pos[1] === 'rotate') ? `ait ${pos[1]}` : pos[0]
 
+  // Kill switch for hooks: a hook must never break the user's workflow, so
+  // ATAP_OFF=1 turns the two hook-facing writes into silent no-ops before any
+  // stdin read, key load or lock.
+  if (process.env.ATAP_OFF === '1' && (cmd === 'event' || cmd === 'block')) {
+    process.stderr.write(`atap-witness: ATAP_OFF=1, ignoring ${cmd}\n`)
+    return 0
+  }
+
+  // init makes its own key and OAI, so it runs before the witness/stdin checks.
+  if (cmd === 'init') {
+    const config = await init(v)
+    process.stdout.write(json(config))
+    // A hint must never fail an init that already succeeded.
+    process.stderr.write(await nextSteps(resolve(v.dir ?? '.atap'), config.profile!).catch(() => ''))
+    return 0
+  }
+  // Read-only summary of the nearest .atap: no stdin, key or lock.
+  if (cmd === 'status') {
+    const atap = await findAtap()
+    if (!atap) throw new Error('no .atap/config.json here or in any parent dir; run atap-witness init')
+    const { profile, ait, witness_oai } = atap.config
+    const storage = new DirStorage(atap.dir, {})
+    const lastReceipt = await readFile(join(atap.dir, 'last-receipt.json'), 'utf8').then(JSON.parse).catch(() => null)
+    process.stdout.write(json({
+      profile,
+      ait,
+      witness_oai,
+      dir: atap.dir,
+      events: (await storage.eventsOf(ait as AIT_ID)).length,
+      blocks: (await storage.blocksOf(ait as AIT_ID)).length,
+      last_receipt: lastReceipt,
+    }))
+    return 0
+  }
   if (cmd === 'verify') {
     if (!pos[1]) throw new Error('usage: atap-witness verify <dir>')
     const result = await verify(pos[1])
     process.stdout.write(json(result))
     return result.ok ? 0 : 1
   }
+  // Flags left out fall back to the nearest .atap/config.json (init's output).
+  // Explicit flags win; for the OAI so does ATAP_WITNESS_OAI. scitt takes only
+  // the key: its <dir> is a receipt dir, not the store.
+  const atap = await findAtap()
+  const str = (x: unknown): string | undefined => (typeof x === 'string' ? x : undefined)
+  const atapKey = str(atap?.config.key)
+  if (atap && atapKey) v.key ??= resolve(atap.dir, atapKey)
+  if (atap && cmd !== 'scitt') {
+    v.dir ??= atap.dir
+    v['witness-oai'] ??= process.env.ATAP_WITNESS_OAI ?? str(atap.config.witness_oai)
+    v.ait ??= str(atap.config.ait)
+  }
+
   // Like verify, scitt reads only the receipt dir: no witness, stdin or lock.
   if (cmd === 'scitt') {
     if (!['export', 'verify', 'register'].includes(pos[1] ?? '') || !pos[2]) {
@@ -567,8 +747,8 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(json(result))
     return result.ok ? 0 : 1
   }
-  if (!['ait declare', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
-    throw new Error('usage: atap-witness <ait declare | event | block | receipt | verify | scitt> [options]')
+  if (!['ait declare', 'ait rotate', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
+    throw new Error('usage: atap-witness <init | status | ait declare | ait rotate | event | block | receipt | verify | scitt> [options]')
   }
 
   const strength = parseStrength(v.strength)
@@ -576,8 +756,12 @@ async function main(argv: string[]): Promise<number> {
   if (!witness) throw new Error('--witness-oai <OAI> (or ATAP_WITNESS_OAI) is required')
   const privateKey = await loadKey(v.key)
   const dir = resolve(v.dir ?? '.atap-witness')
+  // rotate rewrites the config it was found through, so it needs one, for this store.
+  if (cmd === 'ait rotate' && (!atap || dir !== atap.dir)) {
+    throw new Error('ait rotate needs the store\'s .atap/config.json; run it inside an init\'d project')
+  }
   // Read stdin before taking the lock so a slow writer never holds it.
-  const input = cmd === 'receipt' ? null : await stdinJson(cmd === 'block')
+  const input = cmd === 'receipt' || cmd === 'ait rotate' ? null : await stdinJson(cmd === 'block')
   const profiles = cmd === 'receipt' ? null : await Profiles.load(resolve(v['profiles-dir'] ?? PROFILES_DIR))
   // Every signed AIT, event and block is checked against its whole core schema
   // as it is written; `receipt` writes nothing, so it needs no guards.
@@ -600,6 +784,26 @@ async function main(argv: string[]): Promise<number> {
         }
         await profiles!.checkAit(input)
         return svc.declareAit(input as unknown as AitInput)
+      case 'ait rotate': {
+        // A fresh AIT with the current one's terms. The old AIT and its
+        // events, blocks and receipts stay as they are and keep verifying;
+        // only config.json moves on, so later commands chain under the new one.
+        const old = await storage.loadAit(requireAit(v))
+        if (!old) throw new Error(`unknown AIT ${v.ait}`)
+        const ait = await svc.declareAit({
+          agentType: old.agent_type,
+          profile: old.profile,
+          operator: old.operator,
+          capabilities: old.capabilities,
+          constraints: old.constraints,
+          attestationPolicy: old.attestation_policy,
+          expiresAt: new Date(Date.now() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
+        })
+        const config = { ...atap!.config, ait: ait.id }
+        await writeFile(join(dir, 'config.json.tmp'), json(config))
+        await rename(join(dir, 'config.json.tmp'), join(dir, 'config.json'))
+        return config
+      }
       case 'event': {
         const aitId = requireAit(v)
         if (!isObject(input) || typeof input.event_type !== 'string' || !isObject(input.payload)) {
@@ -618,6 +822,12 @@ async function main(argv: string[]): Promise<number> {
         return receipt(svc, storage, v, privateKey, witness, strength)
     }
   })
+  // status reports the latest receipt; the record stays inside .atap, and
+  // only when this receipt came from that store (not an explicit other --dir).
+  if (cmd === 'receipt' && atap && dir === atap.dir) {
+    const rcpt = result as Receipt
+    await writeFile(join(atap.dir, 'last-receipt.json'), json({ out: resolve(v.out!), at: new Date().toISOString(), id: rcpt.id }))
+  }
   process.stdout.write(json(result))
   return 0
 }

@@ -20,9 +20,37 @@ source checkout.
 `receipt` also needs the `zip` binary. The receipt's `verify.sh` needs bash,
 openssl, jq and python3 (see the [root README](../../README.md)).
 
+## Quickstart
+
+In an empty directory, with `atap-witness` on your PATH. `init` writes a key
+and an AIT to `.atap/`, so no command after it needs flags.
+
+```sh
+atap-witness init
+echo '{"event_type":"code_crew:task_claimed","payload":{"timestamp":"2026-10-08T12:00:01.500Z","evidence":"asserted","task_id":"A101","role":"coder","model":"claude-opus-5-5"}}' | atap-witness event
+echo '{"event_type":"code_crew:task_claimed","payload":{"timestamp":"2026-10-08T12:00:02.500Z","evidence":"asserted","task_id":"A102","role":"coder","model":"claude-opus-5-5"}}' | atap-witness event
+echo '{"event_type":"code_crew:task_claimed","payload":{"timestamp":"2026-10-08T12:00:03.500Z","evidence":"asserted","task_id":"A103","role":"coder","model":"claude-opus-5-5"}}' | atap-witness event
+echo '{"tasks_accepted":3,"tasks_rework":0,"merged_changes":0,"tokens":0,"overturns":{}}' | atap-witness block
+atap-witness receipt --out receipt
+atap-witness verify receipt
+```
+
+The last command prints `"ok": true` and `"blocks": 1` and exits 0. The bundled verifier
+checks the same receipt: `./receipt/verify.sh receipt`.
+[`test/quickstart.test.mjs`](./test/quickstart.test.mjs) runs this block as
+written and times it.
+`atap-witness ait rotate` declares a fresh 365-day AIT in the same store; old receipts keep verifying.
+
+### Off and uninstall
+
+`ATAP_OFF=1` makes `event` and `block` exit 0 with one stderr line and write
+nothing, so a hook that calls them cannot break a workflow. Other commands are
+unaffected. Uninstall is `rm -rf .atap`: nothing is created outside it.
+
 ## Commands
 
 ```
+atap-witness status
 atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
 atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
 atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
@@ -35,6 +63,9 @@ atap-witness scitt register DIR --service URL
 
 | Command | Stdin | Stdout |
 |---|---|---|
+| `init` | none | Sets up `./.atap/` (store, key `witness.pem` 0600, its own `.gitignore`, `config.json`) and declares one AIT (365 days). Writes nothing outside `.atap/`; refuses if it exists (`--force` only re-inits an empty store) |
+| `ait rotate` | none | Declares a new AIT in the same store, with the same key and profile, and points `config.json` at it. The old chain stays intact and receiptable |
+| `status` | none | `{profile, ait, witness_oai, dir, events, blocks, last_receipt}` for the nearest `.atap/` at or above cwd; `last_receipt` is `{out, at, id}` from the last `receipt` run there, or `null`. Exit 1 outside any `.atap/` |
 | `ait declare` | An `AitInput` object (`agentType`, `profile`, `operator`, `capabilities`, `attestationPolicy`, `expiresAt`; lifetime at most 365 days) | The signed AIT |
 | `event` | `{"event_type": string, "payload": object}` | The signed, chained Witness Event |
 | `block` | A `period_summary` object; empty stdin means `{}` (which the profile's schema may refuse) | The signed Attestation Block over the events since the last block |
@@ -174,7 +205,7 @@ atap-witness() { node "$REPO/packages/atap-cli/dist/cli.js" "$@"; }
 cd "$(mktemp -d)"
 openssl genpkey -algorithm ed25519 -out witness.pem
 W="--key witness.pem --witness-oai OAI-2026-0010002"
-EXPIRES=$(node -p 'new Date(Date.now() + 30 * 864e5).toISOString()')
+EXPIRES=$(node -p 'new Date(Date.now() + 365 * 864e5).toISOString()')
 
 AIT=$(atap-witness ait declare $W <<JSON | jq -r .id
 {
