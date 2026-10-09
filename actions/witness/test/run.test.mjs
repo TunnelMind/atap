@@ -83,3 +83,16 @@ test('the step summary holds the did and verdicts, never the command or its outp
   assert.equal(bad.r.status, 0)
   assert.match(bad.r.stdout, /::warning::atap-witness: cannot write step summary/)
 })
+
+test('a pull_request run anchors the PR head, not the temporary test merge', async () => {
+  const { commitUnderTest } = await import(new URL('../run.mjs', import.meta.url))
+  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const d = mkdtempSync(join(tmpdir(), 'atap-ev-'))
+  const head = 'a'.repeat(40), merge = 'b'.repeat(40)
+  writeFileSync(join(d, 'event.json'), JSON.stringify({ pull_request: { head: { sha: head } } }))
+  assert.equal(commitUnderTest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: join(d, 'event.json'), GITHUB_SHA: merge }), head)
+  assert.equal(commitUnderTest({ GITHUB_EVENT_NAME: 'push', GITHUB_SHA: merge }), merge)
+  assert.equal(commitUnderTest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: join(d, 'missing.json'), GITHUB_SHA: merge }), merge)
+})

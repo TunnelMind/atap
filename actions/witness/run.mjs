@@ -9,7 +9,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { constants, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -52,6 +52,20 @@ function runTest(command, env) {
   })
 }
 
+// The commit under test, as a verifier can look it up later. On pull_request events GITHUB_SHA is
+// GitHub's temporary test merge (refs/pull/N/merge), which is regenerated and not in the repo's
+// history, so the PR head from the event payload is anchored instead (coordinator, from the first
+// real run, 2026-10-09). Any other event: GITHUB_SHA.
+export function commitUnderTest(env) {
+  if (env.GITHUB_EVENT_NAME === 'pull_request' || env.GITHUB_EVENT_NAME === 'pull_request_target') {
+    try {
+      const head = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'))?.pull_request?.head?.sha
+      if (/^[0-9a-f]{40}$/.test(head ?? '')) return head
+    } catch {}
+  }
+  return env.GITHUB_SHA
+}
+
 export async function main(env = process.env) {
   const command = env.INPUT_TEST_COMMAND ?? ''
   const shortProfile = env.INPUT_PROFILE || 'code_crew'
@@ -87,7 +101,7 @@ export async function main(env = process.env) {
   await step(() => {
     cli(work, ['event', ...flags()], JSON.stringify({
       event_type: 'code_crew:change_committed',
-      payload: { timestamp: new Date().toISOString(), evidence: 'anchored', repo: env.GITHUB_REPOSITORY, commit_sha: env.GITHUB_SHA },
+      payload: { timestamp: new Date().toISOString(), evidence: 'anchored', repo: env.GITHUB_REPOSITORY, commit_sha: commitUnderTest(env) },
     }))
     written.change_committed++
   })
