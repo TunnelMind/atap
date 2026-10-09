@@ -137,7 +137,7 @@ test('crew_ops autonomy_decision matches the rails ledger: grant/ratify actions,
   }))
   const event = (p) => JSON.stringify({ event_type: 'crew_ops:autonomy_decision', payload: {
     timestamp: new Date().toISOString(), evidence: 'asserted', agent: 'crew-merchant',
-    target_sha256: '0x' + 'a'.repeat(64), ...p } })
+    target_sha256: 'a'.repeat(64), ...p } })
   const accepted = [
     { class: 3, action: 'grant', decision: 'grant' },
     { class: 3, action: 'ratify', decision: 'expired' },
