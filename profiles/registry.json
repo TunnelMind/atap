@@ -21,6 +21,15 @@
       "path": "profiles/tunnelmind-code-crew-v1",
       "atap_version": "0.1",
       "summary": "Witness vocabulary for a crew of role agents changing software under review — task claims, commits, verify runs, QA and review verdicts, owner approvals, merges and deploys, each with an evidence tier."
+    },
+    {
+      "id": "tunnelmind:crew_ops:v1",
+      "title": "Agent crew operations",
+      "maintainer": "TunnelMind",
+      "status": "draft",
+      "path": "profiles/tunnelmind-crew-ops-v1",
+      "atap_version": "0.1",
+      "summary": "Witness vocabulary for an agent crew's own operations on one host — autonomy-rail decisions, owner ratifications and idea-intake decisions, each with an evidence tier."
     }
   ],
   "reserved": [

@@ -1,0 +1,9 @@
+{
+  "profile": "tunnelmind:crew_ops:v1",
+  "description": "Canonical capability vocabulary for the tunnelmind:crew_ops:v1 profile. An AIT's `capabilities` array MUST draw only from these tokens. The witness rejects an AIT declaring a capability outside this set.",
+  "capabilities": {
+    "crew_ops:autonomy_decide": "Decide, under the autonomy rails, whether an agent may take a Class 1-3 action, and record grants, expiries and requests.",
+    "crew_ops:ratify": "Record the owner's approved or rejected decision on a request the rails sent for ratification.",
+    "crew_ops:intake_decide": "Decide whether an idea from the thinker or the scout is acted on, parked or dropped, and where it is routed."
+  }
+}

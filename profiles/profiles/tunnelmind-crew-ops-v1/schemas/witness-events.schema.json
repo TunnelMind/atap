@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-crew-ops-v1/witness-events.schema.json",
+  "title": "tunnelmind:crew_ops:v1 — Witness Event payloads",
+  "description": "Binds each profile event_type to its payload schema. A conformant Witness Event MUST validate against BOTH the ATAP v0.1 base witness-event schema (the envelope: @context, id, hashes, signature) AND this schema (the event_type vocabulary and payload shape). Every payload sets additionalProperties:false — that is how this profile encodes the ATAP §7.6 no-PII prohibition: a payload carrying a person's name, email, IP address or any other person-resolvable field has no permitted key for it and fails validation. Every other field is a closed enum, a small integer, an agent id pattern or a sha256 digest, so no field can carry free text.",
+  "type": "object",
+  "required": ["event_type", "payload"],
+  "properties": {
+    "event_type": {
+      "enum": [
+        "crew_ops:autonomy_decision",
+        "crew_ops:ratification",
+        "crew_ops:intake_decision"
+      ]
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "const": "crew_ops:autonomy_decision" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/autonomy_decision" } } } },
+    { "if": { "properties": { "event_type": { "const": "crew_ops:ratification" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/ratification" } } } },
+    { "if": { "properties": { "event_type": { "const": "crew_ops:intake_decision" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/intake_decision" } } } }
+  ],
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "evidence": {
+      "enum": ["asserted", "anchored", "witnessed"],
+      "description": "How strong the claim is. asserted: the agent says so. anchored: bound to something a verifier can look up (a DKIM-verified mail message id). witnessed: the witness observed it itself."
+    },
+    "agent": {
+      "anyOf": [
+        { "type": "string", "pattern": "^crew-[a-z0-9-]{1,59}$" },
+        { "$ref": "#/$defs/agent_role" }
+      ],
+      "description": "A crew agent id (crew-<name>) or an agent role. No `@`, spaces or capitals, so it cannot carry a person's name or email."
+    },
+    "agent_role": { "enum": ["supervisor", "coder", "qa", "reviewer", "coordinator"] },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "autonomy_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "agent", "class", "action", "decision", "target_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence", "const": "asserted", "description": "The rails' own record of their decision." },
+        "agent": { "$ref": "#/$defs/agent" },
+        "class": { "type": "integer", "minimum": 1, "maximum": 3, "description": "Autonomy class of the action. Class 4 (pay, transfer, account, secret, credential, dns, delete, prose) is never grantable, so it has no event." },
+        "action": { "enum": ["propose", "deploy", "edit", "notify", "mail-command"], "description": "The action names the crew's rails decide on. Closed: a new action needs a new profile version." },
+        "decision": { "enum": ["allow", "refuse", "grant", "expire", "request", "approved", "rejected"] },
+        "target_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the action's target (path, branch or subject)." },
+        "reason_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the rails' reason text, when there is one." }
+      }
+    },
+    "ratification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "role", "decision", "channel", "text_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "enum": ["asserted", "anchored"], "description": "anchored only for a mail ratification carrying a DKIM-verified message id; otherwise asserted." },
+        "role": { "const": "owner", "description": "A human ratification records the role, never the person (ATAP §7.6)." },
+        "decision": { "enum": ["approved", "rejected"] },
+        "channel": { "enum": ["cli", "mail"] },
+        "text_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the ratification text; the text itself is a user communication and stays out of the payload." },
+        "dkim_message_id_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the Message-ID of the DKIM-verified ratification mail." }
+      },
+      "allOf": [
+        { "if": { "properties": { "evidence": { "const": "anchored" } }, "required": ["evidence"] },
+          "then": { "properties": { "channel": { "const": "mail" } }, "required": ["dkim_message_id_sha256"] } },
+        { "if": { "required": ["dkim_message_id_sha256"] },
+          "then": { "properties": { "channel": { "const": "mail" } } } }
+      ]
+    },
+    "intake_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "by", "source", "decision", "title_sha256", "route"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence", "const": "asserted" },
+        "by": {
+          "anyOf": [
+            { "enum": ["toolsmith", "coordinator"] },
+            { "type": "string", "pattern": "^crew-[a-z0-9-]{1,59}$" }
+          ]
+        },
+        "source": { "enum": ["thinker", "scout"] },
+        "decision": { "enum": ["act", "park", "drop"] },
+        "title_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the idea's title; the title is free text and stays out of the payload." },
+        "route": { "enum": ["workstream", "inbox", ""], "description": "Where an acted-on idea goes; empty when it is parked or dropped." }
+      }
+    }
+  }
+}
