@@ -134,6 +134,122 @@
           "text_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
         }
       }
+    },
+    {
+      "name": "person_name_as_owner_command_target",
+      "reason": "named natural person in place of the hashed target (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "owner",
+          "command": "crew_stop", "channel": "mail", "outcome": "done",
+          "target_sha256": "Jane Doe",
+          "message_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "email_as_owner_command_target",
+      "reason": "email address in place of the hashed target (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "owner",
+          "command": "crew_stop", "channel": "mail", "outcome": "done",
+          "target_sha256": "jane@example.com",
+          "message_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "raw_message_id_as_message_sha256",
+      "reason": "a raw Message-ID in place of its sha256 (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "owner",
+          "command": "crew_stop", "channel": "mail", "outcome": "done",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "message_sha256": "<abc@example.invalid>"
+        }
+      }
+    },
+    {
+      "name": "person_name_as_owner_command_role",
+      "reason": "named natural person in place of the role `owner` (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "Jane Doe",
+          "command": "crew_stop", "channel": "mail", "outcome": "done",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "message_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "email_as_owner_command_role",
+      "reason": "email address in place of the role `owner` (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "jane@example.com",
+          "command": "crew_stop", "channel": "mail", "outcome": "done",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "message_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "mail_owner_command_without_message_sha256",
+      "reason": "a mail command must carry the sha256 of its DKIM-verified Message-ID",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "owner",
+          "command": "crew_stop", "channel": "mail", "outcome": "done",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "owner_email_in_owner_command",
+      "reason": "email address in an extra field (ATAP §7.6)",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "owner",
+          "command": "crew_stop", "channel": "mail", "outcome": "done",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "message_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "email": "jane@example.com"
+        }
+      }
+    },
+    {
+      "name": "cli_owner_command_with_message_sha256",
+      "reason": "a CLI command has no mail, so no Message-ID digest",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "asserted", "role": "owner",
+          "command": "crew_start", "channel": "cli", "outcome": "done",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "message_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "anchored_cli_owner_command",
+      "reason": "anchored evidence needs a mail command with a DKIM-verified Message-ID",
+      "event": {
+        "event_type": "crew_ops:owner_command",
+        "payload": {
+          "timestamp": "2026-10-09T12:00:00Z", "evidence": "anchored", "role": "owner",
+          "command": "ratify_yes", "channel": "cli", "outcome": "done",
+          "target_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
     }
   ]
 }

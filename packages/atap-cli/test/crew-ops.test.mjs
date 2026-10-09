@@ -60,11 +60,11 @@ function verifyBoth(dir) {
   return { sh, lib }
 }
 
-test('crew_ops run: 4 example events -> block -> receipt, all three verifiers ok; a PII event is refused', async () => {
+test('crew_ops run: 5 example events -> block -> receipt, all three verifiers ok; a PII event is refused', async () => {
   const ctx = setup()
   const common = ['--dir', ctx.store, '--key', ctx.keyPath, '--witness-oai', WITNESS]
   const capabilities = Object.keys(readJson(PROFILE_DIR, 'capabilities.json').capabilities)
-  assert.equal(capabilities.length, 3)
+  assert.equal(capabilities.length, 4)
 
   // Constraints from the example AIT, so the profile's constraints schema runs.
   const example = readJson(PROFILE_DIR, 'examples/ait.json')
@@ -81,9 +81,10 @@ test('crew_ops run: 4 example events -> block -> receipt, all three verifiers ok
   assert.deepEqual(ait.constraints, example.constraints)
 
   const examples = readJson(PROFILE_DIR, 'examples/witness-events.json')
-  assert.equal(examples.length, 4)
+  assert.equal(examples.length, 5)
   assert.deepEqual(new Set(examples.map(e => e.event_type)), new Set([
     'crew_ops:autonomy_decision', 'crew_ops:ratification', 'crew_ops:intake_decision',
+    'crew_ops:owner_command',
   ]))
   // Midway, the email_as_agent PII case is refused before signing: non-zero
   // exit, store untouched. Proof of the latter: the next example event still
@@ -105,11 +106,17 @@ test('crew_ops run: 4 example events -> block -> receipt, all three verifiers ok
     last = ev
   }
 
-  // Counts over the 4 examples, per the profile's period-summary schema.
+  // Counts over the 5 examples, per the profile's period-summary schema.
   const summary = {
     autonomy_decisions: { allow: 1, refuse: 0, grant: 0, expired: 0, request: 1, approved: 0, rejected: 0 },
     intake_decisions: { act: 1, park: 0, drop: 0 },
     ratifications: 1,
+    owner_commands: {
+      crew_stop: { done: 1, refused: 0, failed: 0 },
+      crew_start: { done: 0, refused: 0, failed: 0 },
+      ratify_yes: { done: 0, refused: 0, failed: 0 },
+      ratify_no: { done: 0, refused: 0, failed: 0 },
+    },
   }
   const block = await ok(['block', '--ait', ait.id, ...common], JSON.stringify(summary))
   assert.equal(block.event_count, examples.length)

@@ -4,6 +4,7 @@
   "capabilities": {
     "crew_ops:autonomy_decide": "Decide, under the autonomy rails, whether an agent may take a Class 1-3 action, and record grants, expiries and requests.",
     "crew_ops:ratify": "Record the owner's approved or rejected decision on a request the rails sent for ratification.",
-    "crew_ops:intake_decide": "Decide whether an idea from the thinker or the scout is acted on, parked or dropped, and where it is routed."
+    "crew_ops:intake_decide": "Decide whether an idea from the thinker or the scout is acted on, parked or dropped, and where it is routed.",
+    "crew_ops:owner_command": "Record a command the owner gave the crew, by mail or at the CLI, and its outcome."
   }
 }

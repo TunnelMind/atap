@@ -45,7 +45,7 @@ const ait = await w.declareAit({
   agentType: 'crew-ops',
   profile: PROFILE,
   operator: OPERATOR_OAI,
-  capabilities: ['crew_ops:autonomy_decide', 'crew_ops:ratify', 'crew_ops:intake_decide'],
+  capabilities: ['crew_ops:autonomy_decide', 'crew_ops:ratify', 'crew_ops:intake_decide', 'crew_ops:owner_command'],
   constraints: {
     allowed_agents: ['crew-toolsmith', 'crew-curator', 'crew-merchant', 'coordinator'],
     max_class: 2,
@@ -60,7 +60,8 @@ const ait = await w.declareAit({
 
 // One of each event type: the rails ask for a grant, the owner ratifies it by
 // DKIM-verified mail (anchored), the rails allow the action, and the toolsmith
-// routes a thinker idea to a workstream.
+// routes a thinker idea to a workstream. Then the owner stops the toolsmith by
+// DKIM-verified mail (anchored).
 const INBOX_PATH = 'specs/toolsmith-inbox/example-idea.md';
 const events = [];
 events.push(await w.witness(ait.id, 'crew_ops:autonomy_decision', {
@@ -81,11 +82,22 @@ events.push(await w.witness(ait.id, 'crew_ops:intake_decision', {
   timestamp: tick(), evidence: 'asserted', by: 'toolsmith', source: 'thinker',
   decision: 'act', title_sha256: sha256('example idea'), route: 'workstream',
 }));
+events.push(await w.witness(ait.id, 'crew_ops:owner_command', {
+  timestamp: tick(), evidence: 'anchored', role: 'owner', command: 'crew_stop',
+  target_sha256: sha256('crew-toolsmith'), channel: 'mail', outcome: 'done',
+  message_sha256: sha256('<example-command-id@example.invalid>'),
+}));
 
 const block = await w.rollUp(ait.id, {
   autonomy_decisions: { allow: 1, refuse: 0, grant: 0, expired: 0, request: 1, approved: 0, rejected: 0 },
   intake_decisions: { act: 1, park: 0, drop: 0 },
   ratifications: 1,
+  owner_commands: {
+    crew_stop: { done: 1, refused: 0, failed: 0 },
+    crew_start: { done: 0, refused: 0, failed: 0 },
+    ratify_yes: { done: 0, refused: 0, failed: 0 },
+    ratify_no: { done: 0, refused: 0, failed: 0 },
+  },
 });
 
 // The ATAP v0.1 §7.5 Receipt ZIP manifest (sha256 left null in this fixture —
