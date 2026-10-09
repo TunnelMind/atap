@@ -14,6 +14,7 @@ import {
   WitnessService,
   InMemoryStorage,
   didKeyFromPublicKey,
+  publicKeyFromDidKey,
   toHex,
   ed25519Sign,
   canonicalizeBytes,
@@ -85,12 +86,18 @@ test('a valid v0.2 did:key receipt verifies', async () => {
   assert.match(r.stdout, /Receipt verifies \(blocks=1, attestation_strength=self-asserted\)/)
 })
 
-test('the same receipt also verifies with no key entry: the did:key alone is the key', async () => {
-  const { dir } = await didReceiptDir()
-  edit(dir, 'public_keys.json', k => ({ ...k, keys: [] }))
-  const r = verifySh(dir)
-  assert.equal(r.status, 0, r.stderr)
-})
+// The did:key alone does not replace the key entry (as verifyReceipt).
+for (const [what, fn] of [
+  ['no key entry', k => ({ ...k, keys: [] })],
+  ['only a compromised key entry', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: '2001-01-01T00:00:00Z' } }] })],
+  ['only an expired key entry', k => ({ ...k, keys: [{ ...k.keys[0], valid_until: '2001-01-01T00:00:00Z' }] })],
+]) {
+  test(`a did:key receipt with ${what} fails`, async () => {
+    const { dir } = await didReceiptDir()
+    edit(dir, 'public_keys.json', fn)
+    assertFails(verifySh(dir), /no key for/)
+  })
+}
 
 test('a tampered did:key witness fails', async () => {
   const { dir, witness } = await didReceiptDir()
@@ -99,6 +106,8 @@ test('a tampered did:key witness fails', async () => {
   const forged = witness.slice(0, -1) + (last === 'a' ? 'b' : 'a')
   edit(dir, 'ait.json', a => ({ ...a, witness: forged }))
   edit(dir, 'manifest.json', m => ({ ...m, witness: forged }))
+  // An honest key entry for the forged did:key, so the signature check is what fails.
+  edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], witness: forged, public_key: '0x' + toHex(publicKeyFromDidKey(forged)) }] }))
   assertFails(verifySh(dir), /AIT signature invalid/)
 })
 

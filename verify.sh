@@ -99,9 +99,10 @@ verify_sig() {
 
 # Look up the public key (hex, no 0x) for a given witness OAI at a given RFC-3339 timestamp.
 # A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1): a
-# matching entry must carry that same key and declare 'self-asserted' (§3.2),
-# and with no entry the did:key alone suffices, so a did:key receipt verifies
-# offline.
+# matching entry must carry that same key and declare 'self-asserted' (§3.2).
+# The entry is still required, as for an OAI: the did:key alone does not
+# replace it, so an expired or compromised entry is honoured. With no valid
+# entry this prints an empty line and the caller fails "no key for ...".
 lookup_key() {
   local witness="$1" t="$2" entry did_hex strength
   entry=$(jq -r --arg w "$witness" --arg t "$t" '
@@ -110,22 +111,19 @@ lookup_key() {
     select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
     .public_key
   ' public_keys.json | head -1 | sed 's/^0x//')
-  if [[ "$witness" =~ ^did:key: ]]; then
+  if [[ "$witness" =~ ^did:key: && -n "$entry" ]]; then
     did_hex=$(didkey_to_hex "$witness") || err "witness $witness is not an Ed25519 did:key (ATAP-v0.2 §3)"
-    [ -z "$entry" ] || [ "${entry,,}" = "$did_hex" ] \
+    [ "${entry,,}" = "$did_hex" ] \
       || err "key entry for $witness carries a public_key other than the key it encodes (ATAP-v0.2 §3.1)"
-    if [ -n "$entry" ]; then
-      # Same entry as above; an entry without the field must be told apart from no entry.
-      strength=$(jq -r --arg w "$witness" --arg t "$t" '
-        .keys[] |
-        select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
-        select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
-        .attestation_strength // "absent"
-      ' public_keys.json | head -1)
-      [ "$strength" = "self-asserted" ] \
-        || err "key entry for $witness must declare attestation_strength 'self-asserted', got '$strength' (ATAP-v0.2 §3.2)"
-    fi
-    entry="$did_hex"
+    # Same entry as above; an entry without the field must be told apart from no entry.
+    strength=$(jq -r --arg w "$witness" --arg t "$t" '
+      .keys[] |
+      select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
+      select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
+      .attestation_strength // "absent"
+    ' public_keys.json | head -1)
+    [ "$strength" = "self-asserted" ] \
+      || err "key entry for $witness must declare attestation_strength 'self-asserted', got '$strength' (ATAP-v0.2 §3.2)"
   fi
   printf '%s\n' "$entry"
 }

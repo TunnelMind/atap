@@ -188,6 +188,18 @@ test('§3.2: a did:key receipt with tee-tpm or no strength, or a key entry witho
   assert.match(r2.reason, /§3\.2/)
 })
 
+test('a did:key witness still needs a valid key entry: compromised, expired or none is rejected', async () => {
+  const c = await didChain()
+  const k = c.keys.keys[0]
+  const compromised = { ...k, status: 'compromised', compromise_notice: { disclosed_at: '2001-01-01T00:00:00Z' } }
+  const expired = { ...k, valid_until: '2001-01-01T00:00:00Z' }
+  for (const keys of [[compromised], [expired], []]) {
+    const r = verifyReceipt({ ...c, keys: { ...c.keys, keys } })
+    assert.equal(r.ok, false)
+    assert.match(r.reason, /no key for/)
+  }
+})
+
 test('§3.3: a did:key AIT or block declaring 0.1 is rejected', async () => {
   const c = await didChain()
   const r = verifyReceipt({ ...c, ait: resignAit({ ...c.ait, ait_version: '0.1' }, c.privateKey) })

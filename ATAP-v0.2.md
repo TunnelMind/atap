@@ -63,7 +63,7 @@ A self-hosted witness that has no issued OAI previously had to invent one, conve
 
 ## 3. Normative rules for did:key identifiers
 
-**3.1 Key binding.** A verifier MUST reject any record whose `witness` is a did:key unless every `witness_signature` on the AIT, its Witness Events, its Attestation Blocks and its Receipt verifies under exactly the Ed25519 public key that the did:key encodes. A key-endpoint entry (v0.1 §8.1) whose `witness` is a did:key MUST carry that same key in `public_key`; a verifier MUST reject an entry that does not. Key selection (v0.1 §8.2) is otherwise unchanged.
+**3.1 Key binding.** A verifier MUST reject any record whose `witness` is a did:key unless every `witness_signature` on the AIT, its Witness Events, its Attestation Blocks and its Receipt verifies under exactly the Ed25519 public key that the did:key encodes. A key-endpoint entry (v0.1 §8.1) whose `witness` is a did:key MUST carry that same key in `public_key`; a verifier MUST reject an entry that does not. A verifier MUST find a valid key-endpoint entry for the witness under v0.1 §8.2; the did:key alone does not replace it. Key selection (v0.1 §8.2) is otherwise unchanged.
 
 **3.2 Self-asserted only.** A did:key witness is by definition self-asserted (v0.1 §7.4.1): nothing beyond the key holder vouches for it. A Receipt or key-endpoint entry whose `witness` is a did:key MUST carry `attestation_strength: "self-asserted"`, and a verifier MUST reject any other value, including an absent field.
 
