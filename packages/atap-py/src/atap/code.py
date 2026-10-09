@@ -13,6 +13,7 @@ error, returns None. Nothing the caller passed is ever written to a log.
 import hashlib
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 
 from . import event
@@ -116,6 +117,39 @@ def verify_run(command, exit_code, output):
         })
     except Exception:
         return None
+
+
+def run_tests(command, cwd="."):
+    """Run a test command, streaming its output through live, then record a
+    verify_run of it. A list runs as-is (shell=False); a str runs under sh -c.
+    Returns the child's exit code unchanged (negative when killed by a signal)."""
+    argv = list(command) if isinstance(command, (list, tuple)) else ["sh", "-c", command]
+    # A list command is hashed as its argv joined by single spaces.
+    text = command if isinstance(command, str) else " ".join(map(str, command))
+    out = getattr(sys.stdout, "buffer", None)
+    chunks = []
+    sys.stdout.flush()
+    try:
+        p = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    except OSError:
+        # The program can't start: the shell's "command not found" code.
+        code = 127
+    else:
+        with p.stdout:
+            for chunk in iter(lambda: p.stdout.read1(65536), b""):
+                chunks.append(chunk)
+                if out is not None:
+                    out.write(chunk)
+                    out.flush()
+                else:
+                    sys.stdout.write(chunk.decode("utf-8", "replace"))
+                    sys.stdout.flush()
+        code = p.wait()
+    try:
+        verify_run(text, code, b"".join(chunks))
+    except Exception:
+        pass
+    return code
 
 
 def qa_verdict(task_id, verdict, attempt):
