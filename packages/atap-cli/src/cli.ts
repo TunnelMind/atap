@@ -257,6 +257,7 @@ async function receipt(svc: WitnessService, storage: DirStorage, v: Values, key:
     chain.at(-1)!.period_end,
     'full',
     files,
+    chain,
   )
 
   await mkdir(join(out, 'profile_artifacts'), { recursive: true })

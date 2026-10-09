@@ -131,6 +131,9 @@ export class DirStorage implements WitnessStorage {
   async lastEventHash(aitId: AIT_ID): Promise<HexHash> {
     return (await this.eventsOf(aitId)).at(-1)?.self_hash ?? GENESIS_HASH
   }
+  async lastEventAt(aitId: AIT_ID): Promise<string | null> {
+    return (await this.eventsOf(aitId)).at(-1)?.witnessed_at ?? null
+  }
   async lastBlockHash(aitId: AIT_ID): Promise<HexHash> {
     return (await this.blocksOf(aitId)).at(-1)?.self_hash ?? GENESIS_HASH
   }

@@ -84,6 +84,9 @@ nothing to the store.
   `schemas/constraints.schema.json` when the profile is registered, and the
   library refuses a malformed `AitInput` (wrong types, unparseable
   `expiresAt`) before signing.
+- **Monotonic `witnessed_at`.** `witnessed_at` never goes backwards within an
+  AIT's chain: if the clock steps back, the witness reuses the previous
+  event's `witnessed_at` (read from the store, so it holds across processes).
 
 `--profiles-dir DIR` points at another registry; it must contain
 `registry.json` and `atap-v0.1-schemas/`. Error messages name the schema and

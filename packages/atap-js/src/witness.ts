@@ -37,6 +37,10 @@ export interface WitnessStorage {
   hasAitId(id: AIT_ID): Promise<boolean>
   saveEvent(event: WitnessEvent): Promise<void>
   lastEventHash(aitId: AIT_ID): Promise<HexHash>
+  /** witnessed_at of the AIT's last chained event, or null before the first.
+   *  Optional, so 0.1.x backends keep compiling; without it witness() cannot
+   *  clamp a clock that steps back (see witness()). */
+  lastEventAt?(aitId: AIT_ID): Promise<string | null>
   lastBlockHash(aitId: AIT_ID): Promise<HexHash>
   pendingEvents(aitId: AIT_ID): Promise<WitnessEvent[]>
   clearPendingEvents(aitId: AIT_ID): Promise<void>
@@ -154,7 +158,13 @@ export class WitnessService {
       throw new Error(`AIT ${aitId} is not witnessed by ${this.cfg.witnessOAI}`)
     }
 
-    const now = this.now()
+    // A wall clock can step back (NTP, VM resume), so never date an event
+    // before the one it chains to: clamp to the previous event's witnessed_at.
+    // Read from storage, not memory, so a fresh process (the CLI) clamps too.
+    const prev = await this.cfg.storage.lastEventHash(aitId)
+    const prevAt = (await this.cfg.storage.lastEventAt?.(aitId)) ?? null
+    const clock = this.now()
+    const now = prevAt && Date.parse(prevAt) > clock.getTime() ? new Date(prevAt) : clock
     if (now.toISOString() >= ait.expires_at) {
       throw new Error(`AIT ${aitId} expired at ${ait.expires_at}`)
     }
@@ -163,8 +173,6 @@ export class WitnessService {
     if (payloadBytes > MAX_PAYLOAD_BYTES) {
       throw new Error(`event payload ${payloadBytes} bytes exceeds ${MAX_PAYLOAD_BYTES}`)
     }
-
-    const prev = await this.cfg.storage.lastEventHash(aitId)
 
     const id = `ATAP-WE-${uuidv7(now.getTime())}` as WE_ID
     const unsigned: Omit<WitnessEvent, 'self_hash' | 'witness_signature'> = {
@@ -233,10 +241,14 @@ export class WitnessService {
     periodEnd: string,
     format: 'full' | 'summary' = 'full',
     files: ReadonlyArray<{ path: string; sha256: HexHash | null }> = [],
+    // A chain is ordered by its hash links, not by timestamps: blocks written
+    // before witness() clamped the clock can have periods that step back, and
+    // a time filter would drop them. Pass the blocks to cover them by order.
+    blocks?: ReadonlyArray<AttestationBlock>,
   ): Promise<Receipt> {
     const ait = await this.cfg.storage.loadAit(aitId)
     if (!ait) throw new Error(`unknown AIT ${aitId}`)
-    const blocks = await this.cfg.storage.blocksInPeriod(aitId, periodStart, periodEnd)
+    blocks ??= await this.cfg.storage.blocksInPeriod(aitId, periodStart, periodEnd)
     if (blocks.length === 0) {
       throw new Error(`no blocks for ${aitId} in [${periodStart}, ${periodEnd}]`)
     }
@@ -259,7 +271,8 @@ export class WitnessService {
       chain_head_hash: last.self_hash,
       witness: this.cfg.witnessOAI,
       format,
-      generated_at: this.now().toISOString(),
+      // Never earlier than the last event the receipt covers (see witness()).
+      generated_at: new Date(Math.max(this.now().getTime(), Date.parse(last.period_end))).toISOString(),
       verifier_url: 'https://tunnelmind.ai/atap/verify.sh',
       keys_url: 'https://tunnelmind.ai/atap/keys',
       files: [...files],
@@ -281,6 +294,7 @@ export class InMemoryStorage implements WitnessStorage {
   private pending = new Map<AIT_ID, WitnessEvent[]>()
   private blocks = new Map<AIT_ID, AttestationBlock[]>()
   private lastEventHashes = new Map<AIT_ID, HexHash>()
+  private lastEventAts = new Map<AIT_ID, string>()
   private lastBlockHashes = new Map<AIT_ID, HexHash>()
 
   async saveAit(ait: AIT): Promise<void> {
@@ -301,9 +315,13 @@ export class InMemoryStorage implements WitnessStorage {
     pending.push(event)
     this.pending.set(event.ait, pending)
     this.lastEventHashes.set(event.ait, event.self_hash)
+    this.lastEventAts.set(event.ait, event.witnessed_at)
   }
   async lastEventHash(aitId: AIT_ID): Promise<HexHash> {
     return this.lastEventHashes.get(aitId) ?? GENESIS_HASH
+  }
+  async lastEventAt(aitId: AIT_ID): Promise<string | null> {
+    return this.lastEventAts.get(aitId) ?? null
   }
   async lastBlockHash(aitId: AIT_ID): Promise<HexHash> {
     return this.lastBlockHashes.get(aitId) ?? GENESIS_HASH
