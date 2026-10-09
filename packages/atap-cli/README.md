@@ -40,6 +40,12 @@ checks the same receipt: `./receipt/verify.sh receipt`.
 [`test/quickstart.test.mjs`](./test/quickstart.test.mjs) runs this block as
 written and times it.
 
+### Off and uninstall
+
+`ATAP_OFF=1` makes `event` and `block` exit 0 with one stderr line and write
+nothing, so a hook that calls them cannot break a workflow. Other commands are
+unaffected. Uninstall is `rm -rf .atap`: nothing is created outside it.
+
 ## Commands
 
 ```

@@ -671,6 +671,14 @@ async function main(argv: string[]): Promise<number> {
   }
   const cmd = pos[0] === 'ait' && pos[1] === 'declare' ? 'ait declare' : pos[0]
 
+  // Kill switch for hooks: a hook must never break the user's workflow, so
+  // ATAP_OFF=1 turns the two hook-facing writes into silent no-ops before any
+  // stdin read, key load or lock.
+  if (process.env.ATAP_OFF === '1' && (cmd === 'event' || cmd === 'block')) {
+    process.stderr.write(`atap-witness: ATAP_OFF=1, ignoring ${cmd}\n`)
+    return 0
+  }
+
   // init makes its own key and OAI, so it runs before the witness/stdin checks.
   if (cmd === 'init') {
     const config = await init(v)
