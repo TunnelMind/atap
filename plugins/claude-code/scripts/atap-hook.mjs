@@ -158,7 +158,14 @@ const handlers = {
       const git = (...args) => run('git', args, { cwd, timeout: 5000 }).then((r) => r.stdout.trim(), () => '')
       const commit_sha = await git('rev-parse', 'HEAD')
       if (!/^[0-9a-f]{40}$/.test(commit_sha)) return log(atap, 'post-tool-use', 'no commit sha')
-      const repo = ownerRepo(await git('remote', 'get-url', 'origin'))
+      // A repo with no origin remote (many start local) is named by its root commit instead:
+      // local/<12 hex>, stable for the repo's life, with no path or name in it (coordinator, after a
+      // real Claude Code run skipped every commit of a fresh repo, 2026-10-09).
+      let repo = ownerRepo(await git('remote', 'get-url', 'origin'))
+      if (!repo) {
+        const root = (await git('rev-list', '--max-parents=0', 'HEAD')).split('\n').pop()
+        if (/^[0-9a-f]{40}$/.test(root)) repo = `local/${root.slice(0, 12)}`
+      }
       if (!repo) return log(atap, 'post-tool-use', 'no owner/repo')
       return emit(atap, cwd, 'code_crew:change_committed', { timestamp, evidence: 'anchored', repo, commit_sha })
     }

@@ -85,15 +85,19 @@ test('failed commit, git commit --dry-run and ls: no CLI call', (t) => {
   assert.deepEqual(hookLog(p), [])
 })
 
-test('commit with no origin, or a path origin: no CLI call, one fixed log line', (t) => {
+test('commit with no origin, or a path origin: named local/<root commit 12 hex>, no path or message', (t) => {
   for (const origin of [null, '/srv/git/owner/repo.git']) {
     const p = project(t)
     repoWithCommit(p, origin)
+    const root = git(p.dir, 'rev-list', '--max-parents=0', 'HEAD')
     hook(p, { tool_input: { command: 'git commit -m "secret message"' }, tool_response: { stdout: '' } })
-    assert.deepEqual(calls(p), [])
-    const lines = hookLog(p)
-    assert.equal(lines.length, 1)
-    assert.match(lines[0], / post-tool-use no owner\/repo$/)
+    const c = calls(p)
+    assert.equal(c.length, 1)
+    assert.equal(c[0].event_type, 'code_crew:change_committed')
+    assert.equal(c[0].payload.repo, `local/${root.slice(0, 12)}`)
+    const blob = JSON.stringify(c)
+    assert.ok(!blob.includes('secret message') && !blob.includes(p.dir) && !blob.includes('/srv/git'))
+    assert.deepEqual(hookLog(p), [])
   }
 })
 
