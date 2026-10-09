@@ -56,3 +56,18 @@ test('an Action error keeps the test code, and fails the step only with fail-on-
   assert.match(bad.r.stdout, /::warning::/)
   assert.equal(action('true', { INPUT_PROFILE: 'nope', INPUT_FAIL_ON_ERROR: 'true' }).r.status, 1)
 })
+
+test('the step summary holds the did and verdicts, never the command or its output', () => {
+  const summary = join(mkdtempSync(join(tmpdir(), 'atap-action-summary-')), 'summary.md')
+  const { r, outputs } = action(`echo ${MARKER}; true`, { GITHUB_STEP_SUMMARY: summary })
+  assert.equal(r.status, 0, r.stderr)
+  const text = readFileSync(summary, 'utf8')
+  assert.ok(text.includes(outputs.did))
+  assert.match(text, /change_committed 1, verify_run 1, block 1/)
+  assert.ok(text.includes('verify.sh: PASS') && text.includes('atap-witness verify: PASS'), text)
+  assert.ok(!text.includes(MARKER) && !text.includes('echo'), text)
+  // An unwritable summary (here a directory) is a warning, not a new exit code.
+  const bad = action('true', { GITHUB_STEP_SUMMARY: tmpdir(), INPUT_FAIL_ON_ERROR: 'true' })
+  assert.equal(bad.r.status, 0)
+  assert.match(bad.r.stdout, /::warning::atap-witness: cannot write step summary/)
+})

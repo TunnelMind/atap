@@ -57,6 +57,10 @@ export async function main(env = process.env) {
   let receiptPath = ''
   let verified = false
   let work, store, ait
+  // For the step summary: what was actually written, and each verifier's
+  // verdict (null = not run).
+  const written = { change_committed: 0, verify_run: 0, block: 0 }
+  let sh = null, js = null
 
   // Each witnessing step is skipped once one has failed; the test is not.
   const step = async fn => {
@@ -76,10 +80,13 @@ export async function main(env = process.env) {
   const flags = () => ['--dir', store, '--key', join(store, 'witness.pem'), '--witness-oai', did, '--ait', ait]
   // ponytail: only code_crew's event shapes; another profile fails its schema
   // check here and lands in the warning path until it gets its own events.
-  await step(() => cli(work, ['event', ...flags()], JSON.stringify({
-    event_type: 'code_crew:change_committed',
-    payload: { timestamp: new Date().toISOString(), evidence: 'anchored', repo: env.GITHUB_REPOSITORY, commit_sha: env.GITHUB_SHA },
-  })))
+  await step(() => {
+    cli(work, ['event', ...flags()], JSON.stringify({
+      event_type: 'code_crew:change_committed',
+      payload: { timestamp: new Date().toISOString(), evidence: 'anchored', repo: env.GITHUB_REPOSITORY, commit_sha: env.GITHUB_SHA },
+    }))
+    written.change_committed++
+  })
 
   const test = await runTest(command, env)
 
@@ -94,16 +101,18 @@ export async function main(env = process.env) {
         output_sha256: test.outputSha,
       },
     }))
+    written.verify_run++
     // code_crew's summary counts QA verdicts, merges and tokens; a CI run has
     // none of those, so every count is 0.
     cli(work, ['block', ...flags()], JSON.stringify({ tasks_accepted: 0, tasks_rework: 0, merged_changes: 0, tokens: 0, overturns: {} }))
+    written.block++
     const out = join(work, 'receipt')
     cli(work, ['receipt', ...flags(), '--out', out])
     // The key's job is done: drop it so nothing more can be signed as this did.
     rmSync(join(store, 'witness.pem'), { force: true })
     receiptPath = out
-    const sh = spawnSync('bash', [VERIFY_SH, out], { stdio: 'ignore' }).status === 0
-    const js = spawnSync(process.execPath, [CLI, 'verify', out], { stdio: 'ignore', env: { PATH: process.env.PATH } }).status === 0
+    sh = spawnSync('bash', [VERIFY_SH, out], { stdio: 'ignore' }).status === 0
+    js = spawnSync(process.execPath, [CLI, 'verify', out], { stdio: 'ignore', env: { PATH: process.env.PATH } }).status === 0
     console.log(`atap-witness: verify.sh ${sh ? 'PASS' : 'FAIL'}, atap-witness verify ${js ? 'PASS' : 'FAIL'}`)
     verified = sh && js
   })
@@ -120,6 +129,23 @@ export async function main(env = process.env) {
     } catch (e) {
       console.log(`::warning::atap-witness: cannot write outputs: ${e.message}`)
       error ??= e
+    }
+  }
+  if (env.GITHUB_STEP_SUMMARY) {
+    // did, counts and verdicts only: never the command, its output or env.
+    // A failed write is a warning and, unlike outputs, not an Action error.
+    const verdict = v => v === null ? 'not run' : v ? 'PASS' : 'FAIL'
+    const lines = [
+      '### ATAP witness',
+      `- did: \`${did || 'none'}\``,
+      `- events: change_committed ${written.change_committed}, verify_run ${written.verify_run}, block ${written.block}`,
+      `- verify.sh: ${verdict(sh)}`,
+      `- atap-witness verify: ${verdict(js)}`,
+    ]
+    try {
+      appendFileSync(env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n')
+    } catch (e) {
+      console.log(`::warning::atap-witness: cannot write step summary: ${e.message}`)
     }
   }
   if (error && env.INPUT_FAIL_ON_ERROR === 'true') return test.code || 1

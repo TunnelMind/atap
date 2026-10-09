@@ -15,7 +15,6 @@ inputs:
     description: When true, an error inside the Action itself fails the step.
     default: 'false'
   upload:
-    # Consumed by the upload step (C902); declared now so callers can pin it.
     description: Upload the Receipt dir + zip as a workflow artifact.
     default: 'true'
 outputs:
@@ -50,3 +49,13 @@ runs:
             || echo "::warning::atap-witness: building the CLI failed"
         fi
         node "$GITHUB_ACTION_PATH/run.mjs"
+    # always(): the witness step exits with the test's code, so a failing test
+    # must still upload its Receipt. No receipt-path means witnessing failed.
+    - if: always() && inputs.upload == 'true' && steps.witness.outputs.receipt-path != ''
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: atap-receipt
+        path: |
+          ${{ steps.witness.outputs.receipt-path }}
+          ${{ steps.witness.outputs.receipt-path }}.zip
+        if-no-files-found: warn
