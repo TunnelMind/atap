@@ -10,16 +10,21 @@
 
 import { createHash, createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import {
   ATTESTATION_STRENGTH_RANK,
   GENESIS_HASH,
+  CborTag,
   WitnessService,
   canonicalizeBytes,
+  cborDecode,
+  publicKeyFromHex,
+  toSignedStatement,
   verifyReceipt,
+  verifySignedStatement,
   type AIT,
   type AIT_ID,
   type AitInput,
@@ -63,6 +68,9 @@ const USAGE = `usage:
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
   atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
   atap-witness verify DIR
+  atap-witness scitt export DIR --key K --issuer ISS
+  atap-witness scitt verify DIR
+  atap-witness scitt register DIR --service URL
 
 Global: --dir (store, default ./.atap-witness), --strength (default self-asserted),
 --profiles-dir (profile registry + schemas, default the repo's profiles/).
@@ -78,6 +86,8 @@ type Values = {
   out?: string
   'profiles-dir'?: string
   'unregistered-profile'?: boolean
+  issuer?: string
+  service?: string
 }
 
 async function readStdin(): Promise<string> {
@@ -160,6 +170,13 @@ function mergeSummary(acc: Record<string, unknown>, s: Record<string, unknown>):
   return acc
 }
 
+function publicHex(privateKey: KeyObject): string {
+  const jwk = createPublicKey(privateKey).export({ format: 'jwk' })
+  return Buffer.from(jwk.x!, 'base64url').toString('hex')
+}
+
+const keyId = (hex: string): string => `ed25519-${hex.slice(0, 16)}`
+
 // One key entry, derived from the signing key. valid_from is the start of the
 // AIT's issue day so it precedes issued_at. valid_until is the AIT's
 // expires_at: verifiers look keys up at issued_at and at each block's
@@ -171,15 +188,14 @@ function keysDocument(
   ait: AIT,
   strength: AttestationStrength,
 ): KeysDocument {
-  const jwk = createPublicKey(privateKey).export({ format: 'jwk' })
-  const hex = Buffer.from(jwk.x!, 'base64url').toString('hex')
+  const hex = publicHex(privateKey)
   const from = new Date(ait.issued_at.slice(0, 10) + 'T00:00:00Z')
   const until = new Date(ait.expires_at)
   return {
     keys: [
       {
         witness,
-        key_id: `ed25519-${hex.slice(0, 16)}`,
+        key_id: keyId(hex),
         algorithm: 'ed25519',
         public_key: `0x${hex}`,
         valid_from: from.toISOString(),
@@ -310,6 +326,12 @@ function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], a
   return null
 }
 
+// True if `rel`, resolved under `root`, lands outside it (or on it).
+function escapes(root: string, rel: string): boolean {
+  const r = relative(root, resolve(root, rel))
+  return r === '' || r === '..' || r.startsWith('..' + sep) || isAbsolute(r)
+}
+
 // Same checks as verify.sh: manifest.files[] integrity first, then the
 // signatures and chain via the library's verifyReceipt, then the profile's
 // witness events if the manifest lists them.
@@ -319,10 +341,10 @@ async function verify(dir: string): Promise<VerifyResult> {
   for (const f of receipt.files ?? []) {
     // The manifest is untrusted input: refuse a path like ../x before reading
     // it, so a receipt cannot make us hash files outside its own directory.
-    const rel = relative(root, resolve(root, f.path))
-    if (rel === '' || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
+    if (escapes(root, f.path)) {
       return { ok: false, blocks: 0, reason: `${f.path} escapes the receipt directory` }
     }
+    const rel = relative(root, resolve(root, f.path))
     if (f.sha256 === null) continue
     let bytes: Buffer
     try {
@@ -347,6 +369,157 @@ async function verify(dir: string): Promise<VerifyResult> {
   return reason ? { ok: false, blocks: 0, reason } : result
 }
 
+// SCITT view of an unpacked receipt (RFC 9943): every artifact as a COSE_Sign1
+// signed statement under DIR/scitt/. manifest.files[] does not list scitt/, so
+// the receipt itself (and verify.sh) is unchanged by an export.
+const SCITT_DIR = 'scitt'
+
+type ScittIndexEntry = { file: string; artifact_id: string; sha256: HexHash }
+
+// A statement file name comes from an artifact id; refuse anything that could
+// leave scitt/ before it touches the filesystem.
+function safeName(id: unknown): string {
+  if (typeof id !== 'string' || id === '' || id.includes('..') || /[/\\]/.test(id)) {
+    throw new Error(`artifact id ${JSON.stringify(id)} is not a safe file name`)
+  }
+  return id
+}
+
+// The receipt's artifacts keyed by id. The manifest falls back to its `ait`
+// when it has no id.
+async function scittArtifacts(dir: string): Promise<{ ait: AIT; chain: AttestationBlock[]; manifest: Receipt; manifestId: string }> {
+  const ait = await readJsonFile<AIT>(dir, 'ait.json')
+  const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
+  const manifest = await readJsonFile<Receipt>(dir, 'manifest.json')
+  if (!isObject(ait) || !Array.isArray(chain) || !isObject(manifest)) throw new Error('receipt files have the wrong shape')
+  return { ait, chain, manifest, manifestId: String(manifest.id) }
+}
+
+async function scittExport(dir: string, v: Values): Promise<{ dir: string; statements: number; issuer: string; kid: string }> {
+  if (!v.issuer) throw new Error('--issuer <ISS> is required and must be non-empty')
+  const key = await loadKey(v.key)
+  const kid = keyId(publicHex(key))
+  const keys = await readJsonFile<KeysDocument>(dir, 'public_keys.json')
+  if (!keys.keys?.some(k => k.key_id === kid)) throw new Error(`--key ${kid} is not in public_keys.json`)
+  const { ait, chain, manifest, manifestId } = await scittArtifacts(dir)
+  const items: [string, unknown][] = [
+    [ait.id, ait],
+    ...chain.map(b => [b.id, b] as [string, unknown]),
+    [manifestId, manifest],
+  ]
+  const files = ['ait.cose', ...chain.map(b => `${safeName(b.id)}.cose`), 'manifest.cose']
+  // Sign everything before touching disk so a bad artifact leaves no half export.
+  const statements = items.map(([, a]) => toSignedStatement(a, key, v.issuer!, kid))
+  const out = join(dir, SCITT_DIR)
+  await rm(out, { recursive: true, force: true })
+  await mkdir(out)
+  const index: ScittIndexEntry[] = []
+  for (const [i, bytes] of statements.entries()) {
+    await writeFile(join(out, files[i]!), bytes)
+    index.push({ file: files[i]!, artifact_id: items[i]![0], sha256: sha256(bytes) })
+  }
+  await writeFile(join(out, 'index.json'), json(index))
+  return { dir: out, statements: index.length, issuer: v.issuer, kid }
+}
+
+// Never throws: any malformed or missing input is ok:false with a reason.
+async function scittVerify(dir: string): Promise<{ ok: boolean; statements: number; reason?: string }> {
+  const fail = (reason: string) => ({ ok: false, statements: 0, reason })
+  try {
+    const root = resolve(dir, SCITT_DIR)
+    const index = await readJsonFile<ScittIndexEntry[]>(root, 'index.json')
+    if (!Array.isArray(index)) return fail('scitt/index.json is not an array')
+    const { ait, chain, manifest, manifestId } = await scittArtifacts(dir)
+    const keys = await readJsonFile<KeysDocument>(dir, 'public_keys.json')
+    const artifacts = new Map<string, unknown>([[ait.id, ait], ...chain.map(b => [b.id, b] as [string, unknown]), [manifestId, manifest]])
+    const covered = new Set<string>()
+    for (const e of index) {
+      if (!isObject(e) || typeof e.file !== 'string' || typeof e.artifact_id !== 'string') return fail('scitt/index.json has a malformed entry')
+      if (escapes(root, e.file)) return fail(`${e.file} escapes the scitt directory`)
+      let bytes: Buffer
+      try {
+        bytes = await readFile(join(root, e.file))
+      } catch {
+        return fail(`scitt/${e.file} missing`)
+      }
+      if (sha256(bytes) !== e.sha256) return fail(`scitt/${e.file} sha256 mismatch`)
+      if (!artifacts.has(e.artifact_id)) return fail(`scitt/${e.file} covers unknown artifact ${e.artifact_id}`)
+      const kid = statementKid(bytes)
+      const entry = kid === null ? undefined : keys.keys?.find(k => k.key_id === kid)
+      if (!entry) return fail(`scitt/${e.file} kid ${kid} is not in public_keys.json`)
+      if (!verifySignedStatement(bytes, publicKeyFromHex(entry.public_key), artifacts.get(e.artifact_id))) {
+        return fail(`scitt/${e.file} does not verify against ${e.artifact_id}`)
+      }
+      covered.add(e.artifact_id)
+    }
+    const missing = [...artifacts.keys()].find(id => !covered.has(id))
+    if (missing) return fail(`no signed statement for ${missing}`)
+    return { ok: true, statements: index.length }
+  } catch (e) {
+    return fail((e as Error).message)
+  }
+}
+
+// Registration is the only command that touches the network, and only when
+// called with --service. Refuses to post unless scitt verify passes first.
+// SCRAPI = draft-ietf-scitt-scrapi-11.
+async function scittRegister(dir: string, service: string | undefined): Promise<{ service: string; registered: number; receipts: string[] }> {
+  let base: URL
+  try {
+    base = new URL(service ?? '')
+  } catch {
+    throw new Error('--service <URL> is required and must be an http(s) URL')
+  }
+  if (base.protocol !== 'http:' && base.protocol !== 'https:') throw new Error('--service must be an http: or https: URL')
+  // fetch would echo a URL with credentials in its error; refuse them here.
+  if (base.username || base.password) throw new Error('--service must not carry credentials')
+  // Only origin + path are ever printed; credentials or a query stay out of output.
+  const shown = base.origin + base.pathname
+  const root = resolve(dir, SCITT_DIR)
+  const index = await readJsonFile<ScittIndexEntry[]>(root, 'index.json')
+  if (!Array.isArray(index)) throw new Error('scitt/index.json is not an array')
+  const checked = await scittVerify(dir)
+  if (!checked.ok) throw new Error(`scitt verify failed, nothing registered: ${checked.reason}`)
+  // SCRAPI §2.3: "POST /entries". The path is a non-normative example, so
+  // --service is taken as the service base and /entries appended to it.
+  const endpoint = new URL(base.pathname.replace(/\/?$/, '/entries'), base)
+  const receipts: string[] = []
+  for (const e of index) {
+    if (escapes(root, e.file)) throw new Error(`${e.file} escapes the scitt directory`)
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      // SCRAPI §2.3: the request body is the COSE_Sign1 as application/cose.
+      headers: { 'content-type': 'application/cose', accept: 'application/cose' },
+      body: await readFile(join(root, e.file)),
+    })
+    // SCRAPI §2.3.1: 201 carries the receipt as its body. §2.3.2's 202 means
+    // registration is still running (receipt later via §2.4 Location polling);
+    // ponytail: no polling or retry, 202 and every other status fail.
+    if (res.status !== 201) throw new Error(`${shown} answered ${res.status} for scitt/${e.file}; no receipt written`)
+    const body = Buffer.from(await res.arrayBuffer())
+    const name = e.file.replace(/\.cose$/, '') + '.receipt'
+    // Whole body read first, then tmp + rename, so a crash leaves no half receipt.
+    await writeFile(join(root, `${name}.tmp`), body)
+    await rename(join(root, `${name}.tmp`), join(root, name))
+    receipts.push(name)
+  }
+  return { service: shown, registered: receipts.length, receipts }
+}
+
+// The kid from a COSE_Sign1's protected header (label 4), or null if the bytes
+// are not a well-formed statement.
+function statementKid(bytes: Uint8Array): string | null {
+  try {
+    const msg = cborDecode(bytes)
+    if (!(msg instanceof CborTag) || !Array.isArray(msg.value) || !(msg.value[0] instanceof Uint8Array)) return null
+    const hdr = cborDecode(msg.value[0])
+    const kid = hdr instanceof Map ? hdr.get(4) : undefined
+    return kid instanceof Uint8Array ? new TextDecoder().decode(kid) : null
+  } catch {
+    return null
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values: v, positionals: pos } = parseArgs({
     args: argv,
@@ -360,6 +533,8 @@ async function main(argv: string[]): Promise<number> {
       out: { type: 'string' },
       'profiles-dir': { type: 'string' },
       'unregistered-profile': { type: 'boolean' },
+      issuer: { type: 'string' },
+      service: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   }) as { values: Values; positionals: string[] }
@@ -375,8 +550,25 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(json(result))
     return result.ok ? 0 : 1
   }
+  // Like verify, scitt reads only the receipt dir: no witness, stdin or lock.
+  if (cmd === 'scitt') {
+    if (!['export', 'verify', 'register'].includes(pos[1] ?? '') || !pos[2]) {
+      throw new Error('usage: atap-witness scitt <export | verify | register> <dir>')
+    }
+    if (pos[1] === 'register') {
+      process.stdout.write(json(await scittRegister(pos[2], v.service)))
+      return 0
+    }
+    if (pos[1] === 'export') {
+      process.stdout.write(json(await scittExport(pos[2], v)))
+      return 0
+    }
+    const result = await scittVerify(pos[2])
+    process.stdout.write(json(result))
+    return result.ok ? 0 : 1
+  }
   if (!['ait declare', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
-    throw new Error('usage: atap-witness <ait declare | event | block | receipt | verify> [options]')
+    throw new Error('usage: atap-witness <ait declare | event | block | receipt | verify | scitt> [options]')
   }
 
   const strength = parseStrength(v.strength)
