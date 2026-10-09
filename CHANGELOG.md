@@ -27,6 +27,12 @@ All notable changes to ATAP are recorded here.
 
 ### Added
 
+- SCITT export — `@tunnelmindai/atap` `toSignedStatement` /
+  `verifySignedStatement` (an ATAP artifact as a COSE_Sign1 signed statement
+  over the SHA-256 of its canonical JSON, RFC 9943 / RFC 9995) plus
+  `atap-witness scitt export|verify|register`. Export and verify are offline;
+  `register` is built but off by default (no transparency service chosen).
+  See [`packages/atap-cli/README.md`](./packages/atap-cli/README.md#scitt-export).
 - `attestation_strength` (§7.4.1) — a four-tier ordered scale (`self-asserted` <
   `software` < `tee-tpm` < `silicon-root`) declaring the trust root the witness
   service ran under for a Receipt's period. The field appears on the Receipt

@@ -28,6 +28,9 @@ atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type",
 atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
 atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
 atap-witness verify DIR
+atap-witness scitt export DIR --key K --issuer ISS
+atap-witness scitt verify DIR
+atap-witness scitt register DIR --service URL
 ```
 
 | Command | Stdin | Stdout |
@@ -37,17 +40,20 @@ atap-witness verify DIR
 | `block` | A `period_summary` object; empty stdin means `{}` (which the profile's schema may refuse) | The signed Attestation Block over the events since the last block |
 | `receipt` | none | The signed Receipt (`manifest.json`). Writes the §7.5 files to `--out DIR` and `DIR.zip` |
 | `verify DIR` | none | `{"ok", "blocks", ...}`. Checks `manifest.files[]` hashes, then signatures and chains. Exit 0 only if `ok` is true |
+| `scitt export\|verify\|register DIR` | none | See [SCITT export](#scitt-export) |
 
 Flags:
 
 | Flag | Used by | Meaning |
 |---|---|---|
-| `--key PATH` | all but `verify` | Ed25519 private key, PEM. Required. |
-| `--witness-oai OAI` | all but `verify` | The witness's OAI. Falls back to `$ATAP_WITNESS_OAI`. Required. |
+| `--key PATH` | `ait declare`, `event`, `block`, `receipt`, `scitt export` | Ed25519 private key, PEM. Required. |
+| `--witness-oai OAI` | `ait declare`, `event`, `block`, `receipt` | The witness's OAI. Falls back to `$ATAP_WITNESS_OAI`. Required. |
 | `--ait ID` | `event`, `block`, `receipt` | The AIT id returned by `ait declare`. |
 | `--out DIR` | `receipt` | Output directory; `DIR.zip` is written next to it. |
-| `--dir DIR` | all but `verify` | Witness store (JSONL files). Default `./.atap-witness`. |
-| `--strength TIER` | all but `verify` | `attestation_strength` to declare. Default `self-asserted`. See [Evidence tiers](#evidence-tiers). |
+| `--dir DIR` | `ait declare`, `event`, `block`, `receipt` | Witness store (JSONL files). Default `./.atap-witness`. |
+| `--strength TIER` | `ait declare`, `event`, `block`, `receipt` | `attestation_strength` to declare. Default `self-asserted`. See [Evidence tiers](#evidence-tiers). |
+| `--issuer ISS` | `scitt export` | CWT `iss` of every statement (1–8192 chars), e.g. the witness's OAI. Required. |
+| `--service URL` | `scitt register` | Transparency service base URL, `http(s)`, no credentials. Required. |
 | `--profiles-dir DIR` | `ait declare`, `event`, `block` | Profile registry and schemas. Default the repo's `profiles/`. See [What the witness enforces](#what-the-witness-enforces). |
 | `--unregistered-profile` | `ait declare` | Declare an AIT whose `profile` is not in the registry. |
 
@@ -91,6 +97,72 @@ nothing to the store.
 `--profiles-dir DIR` points at another registry; it must contain
 `registry.json` and `atap-v0.1-schemas/`. Error messages name the schema and
 the failing path, never the refused payload values.
+
+## SCITT export
+
+`scitt` turns an unpacked receipt's artifacts into SCITT signed statements
+(RFC 9943). The ATAP artifacts are unchanged; the statements are an extra view
+of them. Export and verify read only `DIR` and need no network.
+
+**What a statement holds** (`toSignedStatement` in
+[`@tunnelmindai/atap`](../atap-js/src/scitt.ts)): a tagged COSE_Sign1
+(tag 18, RFC 9943 §6) with an empty unprotected header and this protected
+header:
+
+| Label | Value |
+|---|---|
+| `1` alg | `-8` (EdDSA) |
+| `4` kid | the witness key's `key_id` |
+| `15` CWT claims | `{1: iss, 2: sub}`: `iss` from `--issuer`, `sub` the AIT id |
+| `258` payload hash alg | `-16` (SHA-256), COSE Hash Envelope (RFC 9995) |
+| `259` preimage content type | `application/vnd.atap.ait+json`, `application/vnd.atap.attestation-block+json` or `application/vnd.atap.receipt+json` |
+
+The payload is `sha256` of the artifact's canonical JSON (RFC 8785), 32 raw
+bytes. Label `3` (content type) is absent: RFC 9995 §4 says it MUST NOT be
+present in a hash envelope. `verifySignedStatement(bytes, publicKey, artifact)`
+checks alg, hash alg, payload and signature.
+
+**Export.** `scitt export DIR --key K --issuer ISS` writes `DIR/scitt/`:
+
+| File | Statement over |
+|---|---|
+| `ait.cose` | `ait.json` |
+| `<block-id>.cose` | each block in `attestation_chain.json` |
+| `manifest.cose` | `manifest.json` |
+| `index.json` | `[{file, artifact_id, sha256}]`, one entry per statement |
+
+`--key` must be a key listed in the receipt's `public_keys.json`. An existing
+`scitt/` is replaced. `manifest.files[]` does not list `scitt/`, so the receipt
+and its `verify.sh` are unchanged by an export.
+
+**Verify.** `scitt verify DIR` prints `{"ok": true, "statements": N}` and exits
+0, or `{"ok": false, "statements": 0, "reason": "..."}` and exits 1. It fails
+on a missing statement file, a statement whose bytes do not match its
+`index.json` `sha256`, an `artifact_id` that is not in the receipt, a `kid`
+not in `public_keys.json`, a statement that does not verify against its
+artifact (an altered artifact), and an artifact with no statement.
+
+**Register.** `scitt register DIR --service URL` is the only `scitt` command
+that touches the network, and only to `--service`. `URL` must be `http:` or
+`https:` without credentials. It runs `scitt verify` first and posts nothing
+if that fails. Each statement is sent as `POST <URL>/entries` with
+`content-type: application/cose` (draft-ietf-scitt-scrapi-11 §2.3). A `201`
+body is saved as `scitt/<name>.receipt`; any other status, `202` included,
+fails the command with no polling or retry.
+
+Register is built but off by default: no transparency service has been chosen,
+so nothing is registered anywhere and the whole feature works offline.
+
+**Interop.** [`test/scitt-interop.test.mjs`](./test/scitt-interop.test.mjs)
+verifies every exported statement with pycose, an independent COSE
+implementation, and checks it rejects a flipped byte (skipped with a printed
+reason if pycose cannot be installed). It also pins the exact statement bytes
+for a fixed key and record.
+
+```bash
+atap-witness scitt export receipt --key witness.pem --issuer OAI-2026-0010002
+atap-witness scitt verify receipt
+```
 
 ## Worked example
 
