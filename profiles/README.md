@@ -19,6 +19,7 @@ event types, the payload shapes, the aggregation rules — lives in an
 | Profile | Domain | Maintainer | Status |
 |---|---|---|---|
 | [`sigil:media_buyer:v1`](profiles/sigil-media-buyer-v1/profile.md) | Programmatic ad-buying agents | TunnelMind (via Sigil) | Reference |
+| [`tunnelmind:crew_ops:v1`](profiles/tunnelmind-crew-ops-v1/profile.md) | An agent crew's own operations on one host | TunnelMind | Draft |
 
 `sigil:ecommerce_buyer:v1` and `sigil:data_broker:v1` are reserved.
 

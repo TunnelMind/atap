@@ -41,6 +41,12 @@ All notable changes to ATAP are recorded here.
   status draft — event vocabulary, schemas, examples, and PII-rejection tests
   for a crew of role agents (supervisor, coder, QA, reviewer) changing code
   under review.
+- `tunnelmind:crew_ops:v1` application profile
+  ([`profiles/profiles/tunnelmind-crew-ops-v1/`](./profiles/profiles/tunnelmind-crew-ops-v1/)),
+  status draft — event vocabulary, schemas, examples, and PII-rejection tests
+  for a crew's own operations on one host: autonomy decisions, owner
+  ratifications, idea-intake decisions. The `atap-witness` CLI accepts it with
+  no source change (`packages/atap-cli/test/crew-ops.test.mjs`).
 - `@tunnelmindai/atap-cli` ([`packages/atap-cli/`](./packages/atap-cli/)) —
   the `atap-witness` CLI, a file-backed witness on `@tunnelmindai/atap` with
   `ait declare`, `event`, `block`, `receipt` and `verify`, JSON on stdin and
