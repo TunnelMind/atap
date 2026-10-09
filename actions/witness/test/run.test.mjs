@@ -10,7 +10,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const RUN = fileURLToPath(new URL('../run.mjs', import.meta.url))
+const CLI = fileURLToPath(new URL('../../../packages/atap-cli/dist/cli.js', import.meta.url))
+const VERIFY_SH = fileURLToPath(new URL('../../../verify.sh', import.meta.url))
 const MARKER = 'witness-smoke-output-marker'
+const PROBE = 'env-secret-probe-7f3a'
 
 function action(command, extra = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'atap-action-test-'))
@@ -29,11 +32,12 @@ function action(command, extra = {}) {
   return { r, outputs, temp }
 }
 
-for (const [command, code] of [[`echo ${MARKER}; true`, 0], [`echo ${MARKER}; exit 3`, 3]]) {
+// The probe env var is echoed too, so it would leak if output text were stored.
+for (const [command, code] of [[`echo ${MARKER} "$WITNESS_SECRET_PROBE"; true`, 0], [`echo ${MARKER} "$WITNESS_SECRET_PROBE"; exit 3`, 3]]) {
   test(`exit code ${code} passes through and the receipt verifies`, () => {
-    const { r, outputs, temp } = action(command)
+    const { r, outputs, temp } = action(command, { WITNESS_SECRET_PROBE: PROBE })
     assert.equal(r.status, code, r.stderr)
-    assert.ok(r.stdout.includes(MARKER), 'the test output streams to the log')
+    assert.ok(r.stdout.includes(MARKER) && r.stdout.includes(PROBE), 'the test output streams to the log')
     assert.equal(outputs.verified, 'true', r.stdout)
     assert.match(outputs.did, /^did:key:z/)
     const receipt = outputs['receipt-path']
@@ -44,7 +48,15 @@ for (const [command, code] of [[`echo ${MARKER}; true`, 0], [`echo ${MARKER}; ex
     const store = join(temp, readdirSync(temp).find(d => d.startsWith('atap-witness-')), 'store')
     for (const text of [events, readFileSync(join(store, 'events.jsonl'), 'utf8')]) {
       assert.ok(!text.includes(MARKER) && !text.includes(temp) && !text.includes('witness.pem'))
+      assert.ok(!text.includes(PROBE))
     }
+    // Bytes, not text, so a binary file in the receipt is checked too.
+    for (const f of readdirSync(receipt, { recursive: true, withFileTypes: true }).filter(d => d.isFile())) {
+      assert.ok(!readFileSync(join(f.parentPath, f.name)).includes(PROBE), f.name)
+    }
+    // Both verifiers again, run by the test itself rather than trusting run.mjs's verdict.
+    assert.equal(spawnSync('bash', [VERIFY_SH, receipt], { encoding: 'utf8' }).status, 0)
+    assert.equal(spawnSync(process.execPath, [CLI, 'verify', receipt], { encoding: 'utf8' }).status, 0)
   })
 }
 
