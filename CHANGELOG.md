@@ -76,6 +76,13 @@ All notable changes to ATAP are recorded here.
   the `atap-witness` CLI, a file-backed witness on `@tunnelmindai/atap` with
   `ait declare`, `event`, `block`, `receipt` and `verify`, JSON on stdin and
   stdout. Runs from a source checkout; not published to npm.
+- Claude Code plugin `atap` ([`plugins/claude-code/`](./plugins/claude-code/)),
+  installable from this repo's marketplace (`.claude-plugin/marketplace.json`).
+  In a project set up with `atap-witness init` it records a successful
+  `git commit` as `code_crew:change_committed` and a test run as
+  `code_crew:verify_run` (sha256 of command and output, exit code), and closes
+  one attestation block at session end. Stored locally in `.atap/`; always
+  exits 0; `ATAP_OFF=1` turns it off.
 
 ### Fixed
 
