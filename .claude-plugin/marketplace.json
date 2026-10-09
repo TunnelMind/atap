@@ -1,0 +1,14 @@
+{
+  "name": "atap",
+  "owner": {
+    "name": "TunnelMind"
+  },
+  "description": "ATAP plugins for Claude Code, from TunnelMind",
+  "plugins": [
+    {
+      "name": "atap",
+      "source": "./plugins/claude-code",
+      "description": "Records the commits and test runs Claude Code makes in an ATAP-initialised project as ATAP witness events, stored locally in .atap/"
+    }
+  ]
+}
