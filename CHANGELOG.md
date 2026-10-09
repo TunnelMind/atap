@@ -36,9 +36,34 @@ All notable changes to ATAP are recorded here.
   §14.8). Per-event override is reserved for v2.
 - §14.8 — locked position recording that the four-tier set, its ordering, and
   receipt-and-key placement are committed for the lifetime of v0.1.x and v0.2.
+- `tunnelmind:code_crew:v1` application profile
+  ([`profiles/profiles/tunnelmind-code-crew-v1/`](./profiles/profiles/tunnelmind-code-crew-v1/)),
+  status draft — event vocabulary, schemas, examples, and PII-rejection tests
+  for a crew of role agents (supervisor, coder, QA, reviewer) changing code
+  under review.
+- `@tunnelmindai/atap-cli` ([`packages/atap-cli/`](./packages/atap-cli/)) —
+  the `atap-witness` CLI, a file-backed witness on `@tunnelmindai/atap` with
+  `ait declare`, `event`, `block`, `receipt` and `verify`, JSON on stdin and
+  stdout. Runs from a source checkout; not published to npm.
 
 ### Fixed
 
+- **Signed objects are checked against their whole schema before they are
+  stored.** `atap-witness` validated a few AIT fields one by one, so an AIT
+  with a witness OAI that was really an e-mail address was signed and written.
+  Every signed AIT, event and block is now validated against its complete
+  core schema (`ait`, `witness-event`, `attestation-block`) as it is written;
+  a refusal writes nothing. `WitnessService.declareAit` refuses a malformed
+  `AitInput` (wrong field types) and an unparseable `expiresAt`, which used to
+  make the lifetime checks silently skip.
+- **The witness signed what ATAP forbids.** `WitnessService.witness` accepted
+  any `event_type`, so an un-namespaced `approval` with an email in its
+  payload was signed and its Receipt verified. The library now refuses an
+  `event_type` outside the §7.2 pattern before writing anything, and
+  `atap-witness` validates `event` payloads and `block` period summaries
+  against the AIT's registered profile schemas (the §7.6 no-PII rules) and
+  refuses `ait declare` for an unregistered profile unless
+  `--unregistered-profile` is given. Refused calls write nothing.
 - `verify.sh`: the JSON canonicalizer serialized non-integer numbers with
   `format(o, ".17g")`, which is not RFC 8785 — it expanded values such as
   `0.7` to `0.69999999999999996`, so the recomputed hashes never matched and

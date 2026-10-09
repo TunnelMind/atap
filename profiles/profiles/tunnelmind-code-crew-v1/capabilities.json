@@ -1,0 +1,15 @@
+{
+  "profile": "tunnelmind:code_crew:v1",
+  "description": "Canonical capability vocabulary for the tunnelmind:code_crew:v1 profile. An AIT's `capabilities` array MUST draw only from these tokens. The witness rejects an AIT declaring a capability outside this set.",
+  "capabilities": {
+    "code_crew:plan": "Pick the next task and write the brief and acceptance checks for it.",
+    "code_crew:code": "Change files in a working tree and commit the change.",
+    "code_crew:verify": "Run the task's verify command (tests, build, lint) and report its exit code.",
+    "code_crew:qa_verdict": "Independently check a change and accept it or send it back for rework.",
+    "code_crew:review_verdict": "Review a branch head and pass or fail it with finding counts by severity.",
+    "code_crew:approve": "Record the owner's approve or reject decision on a gated step.",
+    "code_crew:merge": "Merge a reviewed change into the target branch.",
+    "code_crew:deploy": "Release a merged change to a deployment target.",
+    "code_crew:revert": "Undo a committed, merged or deployed change."
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-code-crew-v1/constraints.schema.json",
+  "title": "tunnelmind:code_crew:v1 — AIT constraints",
+  "description": "Validates the `constraints` object of an ATAP v0.1 AIT declared under the tunnelmind:code_crew:v1 profile. The canonical-byte serialization of `constraints` MUST NOT exceed 4096 bytes (ATAP v0.1 §6.2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["autonomy_class", "allowed_repos", "max_iterations", "models"],
+  "properties": {
+    "autonomy_class": {
+      "enum": ["supervised", "gated", "autonomous"],
+      "description": "supervised: the owner approves every change before merge. gated: the crew runs unattended and stops at declared gates (merge, deploy) for an owner approval. autonomous: the crew may merge and deploy without an approval event."
+    },
+    "allowed_repos": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$" },
+      "description": "Repositories the crew may commit to, as owner/repo. Capped at 50 to respect the 4 KB constraints ceiling."
+    },
+    "max_iterations": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Maximum coder/QA attempts per task before the crew must stop."
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "supervisor": { "$ref": "#/$defs/model" },
+        "coder": { "$ref": "#/$defs/model" },
+        "qa": { "$ref": "#/$defs/model" },
+        "reviewer": { "$ref": "#/$defs/model" },
+        "coordinator": { "$ref": "#/$defs/model" }
+      },
+      "description": "The model each agent role runs on. Keys are agent roles; the human `owner` runs no model."
+    }
+  },
+  "$defs": {
+    "model": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$",
+      "description": "Model identifier, e.g. claude-opus-5-5. No `@` or spaces, so it cannot carry an email address or free text."
+    }
+  }
+}

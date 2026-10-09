@@ -28,6 +28,9 @@ import { canonicalizeBytes } from './canonicalize.js'
 import { ed25519Sign, fromHex, sha256 } from './crypto.js'
 import { uuidv7 } from './uuid.js'
 
+// ATAP §7.2: event_type is a colon-delimited, profile-namespaced identifier.
+const EVENT_TYPE_RE = /^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)+$/
+
 export interface WitnessStorage {
   saveAit(ait: AIT): Promise<void>
   loadAit(id: AIT_ID): Promise<AIT | null>
@@ -81,6 +84,16 @@ export class WitnessService {
   }
 
   async declareAit(input: AitInput): Promise<AIT> {
+    // Shape first, with one clear message per field: the CLI's schema guard
+    // sees only the signed object, so a malformed input must not get as far as
+    // signing (or crash with a TypeError that names nothing).
+    for (const [k, t] of [['agentType', 'string'], ['profile', 'string'], ['operator', 'string'], ['expiresAt', 'string']] as const) {
+      if (typeof (input as unknown as Record<string, unknown>)[k] !== t) throw new Error(`${k} must be a ${t}`)
+    }
+    if (!Array.isArray(input.capabilities)) throw new Error('capabilities must be an array')
+    if (typeof input.attestationPolicy !== 'object' || input.attestationPolicy === null) {
+      throw new Error('attestationPolicy must be an object')
+    }
     if (input.capabilities.length === 0 || input.capabilities.length > MAX_CAPABILITIES) {
       throw new Error(`AIT capabilities must be 1..${MAX_CAPABILITIES} items`)
     }
@@ -92,6 +105,8 @@ export class WitnessService {
     }
     const issuedAt = this.now()
     const expiresAt = new Date(input.expiresAt)
+    // An unparseable date would make lifeMs NaN and skip both range checks below.
+    if (Number.isNaN(expiresAt.getTime())) throw new Error('expiresAt must be an ISO 8601 date-time')
     const lifeMs = expiresAt.getTime() - issuedAt.getTime()
     if (lifeMs > MAX_AIT_LIFETIME_DAYS * 86400_000) {
       throw new Error(`AIT lifetime exceeds ${MAX_AIT_LIFETIME_DAYS} days`)
@@ -129,6 +144,10 @@ export class WitnessService {
     eventType: string,
     payload: Record<string, unknown>,
   ): Promise<WitnessEvent> {
+    // Refuse before touching storage: a malformed event_type must never be signed.
+    if (!EVENT_TYPE_RE.test(eventType)) {
+      throw new Error(`event_type must match the ATAP §7.2 pattern ${EVENT_TYPE_RE.source}`)
+    }
     const ait = await this.cfg.storage.loadAit(aitId)
     if (!ait) throw new Error(`unknown AIT ${aitId}`)
     if (ait.witness !== this.cfg.witnessOAI) {

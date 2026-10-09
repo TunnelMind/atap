@@ -12,6 +12,15 @@
       "path": "profiles/sigil-media-buyer-v1",
       "atap_version": "0.1",
       "summary": "Witness vocabulary for AI agents that buy programmatic advertising — bid lifecycle, budget movement, Sigil supply-path verification, and constraint-violation detection."
+    },
+    {
+      "id": "tunnelmind:code_crew:v1",
+      "title": "Software-change agent crew",
+      "maintainer": "TunnelMind",
+      "status": "draft",
+      "path": "profiles/tunnelmind-code-crew-v1",
+      "atap_version": "0.1",
+      "summary": "Witness vocabulary for a crew of role agents changing software under review — task claims, commits, verify runs, QA and review verdicts, owner approvals, merges and deploys, each with an evidence tier."
     }
   ],
   "reserved": [

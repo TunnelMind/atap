@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-code-crew-v1/witness-events.schema.json",
+  "title": "tunnelmind:code_crew:v1 — Witness Event payloads",
+  "description": "Binds each profile event_type to its payload schema. A conformant Witness Event MUST validate against BOTH the ATAP v0.1 base witness-event schema (the envelope: @context, id, hashes, signature) AND this schema (the event_type vocabulary and payload shape). Every payload sets additionalProperties:false — that is how this profile encodes the ATAP §7.6 no-PII prohibition: a payload carrying a person's name, email, IP address or any other person-resolvable field has no permitted key for it and fails validation. Identifier fields are opaque tokens whose pattern admits no `@` or whitespace, so they cannot carry an email address or free text either.",
+  "type": "object",
+  "required": ["event_type", "payload"],
+  "properties": {
+    "event_type": {
+      "enum": [
+        "code_crew:task_claimed",
+        "code_crew:change_committed",
+        "code_crew:verify_run",
+        "code_crew:qa_verdict",
+        "code_crew:review_verdict",
+        "code_crew:approval",
+        "code_crew:merged",
+        "code_crew:deployed"
+      ]
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "const": "code_crew:task_claimed" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/task_claimed" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:change_committed" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/change_committed" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:verify_run" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/verify_run" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:qa_verdict" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/qa_verdict" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:review_verdict" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/review_verdict" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:approval" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/approval" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:merged" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/merged" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:deployed" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/deployed" } } } }
+  ],
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "evidence": {
+      "enum": ["asserted", "anchored", "witnessed"],
+      "description": "How strong the claim is. asserted: the agent says so. anchored: bound to something a verifier can look up (a commit sha, a merge commit, a public version id). witnessed: the witness observed it itself."
+    },
+    "opaque_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
+      "description": "Opaque token (task id, model, target, version id). No `@` or whitespace."
+    },
+    "agent_role": { "enum": ["supervisor", "coder", "qa", "reviewer", "coordinator"] },
+    "model": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$" },
+    "repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$", "description": "owner/repo" },
+    "git_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "task_claimed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "task_id", "role", "model"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "task_id": { "$ref": "#/$defs/opaque_id" },
+        "role": { "$ref": "#/$defs/agent_role" },
+        "model": { "$ref": "#/$defs/model" }
+      }
+    },
+    "change_committed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "repo", "commit_sha"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence", "const": "anchored", "description": "The commit sha is checkable in the repo." },
+        "repo": { "$ref": "#/$defs/repo" },
+        "commit_sha": { "$ref": "#/$defs/git_sha" }
+      }
+    },
+    "verify_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "command_sha256", "exit_code", "output_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence", "description": "witnessed only if the witness ran the command itself; otherwise asserted." },
+        "command_sha256": { "$ref": "#/$defs/sha256" },
+        "exit_code": { "type": "integer", "minimum": -255, "maximum": 255 },
+        "output_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "qa_verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "task_id", "verdict", "attempt"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "task_id": { "$ref": "#/$defs/opaque_id" },
+        "verdict": { "enum": ["accepted", "rework"] },
+        "attempt": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "review_verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "head_sha", "verdict", "findings"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "head_sha": { "$ref": "#/$defs/git_sha" },
+        "verdict": { "enum": ["pass", "fail"] },
+        "findings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["critical", "high", "medium", "low"],
+          "properties": {
+            "critical": { "$ref": "#/$defs/count" },
+            "high": { "$ref": "#/$defs/count" },
+            "medium": { "$ref": "#/$defs/count" },
+            "low": { "$ref": "#/$defs/count" }
+          }
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "role", "decision", "channel", "approval_text_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "role": { "const": "owner", "description": "A human approval records the role, never the person (ATAP §7.6)." },
+        "decision": { "enum": ["approve", "reject"] },
+        "channel": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,31}$", "description": "Where the approval was given, e.g. cli, chat, pr_review." },
+        "approval_text_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the approval text; the text itself is a user communication and stays out of the payload." }
+      }
+    },
+    "merged": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "repo", "pr_number", "merge_commit_sha"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence", "const": "anchored", "description": "The merge commit is checkable in the repo." },
+        "repo": { "$ref": "#/$defs/repo" },
+        "pr_number": { "type": "integer", "minimum": 1 },
+        "merge_commit_sha": { "$ref": "#/$defs/git_sha" }
+      }
+    },
+    "deployed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "target", "version_id"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence", "description": "anchored when version_id is publicly checkable; otherwise asserted." },
+        "target": { "$ref": "#/$defs/opaque_id" },
+        "version_id": { "$ref": "#/$defs/opaque_id" }
+      }
+    }
+  }
+}

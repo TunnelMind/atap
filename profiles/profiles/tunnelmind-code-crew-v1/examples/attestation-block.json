@@ -1,0 +1,29 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "AttestationBlock",
+  "id": "ATAP-AB-01a11df6-48cb-7890-85f6-a77a8ae248c4",
+  "ait": "AIT-01a11b62-7600-7ac5-98ac-c40f3d42d7f4",
+  "ab_version": "0.1",
+  "profile": "tunnelmind:code_crew:v1",
+  "period_start": "2026-10-08T12:00:01.500Z",
+  "period_end": "2026-10-08T12:00:12.000Z",
+  "first_event": "ATAP-WE-01a11b62-7bdc-7794-923f-2d99cb39e619",
+  "last_event": "ATAP-WE-01a11b62-a4e0-76c1-b6c2-352011fabf99",
+  "event_count": 8,
+  "chain_head_hash": "0x9fd5bd773d1ddc116f860c5316918866e9b83afb9f250504cfb4fe4df391a0a6",
+  "period_summary": {
+    "tasks_accepted": 1,
+    "tasks_rework": 0,
+    "merged_changes": 1,
+    "tokens": 182000,
+    "overturns": {
+      "supervisor": 0,
+      "coder": 0,
+      "qa": 0,
+      "reviewer": 0
+    }
+  },
+  "prev_block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "self_hash": "0x77241664522254da8649b6f34ba0f47db33bfcb305aef811a6d2203e721f3758",
+  "witness_signature": "ed25519:0xa3116664450d99bf370da292977972302a6c326333699bf8bf9bea4de2569121b808837c5993dcd43bc51dfda0911c94489cd9796a0ae6327a8e114b09f40702"
+}
