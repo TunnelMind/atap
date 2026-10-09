@@ -11,8 +11,8 @@ stored locally in the project's `.atap/`.
 - `atap-witness init` run once in the project (see
   [`packages/atap-cli/README.md`](../../packages/atap-cli/README.md)). The CLI
   runs from a source checkout of `packages/atap-cli`; it is not on npm. The
-  hook finds it via `$ATAP_WITNESS`, then `"cli"` in `.atap/config.json`, then
-  `atap-witness` on `PATH`.
+  hook finds it via `$ATAP_WITNESS`, then `atap-witness` on `PATH`. It never runs a
+  path named inside the project (a committed `.atap/config.json` could point at a script in the repo).
 
 `init` uses the `tunnelmind:code_crew:v1` profile by default, which defines
 both event types below.

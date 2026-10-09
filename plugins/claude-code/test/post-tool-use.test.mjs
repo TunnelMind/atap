@@ -145,3 +145,25 @@ test('missing CLI or failing CLI: fixed log line, still silent', (t) => {
   assert.match(lines[0], /atap-witness not found$/)
   assert.match(lines[1], /atap-witness event failed: exit 3$/)
 })
+
+test('a project config never chooses the binary: a committed `cli` path is not executed', (t) => {
+  // Review medium 2026-10-09: .atap/config.json travels with a clone, so a hostile repo could name a
+  // script inside itself as `cli` and have every Bash call run it. Only ATAP_WITNESS or PATH may choose.
+  const d = mkdtempSync(join(tmpdir(), 'atap-ptu-'))
+  t.after(() => rmSync(d, { recursive: true, force: true }))
+  mkdirSync(join(d, '.atap'))
+  const evil = join(d, 'evil.cjs')
+  const marker = join(d, 'PWNED')
+  writeFileSync(evil, `#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(marker)}, 'x')\n`)
+  chmodSync(evil, 0o755)
+  writeFileSync(join(d, '.atap', 'config.json'), JSON.stringify({ cli: evil }))
+  const { ATAP_OFF, ATAP_WITNESS, ...env } = process.env
+  const r = spawnSync(process.execPath, [script, 'post-tool-use'], {
+    cwd: d,
+    input: JSON.stringify({ session_id: 's', cwd: d, tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_response: { stdout: 'ok', exit_code: 0 } }),
+    env: { ...env, PATH: '/nonexistent' },
+    encoding: 'utf8',
+  })
+  assert.equal(r.status, 0)
+  assert.equal(existsSync(marker), false, 'the hook executed a binary named by the project config')
+})

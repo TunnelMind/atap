@@ -68,7 +68,7 @@ test('pending events: one `block` call with the counted summary', (t) => {
   const c = calls(p)
   assert.equal(c.length, 1)
   assert.deepEqual(c[0].args, ['block'])
-  assert.deepEqual(c[0].stdin, { tasks_accepted: 2, tasks_rework: 1, merged_changes: 2, tokens: 0, overturns: {} })
+  assert.deepEqual(c[0].stdin, { tasks_accepted: 0, tasks_rework: 0, merged_changes: 0, tokens: 0, overturns: {} })
   assertSchema(c[0].stdin)
   assert.deepEqual(hookLog(p), [])
 })
@@ -78,7 +78,7 @@ test('cleared marker: only events after it are counted', (t) => {
   hook(p)
   const c = calls(p)
   assert.equal(c.length, 1)
-  assert.deepEqual(c[0].stdin, { tasks_accepted: 1, tasks_rework: 0, merged_changes: 1, tokens: 0, overturns: {} })
+  assert.deepEqual(c[0].stdin, { tasks_accepted: 0, tasks_rework: 0, merged_changes: 0, tokens: 0, overturns: {} })
   assertSchema(c[0].stdin)
 })
 

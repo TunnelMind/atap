@@ -102,7 +102,10 @@ function ownerRepo(url) {
 // killed well inside the 10 s hook timeout. Failures log fixed text only: the
 // CLI's own output may quote payload fields.
 async function witness(atap, cwd, event, args, input) {
-  const bin = process.env.ATAP_WITNESS || (typeof atap.config.cli === 'string' ? atap.config.cli : 'atap-witness')
+  // Never a path from the project: .atap/config.json can be committed, so a cloned repo could name
+  // a script inside itself and have every Bash call run it (review medium, 2026-10-09). Only the
+  // user's own environment chooses the binary: ATAP_WITNESS, else atap-witness on PATH.
+  const bin = process.env.ATAP_WITNESS || 'atap-witness'
   const p = run(bin, args, { cwd, timeout: 8000 })
   p.child.stdin.on('error', () => {}) // EPIPE if the binary dies before reading
   p.child.stdin.end(JSON.stringify(input))
@@ -179,19 +182,11 @@ const handlers = {
     if (typeof ait !== 'string') return log(atap, 'session-end', 'no ait in config')
     const events = await pendingEvents(atap, ait)
     if (events.length === 0) return
-    const count = (f) => events.filter(f).length
-    const runs = (e) => e.event_type === 'code_crew:verify_run'
-    // The code_crew profile's period summary has no commit or test-run fields,
-    // so these are its closest counts: a passing test run as an accepted task,
-    // a failing one as rework, a commit as a merged change. tokens is 0 because
-    // the hook never sees model tokens; overturns need verdicts it has none of.
-    const summary = {
-      tasks_accepted: count((e) => runs(e) && e.payload?.exit_code === 0),
-      tasks_rework: count((e) => runs(e) && e.payload?.exit_code !== 0),
-      merged_changes: count((e) => e.event_type === 'code_crew:change_committed'),
-      tokens: 0,
-      overturns: {},
-    }
+    // The code_crew profile's period summary counts QA verdicts, merged changes and tokens. The hook
+    // sees none of them (a passing test run is not an accepted task; a commit is not a merge), so it
+    // reports zeros rather than a relabelled guess (review low, 2026-10-09). The block still covers
+    // every commit and test-run event, which carry the facts.
+    const summary = { tasks_accepted: 0, tasks_rework: 0, merged_changes: 0, tokens: 0, overturns: {} }
     return witness(atap, typeof input.cwd === 'string' ? input.cwd : process.cwd(), 'session-end', ['block'], summary)
   },
 }
