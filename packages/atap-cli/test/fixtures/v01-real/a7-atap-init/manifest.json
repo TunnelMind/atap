@@ -1,0 +1,51 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "Receipt",
+  "id": "ATAP-RCPT-01a121f0-d913-758f-8664-00d8282c9a74",
+  "ait": "AIT-01a1216f-7d52-7caf-879b-d74122772edc",
+  "profile": "tunnelmind:code_crew:v1",
+  "period_start": "2026-10-09T16:15:07.333Z",
+  "period_end": "2026-10-09T18:33:14.210Z",
+  "block_count": 4,
+  "event_count": 37,
+  "first_block": "ATAP-AB-01a12184-81d6-7469-bdd5-23c9df440cd4",
+  "last_block": "ATAP-AB-01a121f0-d874-7d5b-afa7-e01c803e293c",
+  "chain_head_hash": "0x425b40afbdafaabfe9f80387bf631db5691e7d4c18a767b3b553030bcd8f5ecb",
+  "witness": "OAI-2026-0010002",
+  "format": "full",
+  "generated_at": "2026-10-09T18:33:14.772Z",
+  "verifier_url": "https://tunnelmind.ai/atap/verify.sh",
+  "keys_url": "https://tunnelmind.ai/atap/keys",
+  "files": [
+    {
+      "path": "manifest.json",
+      "sha256": null
+    },
+    {
+      "path": "ait.json",
+      "sha256": "0x0668c4a90bf38f04725de42251e323604611fb05693e5dde0b2abb4994a8f953"
+    },
+    {
+      "path": "attestation_chain.json",
+      "sha256": "0xfd4e3476449e2d7ae181705023e07a2096232da2e6b4847b4ad5d11811500543"
+    },
+    {
+      "path": "summary.json",
+      "sha256": "0xeb64ae925df727767829caf6d16b693ba380ffb74319ce366a5d588a414b9208"
+    },
+    {
+      "path": "public_keys.json",
+      "sha256": "0xf4488d13d8585e72638dfb743ee7bf2ce304c2ec8d5afe512979c953a3505e19"
+    },
+    {
+      "path": "verify.sh",
+      "sha256": "0x8e063a8ffb392575c42f0a2fe10a76c9869cc00d4e9a3882b920a8b8e72a1605"
+    },
+    {
+      "path": "profile_artifacts/witness_events.json",
+      "sha256": "0x9ac52a6351f18771a4d18a9bd49b9644733d51a1b187a1c9b976ddf5ab6a370b"
+    }
+  ],
+  "attestation_strength": "self-asserted",
+  "witness_signature": "ed25519:0x81255e0eb67c1eb70894ba40f0099a177ac3d425e3f66d391d47bdd5d2a5a2a50b3b7952e76a752e8772f09fd2b6d8b85c15649bab6b72fd6ac07f531e114c0e"
+}

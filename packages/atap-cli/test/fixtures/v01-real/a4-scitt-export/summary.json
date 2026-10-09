@@ -1,0 +1,11 @@
+{
+  "tasks_accepted": 5,
+  "tasks_rework": 0,
+  "merged_changes": 1,
+  "tokens": 6098293,
+  "overturns": {
+    "coder": 0,
+    "qa": 0,
+    "reviewer": 0
+  }
+}

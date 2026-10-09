@@ -1,0 +1,577 @@
+[
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fcb-9e4d-7b2b-9bad-532081a249b5",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T08:33:20.461Z",
+    "event_type": "code_crew:verify_run",
+    "payload": {
+      "timestamp": "2026-10-09T08:33:20Z",
+      "evidence": "witnessed",
+      "command_sha256": "3b904b6440a1431e3bc43d30c6941d115d622ee1423e9241fa937e71de5b0564",
+      "exit_code": 0,
+      "output_sha256": "bd0a4881bcf36e438456bebc368987dc7882b8419e3f32b614f30592fc05c21e"
+    },
+    "prev_event_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "self_hash": "0x5f5ecb65006512cf8102394d5f04ffd38b8f9eaf3c0ce5fcce3ef37a12fb24b4",
+    "witness_signature": "ed25519:0xcc0845624d40e1229f5e55ae38161822879474a85d860713beb0aabdacb6bf338f1b49114f9a2a409c9c2e53f79d41edec585f62237cd659560b59a8c70cfb0c"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fcb-9f1c-7615-8beb-2a898f23f727",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T08:33:20.668Z",
+    "event_type": "code_crew:task_claimed",
+    "payload": {
+      "timestamp": "2026-10-09T08:33:20Z",
+      "evidence": "asserted",
+      "task_id": "O301",
+      "role": "coder",
+      "model": "opus"
+    },
+    "prev_event_hash": "0x5f5ecb65006512cf8102394d5f04ffd38b8f9eaf3c0ce5fcce3ef37a12fb24b4",
+    "self_hash": "0x82fec18ef081e7c984785553b952d0743c58ae50f6a5982d988ba93f4bba9a6d",
+    "witness_signature": "ed25519:0x23d589856fe8370d24b65d0795a423c9592dde63dcc515f6b8509bbd9763f328597da0e96a8e23eba97c136dafa1eb4604fd91fdc315bcf22070c6b3f0d00d09"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fd0-b584-781e-88b6-fa48c54b3148",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T08:38:54.084Z",
+    "event_type": "code_crew:change_committed",
+    "payload": {
+      "timestamp": "2026-10-09T08:38:53Z",
+      "evidence": "anchored",
+      "repo": "TunnelMind/agent-crew",
+      "commit_sha": "df9a78a7ee4faa6a0df98343489315920008f14a"
+    },
+    "prev_event_hash": "0x82fec18ef081e7c984785553b952d0743c58ae50f6a5982d988ba93f4bba9a6d",
+    "self_hash": "0x624e939b93f656d0184b8dc57e3020495353c53d2e8568894a983630dd1752a0",
+    "witness_signature": "ed25519:0x3272525a45ca4b2e0f64aa3b44d7f8f1270606976aa8c6dbfd4fa6e078f93d6a9132a7a3ad3b8949ba704316779058c6ae304a8a9ea2d4ead82104c144c63008"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fd0-b65c-7ff3-b75b-de2305224ae2",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T08:38:54.300Z",
+    "event_type": "code_crew:qa_verdict",
+    "payload": {
+      "timestamp": "2026-10-09T08:38:54Z",
+      "evidence": "asserted",
+      "task_id": "O301",
+      "verdict": "accepted",
+      "attempt": 1
+    },
+    "prev_event_hash": "0x624e939b93f656d0184b8dc57e3020495353c53d2e8568894a983630dd1752a0",
+    "self_hash": "0xd0276bc009601f3ce5be74861f7e1b95a84a0249675216977dbd63b73a0197fe",
+    "witness_signature": "ed25519:0x228a76121ff9c0a4aad412d64d348302a6a0c6f43d80ab3907d0b26f6de3a6229b532e1e1a7354f8a9fcd6a86f4d9c83b5d9cdc97b3ed59576388305b91cd708"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fd8-f7ca-7ed4-b864-8b20ef031236",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T08:47:55.338Z",
+    "event_type": "code_crew:verify_run",
+    "payload": {
+      "timestamp": "2026-10-09T08:47:55Z",
+      "evidence": "witnessed",
+      "command_sha256": "3b904b6440a1431e3bc43d30c6941d115d622ee1423e9241fa937e71de5b0564",
+      "exit_code": 0,
+      "output_sha256": "cde07a1390cdf6cf516b903be42a2ea9252602983af1b6a08c82dd8486af28a8"
+    },
+    "prev_event_hash": "0xd0276bc009601f3ce5be74861f7e1b95a84a0249675216977dbd63b73a0197fe",
+    "self_hash": "0xeb1cf0dd4643bdcb431e41ae544ee83874195ad76b424a0b52868954db5b32dd",
+    "witness_signature": "ed25519:0xb6fe43ed1f7358d81fbf079b0cdd792732598d9473933d3fa49dfa1fe98d0925693ed668bdf9ca9e1bdc3cbee8269dbd1ca55cc858ebf391a93160b1503b5004"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fd8-f8e0-7e48-937c-84c6c76687f0",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T08:47:55.616Z",
+    "event_type": "code_crew:task_claimed",
+    "payload": {
+      "timestamp": "2026-10-09T08:47:55Z",
+      "evidence": "asserted",
+      "task_id": "O302",
+      "role": "coder",
+      "model": "opus"
+    },
+    "prev_event_hash": "0xeb1cf0dd4643bdcb431e41ae544ee83874195ad76b424a0b52868954db5b32dd",
+    "self_hash": "0xa76f77b30c1807b19b6a578ec2b1b3ca9003c613f70e1f89a6009e799aa79c0e",
+    "witness_signature": "ed25519:0x61fa4f79eeef4931d0bbe220a8ad6e91ef5c35908b3c42999e2c75087e97f55099b6cc8b97f9f063daa96fac526e859fd7e5a9c5cb116411f1e2f148c8def00d"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fdd-ea71-7c98-8814-075ce794bba7",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T08:53:19.601Z",
+    "event_type": "code_crew:change_committed",
+    "payload": {
+      "timestamp": "2026-10-09T08:53:19Z",
+      "evidence": "anchored",
+      "repo": "TunnelMind/agent-crew",
+      "commit_sha": "6654b6a6bc19fa4fef693cc4b731540255538886"
+    },
+    "prev_event_hash": "0xa76f77b30c1807b19b6a578ec2b1b3ca9003c613f70e1f89a6009e799aa79c0e",
+    "self_hash": "0x01d4f8ec925e3a75b990e9987a01def8c0a1a909de4cd447fa86493468f7aad1",
+    "witness_signature": "ed25519:0xd1b91d0b2541e586d72baafe7a9317b343a854b7533278213a192306c67e12f70c25777545885f8fbe481d0af4aa4f081f6e6634fa9cb40fe176c102c93e4b09"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fdd-eb3f-7750-a0cf-da553c2b6ad9",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T08:53:19.807Z",
+    "event_type": "code_crew:qa_verdict",
+    "payload": {
+      "timestamp": "2026-10-09T08:53:19Z",
+      "evidence": "asserted",
+      "task_id": "O302",
+      "verdict": "accepted",
+      "attempt": 1
+    },
+    "prev_event_hash": "0x01d4f8ec925e3a75b990e9987a01def8c0a1a909de4cd447fa86493468f7aad1",
+    "self_hash": "0x514bb5539f8da7d42eea830d90ec2724f69bf45f2970ea6585c6f50471dddd48",
+    "witness_signature": "ed25519:0x00a3a81439dad30d2f7b8a41499009767ca88a07a45fdbceb505f0b19a3d37943216cce66c67dd4c991b0d234c78c162e9a7df1ffcb0af270d6943f887917403"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fe9-7381-7217-b756-4377aa4a3367",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:05:55.585Z",
+    "event_type": "code_crew:verify_run",
+    "payload": {
+      "timestamp": "2026-10-09T09:05:55Z",
+      "evidence": "witnessed",
+      "command_sha256": "3b904b6440a1431e3bc43d30c6941d115d622ee1423e9241fa937e71de5b0564",
+      "exit_code": 0,
+      "output_sha256": "320af753a4e837489344726a9eff401d4d76053ddd1a51a649d6b26e4cb40147"
+    },
+    "prev_event_hash": "0x514bb5539f8da7d42eea830d90ec2724f69bf45f2970ea6585c6f50471dddd48",
+    "self_hash": "0xb7bdaff67f3669b4c854dd9ea5188e15a883ae1cc87050681b7ebee0ddff864a",
+    "witness_signature": "ed25519:0x9dc8dbe4dd9d8ad3df6ae03eb38b666de049df840e072f16ee199780f74be0085c68b481dd1f572388823639b3890451f3461e312f388f91db0f8c4b1ae5850e"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fe9-7445-72b4-94f0-3e68b6bc2d50",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:05:55.781Z",
+    "event_type": "code_crew:task_claimed",
+    "payload": {
+      "timestamp": "2026-10-09T09:05:55Z",
+      "evidence": "asserted",
+      "task_id": "O303",
+      "role": "coder",
+      "model": "opus"
+    },
+    "prev_event_hash": "0xb7bdaff67f3669b4c854dd9ea5188e15a883ae1cc87050681b7ebee0ddff864a",
+    "self_hash": "0x45e4493fe293dc407bc83068f87edfa932d0128fb5343a131e6513b548b17e77",
+    "witness_signature": "ed25519:0xbc7b1fc0351a56e47d3b5c1a9c35b167391eb30c9a4f55c9a7baeb944d41caa245e95feb0c76f64528cad349f91551c606b8d1bb473a039d5d6196ca7028680b"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fea-4840-7910-9d54-2994e56f1f9d",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:06:50.048Z",
+    "event_type": "code_crew:change_committed",
+    "payload": {
+      "timestamp": "2026-10-09T09:06:49Z",
+      "evidence": "anchored",
+      "repo": "TunnelMind/agent-crew",
+      "commit_sha": "06a03f63edb0a1ce53deca5fd420d7f6044dd28e"
+    },
+    "prev_event_hash": "0x45e4493fe293dc407bc83068f87edfa932d0128fb5343a131e6513b548b17e77",
+    "self_hash": "0x104eb4323aa2e99680563b6093e1c3ee99dfa33cae0156918e0b37beea70cec7",
+    "witness_signature": "ed25519:0x41a11af7f6774baeca399afd5180da08ae770ea302c9c6329a3cf1521049d24f7aa28d24ad26b981e218e6a9487b15fe9d895ea5ad93e3f26d41c06616aeda0b"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11fea-48e7-708b-a095-3e67258adb14",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:06:50.215Z",
+    "event_type": "code_crew:qa_verdict",
+    "payload": {
+      "timestamp": "2026-10-09T09:06:50Z",
+      "evidence": "asserted",
+      "task_id": "O303",
+      "verdict": "accepted",
+      "attempt": 1
+    },
+    "prev_event_hash": "0x104eb4323aa2e99680563b6093e1c3ee99dfa33cae0156918e0b37beea70cec7",
+    "self_hash": "0x1aa2ce4a32e37ba6ae21c87b8515e3f2388b968f3120ec0a5bc0379b29a38570",
+    "witness_signature": "ed25519:0x8743e38c6aa090b06692c539cb495ca92adf07863d6e926e91b88aa3e4cd4dcfe436028749c8b62c3d36d72b19e94bda8c252dba85da4252856beb7421d02a09"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11ff3-2430-7abb-a57f-5c6091a43477",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:16:30.640Z",
+    "event_type": "code_crew:verify_run",
+    "payload": {
+      "timestamp": "2026-10-09T09:16:30Z",
+      "evidence": "witnessed",
+      "command_sha256": "3b904b6440a1431e3bc43d30c6941d115d622ee1423e9241fa937e71de5b0564",
+      "exit_code": 0,
+      "output_sha256": "c36c039918cdd4563c3e16780ab6a16ef6463e7e5e90f8fdcf6abf24ef341c9b"
+    },
+    "prev_event_hash": "0x1aa2ce4a32e37ba6ae21c87b8515e3f2388b968f3120ec0a5bc0379b29a38570",
+    "self_hash": "0x3b023eead6d1aacf88bf4f3a17eec4740f815d1d21554ef2aa17e9d2398a0fac",
+    "witness_signature": "ed25519:0x82eecc061053b4c36d3c5063ea48cc98cbf21f705b96720c3b63eda927adbcd659141750efd47705dd4b465ae88949529843764177d41d22f2863bc24c7e020d"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11ff3-2591-74c7-801d-e6d2dda38cec",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:16:30.993Z",
+    "event_type": "code_crew:task_claimed",
+    "payload": {
+      "timestamp": "2026-10-09T09:16:30Z",
+      "evidence": "asserted",
+      "task_id": "O304",
+      "role": "coder",
+      "model": "opus"
+    },
+    "prev_event_hash": "0x3b023eead6d1aacf88bf4f3a17eec4740f815d1d21554ef2aa17e9d2398a0fac",
+    "self_hash": "0xb871483cf6d912296370f39ac5fcc3b3d5e421077be95b676b98b15a97b13f1c",
+    "witness_signature": "ed25519:0xa98380c56c22d2ab112d73c605c3093d94746e44430ac5f40bec468c62f206d7f4167f6ca530f6057c7b635a175464cd514c146b81829e3e41f5d98db3ced309"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11ff8-cc2e-7732-a7cf-ad742413cb0d",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:22:41.326Z",
+    "event_type": "code_crew:change_committed",
+    "payload": {
+      "timestamp": "2026-10-09T09:22:41Z",
+      "evidence": "anchored",
+      "repo": "TunnelMind/agent-crew",
+      "commit_sha": "c8dac804891121270c4ccf5ed263f15eb0e09357"
+    },
+    "prev_event_hash": "0xb871483cf6d912296370f39ac5fcc3b3d5e421077be95b676b98b15a97b13f1c",
+    "self_hash": "0x3b46b20b80865171177b63b7204e3dabd90306c1c1c5637e8d4a227dc86595ca",
+    "witness_signature": "ed25519:0xbcb1850e6614c158ec4073e042455e7a3788aaad8c12483fadba7a992c30fb1873db618f7a06b773374d6001b494f3f5df122e17fe0698c08bad7439351c010e"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a11ff8-cd0e-7062-b8fe-6f7bf38b7533",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:22:41.550Z",
+    "event_type": "code_crew:qa_verdict",
+    "payload": {
+      "timestamp": "2026-10-09T09:22:41Z",
+      "evidence": "asserted",
+      "task_id": "O304",
+      "verdict": "accepted",
+      "attempt": 1
+    },
+    "prev_event_hash": "0x3b46b20b80865171177b63b7204e3dabd90306c1c1c5637e8d4a227dc86595ca",
+    "self_hash": "0x507422da33675545a8b6fdf9fd3ee027835c6f3b28fc25fc4692e9b21ed0bfeb",
+    "witness_signature": "ed25519:0xca4eb36531b3ca67c3e3c020f2cd630ff6de54c9ebc45fd20af6dfd5a0f44c6fb72a82bf9da54ea6fec286f64eacaa3f0b925275fa662c3c20c6870b72a78303"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12007-e934-7eff-a767-df039d9cc312",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:39:11.796Z",
+    "event_type": "code_crew:verify_run",
+    "payload": {
+      "timestamp": "2026-10-09T09:39:11Z",
+      "evidence": "witnessed",
+      "command_sha256": "3b904b6440a1431e3bc43d30c6941d115d622ee1423e9241fa937e71de5b0564",
+      "exit_code": 0,
+      "output_sha256": "41d14aec06a97f1f71d66ad31bec660b6c00e7b8218f6591c5ae5b4eb7ea0d9a"
+    },
+    "prev_event_hash": "0x507422da33675545a8b6fdf9fd3ee027835c6f3b28fc25fc4692e9b21ed0bfeb",
+    "self_hash": "0x3d4ef98ab6e490926f23aa6071578228ee7755891e8d98a6ee12d707a9725190",
+    "witness_signature": "ed25519:0xfe61efa343682ebdd73ad09123c41a01f027639a6a571e272c5db1a6da06a140fbc8bcbae5651082effb77f1abe54afc0f1597a313e86a84bee1fc4a7ea56c00"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12007-e9c7-7b1c-8bd6-e5897ff98a01",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:39:11.943Z",
+    "event_type": "code_crew:task_claimed",
+    "payload": {
+      "timestamp": "2026-10-09T09:39:11Z",
+      "evidence": "asserted",
+      "task_id": "O305",
+      "role": "coder",
+      "model": "opus"
+    },
+    "prev_event_hash": "0x3d4ef98ab6e490926f23aa6071578228ee7755891e8d98a6ee12d707a9725190",
+    "self_hash": "0x52db6e961d3f87988a5606b9b313f032d1dabefbba35c9c4c6eda68d5a37519e",
+    "witness_signature": "ed25519:0xef19426808b0f1eb49d6477b0b4a7ed845f45a87fc183d5e81ded0e0896983f2e2cfc491c787b137383b49806c17fd9ff3c565d5afe583563216003239c46b0c"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a1200f-7295-755a-aa71-5c2dd53b7e1c",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:47:25.717Z",
+    "event_type": "code_crew:change_committed",
+    "payload": {
+      "timestamp": "2026-10-09T09:47:25Z",
+      "evidence": "anchored",
+      "repo": "TunnelMind/agent-crew",
+      "commit_sha": "f515d146bada1b5e8170afa854e2832596da5e38"
+    },
+    "prev_event_hash": "0x52db6e961d3f87988a5606b9b313f032d1dabefbba35c9c4c6eda68d5a37519e",
+    "self_hash": "0xd9c9c22ed17e032612fb79379ce8f45a47932fa9506bef98bf65b7010ae6a5d9",
+    "witness_signature": "ed25519:0x97ca844b01ba5076bca77632db416237bedb587d7a87ffb6f3913296f1c466d808bac4ec8b6f9a242d51f6c30357e44f0cc898e91eaaee7fc8d39d3dab846d0d"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a1200f-7373-7af4-a9ef-c28163a979f1",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:47:25.939Z",
+    "event_type": "code_crew:qa_verdict",
+    "payload": {
+      "timestamp": "2026-10-09T09:47:25Z",
+      "evidence": "asserted",
+      "task_id": "O305",
+      "verdict": "accepted",
+      "attempt": 1
+    },
+    "prev_event_hash": "0xd9c9c22ed17e032612fb79379ce8f45a47932fa9506bef98bf65b7010ae6a5d9",
+    "self_hash": "0x2b0206bedcc2e35de987cfb7421ee39097beb9031ebe79097f5ec82e101947ed",
+    "witness_signature": "ed25519:0xe51c0fb7ad8fd521280837a37986f89d6eabbfc06380300c4ab02bd89409b4c4693f64ec3dc5584e3730a29aeb59cd4f6064ddb5e0d41a3bdfd3c1c702414c01"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12016-06e1-7f78-8de5-3bee9ae5fa37",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:54:36.897Z",
+    "event_type": "code_crew:verify_run",
+    "payload": {
+      "timestamp": "2026-10-09T09:54:36Z",
+      "evidence": "witnessed",
+      "command_sha256": "3b904b6440a1431e3bc43d30c6941d115d622ee1423e9241fa937e71de5b0564",
+      "exit_code": 0,
+      "output_sha256": "39bc55a837293c88cdaa7bbf36f2f41579728358804a38531a19bab3c66b136c"
+    },
+    "prev_event_hash": "0x2b0206bedcc2e35de987cfb7421ee39097beb9031ebe79097f5ec82e101947ed",
+    "self_hash": "0x24f671352a2ac8e8bd82b39eb6142f64f3c135737ca84de981a003a4e00f518e",
+    "witness_signature": "ed25519:0x06636d8b2dae3ceb21ad5b5026a96f5bed58ab92e20ec496d41984813dbabec5ef007a5fc1ae1a0e9d2405fadccf15efcefef1737d850bf6c4beddda74bf4b06"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12016-0782-70f2-994f-2b36dedfab73",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:54:37.058Z",
+    "event_type": "code_crew:task_claimed",
+    "payload": {
+      "timestamp": "2026-10-09T09:54:36Z",
+      "evidence": "asserted",
+      "task_id": "O306",
+      "role": "coder",
+      "model": "opus"
+    },
+    "prev_event_hash": "0x24f671352a2ac8e8bd82b39eb6142f64f3c135737ca84de981a003a4e00f518e",
+    "self_hash": "0xf4982a61d1082d4ee947f0ef31fb36da63bdfed2840217caff8a26462e06f846",
+    "witness_signature": "ed25519:0x1c8f62a7929645e8b5ffdfd637f9218617979fa15a363672e4997a614a612533f7fe84076efd6dc6458836e64f588177f6bf00d9d8b5759c8480421dcc87c40f"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12017-d8d6-740b-bd0d-f34905941cb8",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:56:36.182Z",
+    "event_type": "code_crew:change_committed",
+    "payload": {
+      "timestamp": "2026-10-09T09:56:36Z",
+      "evidence": "anchored",
+      "repo": "TunnelMind/agent-crew",
+      "commit_sha": "94f2a1ac09cde8f1e5662f3ff3b368e0bc2fb9a9"
+    },
+    "prev_event_hash": "0xf4982a61d1082d4ee947f0ef31fb36da63bdfed2840217caff8a26462e06f846",
+    "self_hash": "0x1296c93a9d3954f25726a7badf8c67347d54a1618e3d341c81510cf6f02f2445",
+    "witness_signature": "ed25519:0x9102104dfc59a2df2bf8d454d6a602140985ff107ffa536a593d954cd6cac8b3fb6edec4de6a35f67c3568717eba1eceb16edfaf3aff2dfeb1be0a1588634604"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12017-d970-727e-aca2-a8c2dd68eaef",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T09:56:36.336Z",
+    "event_type": "code_crew:qa_verdict",
+    "payload": {
+      "timestamp": "2026-10-09T09:56:36Z",
+      "evidence": "asserted",
+      "task_id": "O306",
+      "verdict": "accepted",
+      "attempt": 1
+    },
+    "prev_event_hash": "0x1296c93a9d3954f25726a7badf8c67347d54a1618e3d341c81510cf6f02f2445",
+    "self_hash": "0xcd0f841a5db06ff331bc16d027e09dcf2c8a27d2667c0f66be6c7d2835600bd0",
+    "witness_signature": "ed25519:0xd17cb5150c06a6a1552be8e51828a03dcf478635ddb01284d15c0ad60a3c0b2023b3dd216e5dde05c7231a13862e263f5df8223113e27f7a4b6d11daeab9010f"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a1201c-5300-7915-a8ff-c687b9424e3f",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T10:01:29.600Z",
+    "event_type": "code_crew:verify_run",
+    "payload": {
+      "timestamp": "2026-10-09T10:01:29Z",
+      "evidence": "witnessed",
+      "command_sha256": "3b904b6440a1431e3bc43d30c6941d115d622ee1423e9241fa937e71de5b0564",
+      "exit_code": 0,
+      "output_sha256": "76a6f350a12c2865922193eb90b1457570c614c3346d677991a12c92921be5c3"
+    },
+    "prev_event_hash": "0xcd0f841a5db06ff331bc16d027e09dcf2c8a27d2667c0f66be6c7d2835600bd0",
+    "self_hash": "0xcf139a3088ec54a7be6862db10ec303e05153e9dce468d23961557bb1f157026",
+    "witness_signature": "ed25519:0xc199a64e8314b6f414ff33dc5ebe7577d4a480d36dcdae54cd0ffb187417f4e8f5fc4ebea376c6d84b0b2810b86f63a08b4ed9df94d9f3eff37ac06425709f02"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a1201c-53d3-768c-81e6-04482190654b",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T10:01:29.811Z",
+    "event_type": "code_crew:task_claimed",
+    "payload": {
+      "timestamp": "2026-10-09T10:01:29Z",
+      "evidence": "asserted",
+      "task_id": "O307",
+      "role": "coder",
+      "model": "opus"
+    },
+    "prev_event_hash": "0xcf139a3088ec54a7be6862db10ec303e05153e9dce468d23961557bb1f157026",
+    "self_hash": "0x42a4d20358c28a0416c34aec840abd9fd37db47b3fcaf87aca73009810125b1b",
+    "witness_signature": "ed25519:0x6cd94526b39f2584dfcbc878bc10784aee990987ef94e76870d32b6e45d41d4d1ba9a7cddfd030ae9db98262b892a31167902231efef39220f1b6120b01c6207"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a1201c-54c3-71ef-b7b8-042ff6dbdefe",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T10:01:30.051Z",
+    "event_type": "code_crew:change_committed",
+    "payload": {
+      "timestamp": "2026-10-09T10:01:29Z",
+      "evidence": "anchored",
+      "repo": "TunnelMind/agent-crew",
+      "commit_sha": "6482e2b286b3b893c885dc8c006d3d21939969ea"
+    },
+    "prev_event_hash": "0x42a4d20358c28a0416c34aec840abd9fd37db47b3fcaf87aca73009810125b1b",
+    "self_hash": "0x1594482201b3b382f191c66e0ee7df900bf45238f524ae241658b42c413f5cf5",
+    "witness_signature": "ed25519:0x2f850b652dd609ae2462a3562aa1cd8703db36d78173524aba22e296662602d1b680b17698c49f6bd324c20499bcfa9087638cfc66142801656523880fa30c0b"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a1201c-557e-75f1-8148-8f6aac528cba",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T10:01:30.238Z",
+    "event_type": "code_crew:qa_verdict",
+    "payload": {
+      "timestamp": "2026-10-09T10:01:30Z",
+      "evidence": "asserted",
+      "task_id": "O307",
+      "verdict": "accepted",
+      "attempt": 1
+    },
+    "prev_event_hash": "0x1594482201b3b382f191c66e0ee7df900bf45238f524ae241658b42c413f5cf5",
+    "self_hash": "0x752bdfd127729ea559b548d70a37d17ab679f02b062e188162830fc2f10453b5",
+    "witness_signature": "ed25519:0x421b107a0feff766601f07949a981ad31752a1b87c310f5e5f71a37e51216e9cd4261e978e5425eb8ca76c0330972edec31b2b2009aa7b59c93fcc3fd69b3106"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12026-d126-7432-b678-0bc645e7d2af",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T10:12:57.254Z",
+    "event_type": "code_crew:verify_run",
+    "payload": {
+      "timestamp": "2026-10-09T10:12:57Z",
+      "evidence": "witnessed",
+      "command_sha256": "3b904b6440a1431e3bc43d30c6941d115d622ee1423e9241fa937e71de5b0564",
+      "exit_code": 0,
+      "output_sha256": "24be86331d2d3091e0bdf19fcbb75cf429c6769c11a2c97a6aad6cb2fcf63290"
+    },
+    "prev_event_hash": "0x752bdfd127729ea559b548d70a37d17ab679f02b062e188162830fc2f10453b5",
+    "self_hash": "0x70bb94a4da3e9de1446b7aff1a780214df282ac2652d7d3d82f6c139375f80eb",
+    "witness_signature": "ed25519:0x9b22c833f61211adf43c67f105fd8023dfa1bfc29373afee3b5a1a072b4f78653a43044105be84e75308efd5e1a1d826844f6a2fb119dd9bc20933eef41ed301"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12038-17a5-74f2-8e01-339dd25377b8",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T10:31:49.413Z",
+    "event_type": "code_crew:review_verdict",
+    "payload": {
+      "timestamp": "2026-10-09T10:31:49Z",
+      "evidence": "anchored",
+      "head_sha": "6482e2b286b3b893c885dc8c006d3d21939969ea",
+      "verdict": "pass",
+      "findings": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 4
+      }
+    },
+    "prev_event_hash": "0x70bb94a4da3e9de1446b7aff1a780214df282ac2652d7d3d82f6c139375f80eb",
+    "self_hash": "0x49ba5008f2fdef16b107ecd4ee3e698e3ceddf52120f5165bcf0967e1c72c410",
+    "witness_signature": "ed25519:0xb555c7def26c6a7f273bf70cd9a194609c8971a15dee62937aaffe069c376d922645868d1e2bd52af0c32bd5547de9ba1d056ccdd30c3f76a936014c8f3d7802"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a1205a-2a07-74ce-a75e-02e24b060df7",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T11:09:02.343Z",
+    "event_type": "code_crew:approval",
+    "payload": {
+      "timestamp": "2026-10-09T11:09:02Z",
+      "evidence": "asserted",
+      "role": "owner",
+      "decision": "approve",
+      "channel": "chat",
+      "approval_text_sha256": "0689209c50c3e69b622097ad7a02373b5ccffc96d2101e8441cf0afef8b4a2e0"
+    },
+    "prev_event_hash": "0x49ba5008f2fdef16b107ecd4ee3e698e3ceddf52120f5165bcf0967e1c72c410",
+    "self_hash": "0xfca0a0f02c25b35e4ea8b66acf8b8a0544548bca2dadfd0a1d87b57d31e377ff",
+    "witness_signature": "ed25519:0x0382fa86ff5a752f27742f6574dc8a66e50598a4271946aa7519cb478481b46bc7348e813218ea7d236f587c674ab2893e4f1096b14c4d986f3986917ee0b406"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a1205a-2ac7-7181-9034-696d00b54c55",
+    "ait": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+    "witnessed_at": "2026-10-09T11:09:02.535Z",
+    "event_type": "code_crew:merged",
+    "payload": {
+      "timestamp": "2026-10-09T11:09:02Z",
+      "evidence": "anchored",
+      "repo": "TunnelMind/agent-crew",
+      "pr_number": 36,
+      "merge_commit_sha": "ef3d9bb0ac4cfd1f49ea3d3abff3669602648443"
+    },
+    "prev_event_hash": "0xfca0a0f02c25b35e4ea8b66acf8b8a0544548bca2dadfd0a1d87b57d31e377ff",
+    "self_hash": "0xe922e667ddf7030593a4247017efe123c3d9100469406032f58c2ead771d45bf",
+    "witness_signature": "ed25519:0xd629dba13bb1234de8070ebe5df467a6a6cdf9614529f4e59f7874e7fe5a977dc5abff8d1f90c4bf80ec022a7a8866f88398ba470ae2be4d84649b625796f100"
+  }
+]

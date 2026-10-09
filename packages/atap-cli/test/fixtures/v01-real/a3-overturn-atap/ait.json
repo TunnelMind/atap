@@ -1,0 +1,37 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "AgentIdentityToken",
+  "id": "AIT-01a11fbe-8507-7d8b-a80b-67eda1bd9fc5",
+  "ait_version": "0.1",
+  "issued_at": "2026-10-09T08:19:02.023Z",
+  "expires_at": "2027-01-07T08:19:01.000Z",
+  "agent_type": "code-crew",
+  "profile": "tunnelmind:code_crew:v1",
+  "operator": "OAI-2026-0010001",
+  "witness": "OAI-2026-0010002",
+  "capabilities": [
+    "code_crew:approve",
+    "code_crew:code",
+    "code_crew:merge",
+    "code_crew:plan",
+    "code_crew:qa_verdict",
+    "code_crew:review_verdict",
+    "code_crew:verify"
+  ],
+  "constraints": {
+    "autonomy_class": "gated",
+    "allowed_repos": [
+      "TunnelMind/agent-crew"
+    ],
+    "max_iterations": 25,
+    "models": {
+      "supervisor": "sonnet"
+    }
+  },
+  "attestation_policy": {
+    "witness_granularity": "per_action",
+    "block_interval_seconds": 3600,
+    "receipt_generation": "on_demand"
+  },
+  "witness_signature": "ed25519:0xedc09c5f586e5be23c84d4d928a45835319464cf532744f778301f6ee746019232104b5f47eaf91535e21ff8067a28359cf90c37566c887d1d904bfe92e3c607"
+}

@@ -1,0 +1,17 @@
+{
+  "keys": [
+    {
+      "witness": "OAI-2026-0010002",
+      "key_id": "ed25519-ec71734272f1841b",
+      "algorithm": "ed25519",
+      "public_key": "0xec71734272f1841b3469d066c5c64d7b301f8ff337e80f1939beb0b445accac4",
+      "valid_from": "2026-10-09T00:00:00.000Z",
+      "valid_until": "2027-01-07T16:11:57.000Z",
+      "status": "active",
+      "attestation_strength": "self-asserted",
+      "rotated_to": null,
+      "compromise_notice": null
+    }
+  ],
+  "updated_at": "2026-10-09T18:33:14.770Z"
+}

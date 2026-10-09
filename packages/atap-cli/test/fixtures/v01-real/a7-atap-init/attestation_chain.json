@@ -1,0 +1,114 @@
+[
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "AttestationBlock",
+    "id": "ATAP-AB-01a12184-81d6-7469-bdd5-23c9df440cd4",
+    "ait": "AIT-01a1216f-7d52-7caf-879b-d74122772edc",
+    "ab_version": "0.1",
+    "profile": "tunnelmind:code_crew:v1",
+    "period_start": "2026-10-09T16:15:07.333Z",
+    "period_end": "2026-10-09T16:34:54.348Z",
+    "first_event": "ATAP-WE-01a12172-6445-7bb7-90cb-aecd7a14bba2",
+    "last_event": "ATAP-WE-01a12184-810c-7df9-84fe-bc581d8b647e",
+    "event_count": 20,
+    "chain_head_hash": "0xea1230b143ad0706876049677f701fd76625f9a268a756d88983fa8929561319",
+    "period_summary": {
+      "tasks_accepted": 5,
+      "tasks_rework": 0,
+      "merged_changes": 0,
+      "tokens": 5034044,
+      "overturns": {
+        "coder": 0,
+        "qa": 0,
+        "reviewer": 0
+      }
+    },
+    "prev_block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "self_hash": "0xc059e06bae44d4658fe99e3521a3cd327650dbc96ffa8beca36a9e375b6c393f",
+    "witness_signature": "ed25519:0x6110896af7bd6d54b34976edfbb91b9a737906dbf82e338d8413223958cf6f6c069597628c9846e8fb8a2e94118a4957dbd446ec60aaabe0a867bcb01f52580e"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "AttestationBlock",
+    "id": "ATAP-AB-01a1219e-3ab7-7015-ba84-d74a41a84245",
+    "ait": "AIT-01a1216f-7d52-7caf-879b-d74122772edc",
+    "ab_version": "0.1",
+    "profile": "tunnelmind:code_crew:v1",
+    "period_start": "2026-10-09T16:40:55.605Z",
+    "period_end": "2026-10-09T17:03:00.016Z",
+    "first_event": "ATAP-WE-01a1218a-0435-7fac-80ba-5c335688ff84",
+    "last_event": "ATAP-WE-01a1219e-39b0-7b4b-99bb-f76d23107a35",
+    "event_count": 13,
+    "chain_head_hash": "0xe7b6f8285d904ff331b09009ac7fff4bda83c2678e9911cc8a4b2997fea2b1fe",
+    "period_summary": {
+      "tasks_accepted": 3,
+      "tasks_rework": 0,
+      "merged_changes": 0,
+      "tokens": 2505858,
+      "overturns": {
+        "coder": 0,
+        "qa": 1,
+        "reviewer": 0
+      }
+    },
+    "prev_block_hash": "0xc059e06bae44d4658fe99e3521a3cd327650dbc96ffa8beca36a9e375b6c393f",
+    "self_hash": "0x00c03dd8563a593fa003ebaad39179968c0594e5f1b866b144f0a6da021d811f",
+    "witness_signature": "ed25519:0x7d36e14ec2b5526733570b08f441920f5d20faba45f955a09abf97abd63baa5882771f13306bfbe4a62d9a6f87c02ae52757ee3b71a936c6fc163362c5da7309"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "AttestationBlock",
+    "id": "ATAP-AB-01a121a6-ea4d-7100-bbc1-d8ea76973f5f",
+    "ait": "AIT-01a1216f-7d52-7caf-879b-d74122772edc",
+    "ab_version": "0.1",
+    "profile": "tunnelmind:code_crew:v1",
+    "period_start": "2026-10-09T17:09:27.731Z",
+    "period_end": "2026-10-09T17:12:29.337Z",
+    "first_event": "ATAP-WE-01a121a4-2433-785d-a41c-4990fb28034a",
+    "last_event": "ATAP-WE-01a121a6-e999-7c5f-8fda-7a44045f2613",
+    "event_count": 2,
+    "chain_head_hash": "0x61e0b871ab08eeb74cdd188c6f4ee70ad7b492ef40c53cdcc40c7324cb11ade0",
+    "period_summary": {
+      "tasks_accepted": 0,
+      "tasks_rework": 0,
+      "merged_changes": 0,
+      "tokens": 618705,
+      "overturns": {
+        "coder": 0,
+        "qa": 1,
+        "reviewer": 0
+      }
+    },
+    "prev_block_hash": "0x00c03dd8563a593fa003ebaad39179968c0594e5f1b866b144f0a6da021d811f",
+    "self_hash": "0x12c5af22cb12e4c23b8482a0164015d7f8746f33c57678321ca3659e23e31abb",
+    "witness_signature": "ed25519:0x98a326219359379054f1750503eda19b248cbab76644b62df47a7b716d5b91e929f7327ea36ca9b11821f621b9544e2ee6e863f33cb23ffc179c939728dd370c"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "AttestationBlock",
+    "id": "ATAP-AB-01a121f0-d874-7d5b-afa7-e01c803e293c",
+    "ait": "AIT-01a1216f-7d52-7caf-879b-d74122772edc",
+    "ab_version": "0.1",
+    "profile": "tunnelmind:code_crew:v1",
+    "period_start": "2026-10-09T18:33:13.970Z",
+    "period_end": "2026-10-09T18:33:14.210Z",
+    "first_event": "ATAP-WE-01a121f0-d5f2-7532-924f-c6193223e66b",
+    "last_event": "ATAP-WE-01a121f0-d6e2-764f-8d50-9f9e571b02d1",
+    "event_count": 2,
+    "chain_head_hash": "0xc8b05b62c6ce7a140bb2b329c2795905ee90db54e41dd52331e1b9dae75bf6a0",
+    "period_summary": {
+      "tasks_accepted": 0,
+      "tasks_rework": 0,
+      "merged_changes": 1,
+      "tokens": 0,
+      "overturns": {
+        "coder": 0,
+        "qa": 1,
+        "reviewer": 0
+      }
+    },
+    "prev_block_hash": "0x12c5af22cb12e4c23b8482a0164015d7f8746f33c57678321ca3659e23e31abb",
+    "self_hash": "0x425b40afbdafaabfe9f80387bf631db5691e7d4c18a767b3b553030bcd8f5ecb",
+    "witness_signature": "ed25519:0x54f53d7a7eb4b16bca328a4cac4ba5a9d1fa09d86ab09a8b9c7e17988dab3357826f58726dadc52ab15cd738cc90b5c5c350ea08940bd69ca26fc31786deb90a"
+  }
+]
