@@ -37,8 +37,10 @@ export interface WitnessStorage {
   hasAitId(id: AIT_ID): Promise<boolean>
   saveEvent(event: WitnessEvent): Promise<void>
   lastEventHash(aitId: AIT_ID): Promise<HexHash>
-  /** witnessed_at of the AIT's last chained event, or null before the first. */
-  lastEventAt(aitId: AIT_ID): Promise<string | null>
+  /** witnessed_at of the AIT's last chained event, or null before the first.
+   *  Optional, so 0.1.x backends keep compiling; without it witness() cannot
+   *  clamp a clock that steps back (see witness()). */
+  lastEventAt?(aitId: AIT_ID): Promise<string | null>
   lastBlockHash(aitId: AIT_ID): Promise<HexHash>
   pendingEvents(aitId: AIT_ID): Promise<WitnessEvent[]>
   clearPendingEvents(aitId: AIT_ID): Promise<void>
@@ -160,7 +162,7 @@ export class WitnessService {
     // before the one it chains to: clamp to the previous event's witnessed_at.
     // Read from storage, not memory, so a fresh process (the CLI) clamps too.
     const prev = await this.cfg.storage.lastEventHash(aitId)
-    const prevAt = await this.cfg.storage.lastEventAt(aitId)
+    const prevAt = (await this.cfg.storage.lastEventAt?.(aitId)) ?? null
     const clock = this.now()
     const now = prevAt && Date.parse(prevAt) > clock.getTime() ? new Date(prevAt) : clock
     if (now.toISOString() >= ait.expires_at) {

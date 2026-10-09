@@ -48,6 +48,11 @@ All notable changes to ATAP are recorded here.
 
 ### Fixed
 
+- **`WitnessStorage.lastEventAt` (new, optional).** Custom storage backends
+  should implement it (return the last event's `witnessed_at` for the AIT, or
+  `null`): without it `witness()` cannot keep `witnessed_at` from stepping
+  back when the clock does. Existing backends still compile and run unchanged.
+
 - **A Receipt from `atap-witness` sometimes failed verification.** About 1 run
   in 15–40, a Receipt failed both `verify.sh` and `atap-witness verify`.
   `witnessed_at` was taken straight from the wall clock, and on a host whose
