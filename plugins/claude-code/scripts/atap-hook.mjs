@@ -98,27 +98,49 @@ function ownerRepo(url) {
   return m && /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(m[1]) ? m[1] : null
 }
 
-// One `atap-witness event` with {event_type, payload} on stdin. No shell, and
+// One `atap-witness <args>` with `input` as JSON on stdin. No shell, and
 // killed well inside the 10 s hook timeout. Failures log fixed text only: the
 // CLI's own output may quote payload fields.
-async function emit(atap, cwd, event_type, payload) {
+async function witness(atap, cwd, event, args, input) {
   const bin = process.env.ATAP_WITNESS || (typeof atap.config.cli === 'string' ? atap.config.cli : 'atap-witness')
-  const p = run(bin, ['event'], { cwd, timeout: 8000 })
+  const p = run(bin, args, { cwd, timeout: 8000 })
   p.child.stdin.on('error', () => {}) // EPIPE if the binary dies before reading
-  p.child.stdin.end(JSON.stringify({ event_type, payload }))
+  p.child.stdin.end(JSON.stringify(input))
   try {
     await p
   } catch (e) {
-    await log(atap, 'post-tool-use', e?.code === 'ENOENT' ? 'atap-witness not found' : `atap-witness event failed: exit ${Number.isInteger(e?.code) ? e.code : 'killed'}`)
+    await log(atap, event, e?.code === 'ENOENT' ? 'atap-witness not found' : `atap-witness ${args[0]} failed: exit ${Number.isInteger(e?.code) ? e.code : 'killed'}`)
   }
 }
 
+const emit = (atap, cwd, event_type, payload) => witness(atap, cwd, 'post-tool-use', ['event'], { event_type, payload })
+
+// A .atap/*.jsonl store as records; a missing file is empty. A bad line throws
+// fixed text (the parse error would quote the line) for the handler's log.
+async function readJsonl(atap, name) {
+  const text = await readFile(join(atap.dir, name), 'utf8').catch((e) => (e?.code === 'ENOENT' ? '' : Promise.reject(e)))
+  return text.split('\n').filter(Boolean).map((l) => {
+    try {
+      return JSON.parse(l)
+    } catch {
+      throw new Error(`bad line in ${name}`)
+    }
+  })
+}
+
+// The AIT's events not yet in a block: those after the last cleared.jsonl
+// marker for it, the same cut as atap-cli's DirStorage.pendingEvents.
+async function pendingEvents(atap, ait) {
+  const events = (await readJsonl(atap, 'events.jsonl')).filter((e) => e?.ait === ait)
+  const after = (await readJsonl(atap, 'cleared.jsonl')).filter((m) => m?.ait === ait).at(-1)?.after
+  return after === undefined ? events : events.slice(events.findIndex((e) => e.id === after) + 1)
+}
+
 // Per-event handlers: (input, atap) where input is the parsed hook JSON and
-// atap is { dir, config } from findAtap. Stubs until P803.
+// atap is { dir, config } from findAtap.
 const handlers = {
-  'session-start': async (_input, _atap) => {
-    // P803: nothing, or one line to hook.log.
-  },
+  // Nothing to record at start: session-end rolls up whatever is pending then.
+  'session-start': async () => {},
   'post-tool-use': async (input, atap) => {
     const command = input.tool_input?.command
     if (input.tool_name !== 'Bash' || typeof command !== 'string') return
@@ -150,8 +172,27 @@ const handlers = {
       output_sha256: sha256(outputOf(result)),
     })
   },
-  'session-end': async (_input, _atap) => {
-    // P803: close a block with this session's period summary.
+  // Close a block over the pending events, i.e. this session's (plus any an
+  // earlier session left unblocked). Nothing pending, no block.
+  'session-end': async (input, atap) => {
+    const ait = atap.config.ait
+    if (typeof ait !== 'string') return log(atap, 'session-end', 'no ait in config')
+    const events = await pendingEvents(atap, ait)
+    if (events.length === 0) return
+    const count = (f) => events.filter(f).length
+    const runs = (e) => e.event_type === 'code_crew:verify_run'
+    // The code_crew profile's period summary has no commit or test-run fields,
+    // so these are its closest counts: a passing test run as an accepted task,
+    // a failing one as rework, a commit as a merged change. tokens is 0 because
+    // the hook never sees model tokens; overturns need verdicts it has none of.
+    const summary = {
+      tasks_accepted: count((e) => runs(e) && e.payload?.exit_code === 0),
+      tasks_rework: count((e) => runs(e) && e.payload?.exit_code !== 0),
+      merged_changes: count((e) => e.event_type === 'code_crew:change_committed'),
+      tokens: 0,
+      overturns: {},
+    }
+    return witness(atap, typeof input.cwd === 'string' ? input.cwd : process.cwd(), 'session-end', ['block'], summary)
   },
 }
 
