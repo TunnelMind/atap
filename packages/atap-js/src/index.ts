@@ -13,6 +13,7 @@ export {
   toHex,
   fromHex,
 } from './crypto.js'
+export { didKeyFromPublicKey, publicKeyFromDidKey, isDidKey } from './didkey.js'
 export { uuidv7, isValidUuidv7, UUIDV7_RE } from './uuid.js'
 export {
   WitnessService,
@@ -21,5 +22,5 @@ export {
   type WitnessStorage,
   type AitInput,
 } from './witness.js'
-export { verifyReceipt, type VerifyOptions, type VerifyResult } from './verify.js'
+export { verifyReceipt, pickDidKeyKey, type VerifyOptions, type VerifyResult } from './verify.js'
 export { toSignedStatement, verifySignedStatement, cborDecode, CborTag } from './scitt.js'

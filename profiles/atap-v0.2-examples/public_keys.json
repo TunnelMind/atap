@@ -1,0 +1,15 @@
+{
+  "keys": [
+    {
+      "witness": "did:key:z6MkuMtGQuVY4iJcDXSHdmRu2azU79UpgThthCcULaH7qu4K",
+      "key_id": "example-key-1",
+      "algorithm": "ed25519",
+      "public_key": "0xdd7ec63a6456ebb1cb0b9c6016944e634ed0c581827c0eb50c459f982154b6b0",
+      "valid_from": "2026-10-09T00:00:00Z",
+      "valid_until": "2027-10-09T00:00:00Z",
+      "status": "active",
+      "attestation_strength": "self-asserted"
+    }
+  ],
+  "updated_at": "2026-10-09T12:00:00Z"
+}

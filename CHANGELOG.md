@@ -27,6 +27,15 @@ All notable changes to ATAP are recorded here.
 
 ### Added
 
+- ATAP v0.2 did:key witnesses (DRAFT, unpublished) —
+  [`ATAP-v0.2.md`](./ATAP-v0.2.md) is a delta to v0.1 letting `witness` and
+  `operator` be an Ed25519 `did:key` (always `self-asserted`), with schemas in
+  `profiles/atap-v0.2-schemas/`. `@tunnelmindai/atap` encodes/decodes did:key;
+  `verify.sh` accepts v0.2 did:key receipts and still verifies v0.1/OAI-0000
+  ones. CLI: `init` creates a did:key witness and operator, `ait rotate
+  --did-key` moves an OAI-0000 store onto a did:key, and `scitt export`
+  defaults `--issuer` to the did:key witness. v0.1 remains the standard in
+  force until Josh approves v0.2.
 - SCITT export — `@tunnelmindai/atap` `toSignedStatement` /
   `verifySignedStatement` (an ATAP artifact as a COSE_Sign1 signed statement
   over the SHA-256 of its canonical JSON, RFC 9943 / RFC 9995) plus

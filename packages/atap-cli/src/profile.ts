@@ -23,6 +23,10 @@ const CORE_SCHEMA = {
   event: 'https://tunnelmind.ai/atap/schemas/v0.1/witness-event.schema.json',
   block: 'https://tunnelmind.ai/atap/schemas/v0.1/attestation-block.schema.json',
 } as const
+// ATAP-v0.2 §3.3: a did:key AIT declares ait_version '0.2' and its blocks
+// follow it in ab_version; such a document is checked against the v0.2 schema
+// instead. v0.2's event schema equals v0.1's, so events need no switch.
+const VERSION_FIELD = { ait: 'ait_version', block: 'ab_version' } as const
 
 /** Throws on a document the core schema refuses; the message carries ajv's
  *  instancePath + message only, never payload values. */
@@ -53,9 +57,14 @@ export class Profiles {
   static async load(dir: string): Promise<Profiles> {
     const registry = (await readJson(join(dir, 'registry.json'))) as { profiles?: RegistryEntry[] }
     const p = new Profiles(dir, registry.profiles ?? [])
-    const baseDir = join(dir, 'atap-v0.1-schemas')
-    for (const f of (await readdir(baseDir)).filter(x => x.endsWith('.json'))) {
-      p.ajv.addSchema((await readJson(join(baseDir, f))) as object)
+    for (const base of ['atap-v0.1-schemas', 'atap-v0.2-schemas']) {
+      const baseDir = join(dir, base)
+      // A --profiles-dir from before v0.2 may lack atap-v0.2-schemas; only a
+      // v0.2 document then fails (the guard below names the missing schema).
+      const files = await readdir(baseDir).catch(e => (base === 'atap-v0.1-schemas' ? Promise.reject(e) : []))
+      for (const f of files.filter(x => x.endsWith('.json'))) {
+        p.ajv.addSchema((await readJson(join(baseDir, f))) as object)
+      }
     }
     return p
   }
@@ -100,10 +109,20 @@ export class Profiles {
   // on every write, after the library has signed and before anything is
   // appended, so a refused object never reaches the store.
   coreGuards(): CoreGuards {
+    const load = (id: string): ValidateFunction => {
+      const v = this.ajv.getSchema(id)
+      if (!v) throw new Error(`core schema ${id} is not loaded; pass --profiles-dir <dir>`)
+      return v
+    }
     const guard = (name: keyof typeof CORE_SCHEMA): Guard => {
-      const v = this.ajv.getSchema(CORE_SCHEMA[name])
-      if (!v) throw new Error(`core schema ${CORE_SCHEMA[name]} is not loaded; pass --profiles-dir <dir>`)
-      return (doc: unknown) => this.check(v, doc, `ATAP v0.1 ${name === 'event' ? 'witness-event' : name === 'block' ? 'attestation-block' : 'ait'} schema`)
+      const v1 = load(CORE_SCHEMA[name])
+      const v2Id = CORE_SCHEMA[name].replace('/v0.1/', '/v0.2/')
+      const kind = name === 'event' ? 'witness-event' : name === 'block' ? 'attestation-block' : 'ait'
+      return (doc: unknown) => {
+        // Anything not declaring 0.2 stays on v0.1, which refuses a bad version.
+        const is02 = name !== 'event' && (doc as Record<string, unknown> | null)?.[VERSION_FIELD[name]] === '0.2'
+        this.check(is02 ? load(v2Id) : v1, doc, `ATAP ${is02 ? 'v0.2' : 'v0.1'} ${kind} schema`)
+      }
     }
     return { ait: guard('ait'), event: guard('event'), block: guard('block') }
   }
