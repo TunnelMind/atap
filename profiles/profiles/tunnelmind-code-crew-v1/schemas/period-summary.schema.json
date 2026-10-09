@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-code-crew-v1/period-summary.schema.json",
+  "title": "tunnelmind:code_crew:v1 — Attestation Block period_summary",
+  "description": "Validates the `period_summary` object of an ATAP v0.1 Attestation Block under the tunnelmind:code_crew:v1 profile. Every field is a non-negative integer count over the block's events. No field resolves to a natural person (ATAP v0.1 §7.6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tasks_accepted", "tasks_rework", "merged_changes", "tokens", "overturns"],
+  "properties": {
+    "tasks_accepted": { "$ref": "#/$defs/count", "description": "QA verdicts `accepted` in the period." },
+    "tasks_rework": { "$ref": "#/$defs/count", "description": "QA verdicts `rework` in the period." },
+    "merged_changes": { "$ref": "#/$defs/count", "description": "`merged` events in the period." },
+    "tokens": { "$ref": "#/$defs/count", "description": "Model tokens spent by the crew in the period." },
+    "overturns": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "supervisor": { "$ref": "#/$defs/count" },
+        "coder": { "$ref": "#/$defs/count" },
+        "qa": { "$ref": "#/$defs/count" },
+        "reviewer": { "$ref": "#/$defs/count" },
+        "coordinator": { "$ref": "#/$defs/count" }
+      },
+      "description": "Per agent role: how many of that role's verdicts a later step overturned (e.g. a QA accept the reviewer failed)."
+    }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 }
+  }
+}

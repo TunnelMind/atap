@@ -1,0 +1,51 @@
+{
+  "name": "@tunnelmindai/atap-cli",
+  "version": "0.1.0",
+  "description": "atap-witness: a file-backed ATAP v0.1 witness driven by JSON on stdin and JSON on stdout, built on @tunnelmindai/atap.",
+  "type": "module",
+  "bin": {
+    "atap-witness": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "atap",
+    "attestation",
+    "agent",
+    "witness",
+    "receipt",
+    "cli",
+    "tunnelmind"
+  ],
+  "author": "TunnelMind",
+  "license": "Apache-2.0",
+  "homepage": "https://tunnelmind.ai/atap/standard",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TunnelMind/atap.git",
+    "directory": "packages/atap-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/TunnelMind/atap/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@tunnelmindai/atap": "file:../atap-js",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "typescript": "^5.6.0"
+  }
+}

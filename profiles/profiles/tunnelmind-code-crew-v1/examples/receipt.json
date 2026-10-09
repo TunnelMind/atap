@@ -1,0 +1,46 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "Receipt",
+  "id": "ATAP-RCPT-01a11df6-48cb-7728-8f26-4f5dbd50b9d4",
+  "ait": "AIT-01a11b62-7600-7ac5-98ac-c40f3d42d7f4",
+  "profile": "tunnelmind:code_crew:v1",
+  "period_start": "2026-10-08T12:00:01.500Z",
+  "period_end": "2026-10-08T12:00:12.000Z",
+  "block_count": 1,
+  "event_count": 8,
+  "first_block": "ATAP-AB-01a11df6-48cb-7890-85f6-a77a8ae248c4",
+  "last_block": "ATAP-AB-01a11df6-48cb-7890-85f6-a77a8ae248c4",
+  "chain_head_hash": "0x77241664522254da8649b6f34ba0f47db33bfcb305aef811a6d2203e721f3758",
+  "witness": "OAI-2026-0010002",
+  "format": "full",
+  "generated_at": "2026-10-08T12:00:12.000Z",
+  "verifier_url": "https://tunnelmind.ai/atap/verify.sh",
+  "keys_url": "https://tunnelmind.ai/atap/keys",
+  "files": [
+    {
+      "path": "manifest.json",
+      "sha256": null
+    },
+    {
+      "path": "ait.json",
+      "sha256": null
+    },
+    {
+      "path": "attestation_chain.json",
+      "sha256": null
+    },
+    {
+      "path": "summary.json",
+      "sha256": null
+    },
+    {
+      "path": "public_keys.json",
+      "sha256": null
+    },
+    {
+      "path": "verify.sh",
+      "sha256": null
+    }
+  ],
+  "witness_signature": "ed25519:0xa2916a4761fe6257d5ab5e1b297f17a0365873e4640eda766d9bee7e7746f04efb5dedb2808a1151c2f63564540b6d88ab1573e364cfc828cf13e072d8ff3201"
+}

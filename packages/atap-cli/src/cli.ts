@@ -1,0 +1,438 @@
+#!/usr/bin/env node
+// atap-witness: a file-backed ATAP v0.1 witness. Each command reads JSON on
+// stdin and writes JSON on stdout, so any language can drive it. Errors go
+// to stderr as one line of {"error": "..."} with a non-zero exit.
+//
+// Usage: see USAGE below (also printed by --help).
+//
+// Before signing, event payloads and block period_summaries are validated
+// against the AIT's profile schemas; a refused call writes nothing.
+
+import { createHash, createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { parseArgs, promisify } from 'node:util'
+import {
+  ATTESTATION_STRENGTH_RANK,
+  GENESIS_HASH,
+  WitnessService,
+  canonicalizeBytes,
+  verifyReceipt,
+  type AIT,
+  type AIT_ID,
+  type AitInput,
+  type AttestationBlock,
+  type AttestationStrength,
+  type HexHash,
+  type KeysDocument,
+  type OAI,
+  type Receipt,
+  type VerifyResult,
+  type WitnessEvent,
+} from '@tunnelmindai/atap'
+import { Profiles } from './profile.js'
+import { DirStorage, withLock } from './storage.js'
+
+// The reference verifier ships in the repo root. From dist/cli.js that is
+// three levels up (dist -> atap-cli -> packages -> root).
+// ponytail: only resolves from a source checkout; bundle a copy into the
+// package when it is published to npm.
+const VERIFY_SH = fileURLToPath(new URL('../../../verify.sh', import.meta.url))
+// ponytail: same source-checkout ceiling as VERIFY_SH.
+const PROFILES_DIR = fileURLToPath(new URL('../../../profiles', import.meta.url))
+
+// tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
+const WITNESS_EVENTS = 'profile_artifacts/witness_events.json'
+
+// §7.5 layout. manifest.json cannot carry its own hash, so it is listed with null.
+const RECEIPT_FILES = [
+  'manifest.json',
+  'ait.json',
+  'attestation_chain.json',
+  'summary.json',
+  'public_keys.json',
+  'verify.sh',
+  WITNESS_EVENTS,
+] as const
+
+const USAGE = `usage:
+  atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
+  atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
+  atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
+  atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
+  atap-witness verify DIR
+
+Global: --dir (store, default ./.atap-witness), --strength (default self-asserted),
+--profiles-dir (profile registry + schemas, default the repo's profiles/).
+`
+
+type Values = {
+  help?: boolean
+  key?: string
+  dir?: string
+  'witness-oai'?: string
+  strength?: string
+  ait?: string
+  out?: string
+  'profiles-dir'?: string
+  'unregistered-profile'?: boolean
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const c of process.stdin) chunks.push(c as Buffer)
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function stdinJson(allowEmpty: boolean): Promise<unknown> {
+  const text = (await readStdin()).trim()
+  if (text === '') {
+    if (allowEmpty) return {}
+    throw new Error('expected JSON on stdin')
+  }
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error('stdin is not valid JSON')
+  }
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function json(v: unknown): string {
+  return JSON.stringify(v, null, 2) + '\n'
+}
+
+// The key file's contents never reach an error message: every failure here is
+// replaced with a fixed sentence.
+async function loadKey(path: string | undefined): Promise<KeyObject> {
+  if (!path) throw new Error('--key <path> is required')
+  let pem: Buffer
+  try {
+    pem = await readFile(path)
+  } catch {
+    throw new Error('cannot read the --key file')
+  }
+  let key: KeyObject
+  try {
+    key = createPrivateKey({ key: pem, format: 'pem' })
+  } catch {
+    throw new Error('--key is not a PEM private key')
+  }
+  if (key.asymmetricKeyType !== 'ed25519') {
+    throw new Error('--key must be an Ed25519 private key')
+  }
+  return key
+}
+
+function parseStrength(s: string | undefined): AttestationStrength {
+  const v = s ?? 'self-asserted'
+  if (!Object.hasOwn(ATTESTATION_STRENGTH_RANK, v)) {
+    throw new Error(
+      `--strength must be one of ${Object.keys(ATTESTATION_STRENGTH_RANK).join(', ')}`,
+    )
+  }
+  return v as AttestationStrength
+}
+
+function requireAit(v: Values): AIT_ID {
+  if (!v.ait) throw new Error('--ait <id> is required')
+  return v.ait as AIT_ID
+}
+
+function sha256(bytes: Uint8Array): HexHash {
+  return `0x${createHash('sha256').update(bytes).digest('hex')}`
+}
+
+// summary.json: integers are summed key-wise, nested objects merge
+// recursively, anything else keeps the latest block's value.
+function mergeSummary(acc: Record<string, unknown>, s: Record<string, unknown>): Record<string, unknown> {
+  for (const [k, v] of Object.entries(s)) {
+    const prev = acc[k]
+    if (Number.isInteger(v) && Number.isInteger(prev)) acc[k] = (prev as number) + (v as number)
+    else if (isObject(v)) acc[k] = mergeSummary(isObject(prev) ? prev : {}, v)
+    else acc[k] = v
+  }
+  return acc
+}
+
+// One key entry, derived from the signing key. valid_from is the start of the
+// AIT's issue day so it precedes issued_at. valid_until is the AIT's
+// expires_at: verifiers look keys up at issued_at and at each block's
+// period_end (its last event's witnessed_at), and witness() refuses events at
+// or after expires_at, so every signature in the receipt falls inside it.
+function keysDocument(
+  privateKey: KeyObject,
+  witness: OAI,
+  ait: AIT,
+  strength: AttestationStrength,
+): KeysDocument {
+  const jwk = createPublicKey(privateKey).export({ format: 'jwk' })
+  const hex = Buffer.from(jwk.x!, 'base64url').toString('hex')
+  const from = new Date(ait.issued_at.slice(0, 10) + 'T00:00:00Z')
+  const until = new Date(ait.expires_at)
+  return {
+    keys: [
+      {
+        witness,
+        key_id: `ed25519-${hex.slice(0, 16)}`,
+        algorithm: 'ed25519',
+        public_key: `0x${hex}`,
+        valid_from: from.toISOString(),
+        valid_until: until.toISOString(),
+        status: 'active',
+        attestation_strength: strength,
+        rotated_to: null,
+        compromise_notice: null,
+      },
+    ],
+    updated_at: new Date().toISOString(),
+  }
+}
+
+async function zipDir(dir: string): Promise<string> {
+  const zipPath = `${dir}.zip`
+  // zip updates an existing archive in place; start clean so stale entries
+  // from an earlier receipt never survive.
+  await rm(zipPath, { force: true })
+  try {
+    await promisify(execFile)('zip', ['-q', '-X', '-r', zipPath, '.'], { cwd: dir })
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error('the zip binary is required to write the receipt .zip; install zip')
+    }
+    throw new Error(`zip failed: ${(e as Error).message}`)
+  }
+  return zipPath
+}
+
+async function receipt(svc: WitnessService, storage: DirStorage, v: Values, key: KeyObject, witness: OAI, strength: AttestationStrength): Promise<Receipt> {
+  const aitId = requireAit(v)
+  if (!v.out) throw new Error('--out <dir> is required')
+  const out = resolve(v.out)
+  // zipDir zips everything under out, so a non-empty dir would smuggle
+  // unrelated files into receipt.zip. A missing dir is fine: mkdir makes it.
+  const existing = await readdir(out).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') return []
+    throw e
+  })
+  if (existing.length > 0) throw new Error(`--out ${out} is not empty; pick a new or empty directory`)
+  const ait = await storage.loadAit(aitId)
+  if (!ait) throw new Error(`unknown AIT ${aitId}`)
+  const chain = await storage.blocksOf(aitId)
+  if (chain.length === 0) throw new Error(`no blocks for ${aitId}; run block first`)
+  // Events up to the last block's last event; later ones are still pending.
+  const events = await storage.eventsOf(aitId)
+  const covered = events.slice(0, events.findIndex(e => e.id === chain.at(-1)!.last_event) + 1)
+
+  let verifySh: Buffer
+  try {
+    verifySh = await readFile(VERIFY_SH)
+  } catch {
+    throw new Error(`reference verifier not found at ${VERIFY_SH}`)
+  }
+  const contents: Record<string, Uint8Array> = {
+    'ait.json': Buffer.from(json(ait)),
+    'attestation_chain.json': Buffer.from(json(chain)),
+    'summary.json': Buffer.from(
+      json(chain.reduce((acc, b) => mergeSummary(acc, b.period_summary), {} as Record<string, unknown>)),
+    ),
+    'public_keys.json': Buffer.from(json(keysDocument(key, witness, ait, strength))),
+    'verify.sh': verifySh,
+    [WITNESS_EVENTS]: Buffer.from(json(covered)),
+  }
+  // The Receipt signs over files[], so every hash is fixed before signing and
+  // the bytes written afterwards are exactly the bytes hashed.
+  const files = RECEIPT_FILES.map(path => ({
+    path,
+    sha256: path === 'manifest.json' ? null : sha256(contents[path]!),
+  }))
+  const rcpt = await svc.generateReceipt(
+    aitId,
+    chain[0]!.period_start,
+    chain.at(-1)!.period_end,
+    'full',
+    files,
+  )
+
+  await mkdir(join(out, 'profile_artifacts'), { recursive: true })
+  for (const [path, bytes] of Object.entries(contents)) {
+    // copyFile keeps verify.sh's exec bit, so the unpacked receipt runs as-is.
+    if (path === 'verify.sh') await copyFile(VERIFY_SH, join(out, path))
+    else await writeFile(join(out, path), bytes)
+  }
+  await writeFile(join(out, 'manifest.json'), json(rcpt))
+  await zipDir(out)
+  return rcpt
+}
+
+async function readJsonFile<T>(dir: string, name: string): Promise<T> {
+  try {
+    return JSON.parse(await readFile(join(dir, name), 'utf8')) as T
+  } catch {
+    throw new Error(`cannot read ${name} in ${dir}`)
+  }
+}
+
+// The block chain binds to the event chain only through chain_head_hash
+// (ATAP §7.3, §10): each block's chain_head_hash is the self_hash of the last
+// event it covers. Recompute every self_hash (§7.7), walk prev_event_hash from
+// genesis, then slice the events by event_count and match each block's head.
+// No signature check needed: the signed blocks' heads pin every earlier event
+// through the prev_event_hash chain.
+function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT): string | null {
+  if (!Array.isArray(events)) return `${WITNESS_EVENTS} is not an array`
+  let prev: string = GENESIS_HASH
+  for (const [i, e] of events.entries()) {
+    if (!isObject(e)) return `event ${i} is not an object`
+    const { self_hash, witness_signature: _, ...unsigned } = e
+    if (e.ait !== ait.id) return `event ${i} (${e.id}) is not under ${ait.id}`
+    if (sha256(canonicalizeBytes(unsigned)) !== self_hash) return `event ${i} (${e.id}) self_hash mismatch`
+    if (e.prev_event_hash !== prev) return `event ${i} (${e.id}) prev_event_hash breaks the chain`
+    prev = self_hash
+  }
+  let at = 0
+  for (const b of chain) {
+    const first = events[at]
+    const last = events[at + b.event_count - 1]
+    if (!first || !last) return `block ${b.id} covers events ${at}..${at + b.event_count - 1}; only ${events.length} present`
+    if (first.id !== b.first_event) return `event ${at} (${first.id}) is not block ${b.id}'s first_event`
+    if (last.id !== b.last_event) return `event ${at + b.event_count - 1} (${last.id}) is not block ${b.id}'s last_event`
+    if (last.self_hash !== b.chain_head_hash) return `event ${at + b.event_count - 1} (${last.id}) does not match block ${b.id}'s chain_head_hash`
+    at += b.event_count
+  }
+  if (at !== events.length) return `${events.length} events but the blocks cover ${at}`
+  return null
+}
+
+// Same checks as verify.sh: manifest.files[] integrity first, then the
+// signatures and chain via the library's verifyReceipt, then the profile's
+// witness events if the manifest lists them.
+async function verify(dir: string): Promise<VerifyResult> {
+  const receipt = await readJsonFile<Receipt>(dir, 'manifest.json')
+  const root = resolve(dir)
+  for (const f of receipt.files ?? []) {
+    // The manifest is untrusted input: refuse a path like ../x before reading
+    // it, so a receipt cannot make us hash files outside its own directory.
+    const rel = relative(root, resolve(root, f.path))
+    if (rel === '' || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
+      return { ok: false, blocks: 0, reason: `${f.path} escapes the receipt directory` }
+    }
+    if (f.sha256 === null) continue
+    let bytes: Buffer
+    try {
+      bytes = await readFile(join(root, rel))
+    } catch {
+      return { ok: false, blocks: 0, reason: `${f.path} missing` }
+    }
+    if (sha256(bytes) !== f.sha256) {
+      return { ok: false, blocks: 0, reason: `${f.path} sha256 mismatch` }
+    }
+  }
+  const ait = await readJsonFile<AIT>(dir, 'ait.json')
+  const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
+  const result = verifyReceipt({
+    receipt,
+    ait,
+    chain,
+    keys: await readJsonFile<KeysDocument>(dir, 'public_keys.json'),
+  })
+  if (!result.ok || !receipt.files?.some(f => f.path === WITNESS_EVENTS)) return result
+  const reason = checkWitnessEvents(await readJsonFile<WitnessEvent[]>(dir, WITNESS_EVENTS), chain, ait)
+  return reason ? { ok: false, blocks: 0, reason } : result
+}
+
+async function main(argv: string[]): Promise<number> {
+  const { values: v, positionals: pos } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      key: { type: 'string' },
+      dir: { type: 'string' },
+      'witness-oai': { type: 'string' },
+      strength: { type: 'string' },
+      ait: { type: 'string' },
+      out: { type: 'string' },
+      'profiles-dir': { type: 'string' },
+      'unregistered-profile': { type: 'boolean' },
+      help: { type: 'boolean', short: 'h' },
+    },
+  }) as { values: Values; positionals: string[] }
+  if (v.help) {
+    process.stdout.write(USAGE)
+    return 0
+  }
+  const cmd = pos[0] === 'ait' && pos[1] === 'declare' ? 'ait declare' : pos[0]
+
+  if (cmd === 'verify') {
+    if (!pos[1]) throw new Error('usage: atap-witness verify <dir>')
+    const result = await verify(pos[1])
+    process.stdout.write(json(result))
+    return result.ok ? 0 : 1
+  }
+  if (!['ait declare', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
+    throw new Error('usage: atap-witness <ait declare | event | block | receipt | verify> [options]')
+  }
+
+  const strength = parseStrength(v.strength)
+  const witness = (v['witness-oai'] ?? process.env.ATAP_WITNESS_OAI) as OAI | undefined
+  if (!witness) throw new Error('--witness-oai <OAI> (or ATAP_WITNESS_OAI) is required')
+  const privateKey = await loadKey(v.key)
+  const dir = resolve(v.dir ?? '.atap-witness')
+  // Read stdin before taking the lock so a slow writer never holds it.
+  const input = cmd === 'receipt' ? null : await stdinJson(cmd === 'block')
+  const profiles = cmd === 'receipt' ? null : await Profiles.load(resolve(v['profiles-dir'] ?? PROFILES_DIR))
+  // Every signed AIT, event and block is checked against its whole core schema
+  // as it is written; `receipt` writes nothing, so it needs no guards.
+  const storage = new DirStorage(dir, profiles?.coreGuards() ?? {})
+  const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: strength })
+
+  // Every check below runs before the svc call, so a refusal writes nothing.
+  const profileOf = async (aitId: AIT_ID): Promise<string> => {
+    const ait = await storage.loadAit(aitId)
+    if (!ait) throw new Error(`unknown AIT ${aitId}`)
+    return ait.profile
+  }
+
+  const result = await withLock(dir, async () => {
+    switch (cmd) {
+      case 'ait declare':
+        if (!isObject(input)) throw new Error('stdin must be an AitInput object')
+        if (!profiles!.isRegistered(input.profile) && !v['unregistered-profile']) {
+          throw new Error('profile is not in the profile registry; pass --unregistered-profile to declare it anyway')
+        }
+        await profiles!.checkAit(input)
+        return svc.declareAit(input as unknown as AitInput)
+      case 'event': {
+        const aitId = requireAit(v)
+        if (!isObject(input) || typeof input.event_type !== 'string' || !isObject(input.payload)) {
+          throw new Error('stdin must be {"event_type": string, "payload": object}')
+        }
+        await profiles!.checkEvent(await profileOf(aitId), { event_type: input.event_type, payload: input.payload })
+        return svc.witness(aitId, input.event_type, input.payload)
+      }
+      case 'block': {
+        const aitId = requireAit(v)
+        if (!isObject(input)) throw new Error('stdin must be a period_summary object')
+        await profiles!.checkSummary(await profileOf(aitId), input)
+        return svc.rollUp(aitId, input)
+      }
+      default:
+        return receipt(svc, storage, v, privateKey, witness, strength)
+    }
+  })
+  process.stdout.write(json(result))
+  return 0
+}
+
+main(process.argv.slice(2)).then(
+  code => process.exit(code),
+  (e: unknown) => {
+    process.stderr.write(JSON.stringify({ error: (e as Error).message ?? String(e) }) + '\n')
+    process.exit(1)
+  },
+)

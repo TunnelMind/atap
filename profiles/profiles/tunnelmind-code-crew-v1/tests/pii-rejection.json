@@ -1,0 +1,80 @@
+{
+  "description": "ATAP v0.1 §9.4(2) acceptance evidence: each case is a Witness Event whose payload smuggles a person-resolvable field forbidden by ATAP §7.6. Every case MUST FAIL validation against witness-events.schema.json — the profile schemas set additionalProperties:false on every payload, pin approval.role to `owner`, and restrict identifier fields to opaque tokens, so there is no permitted place for PII. CI asserts each case is rejected; a case that validates is a profile defect.",
+  "must_reject": [
+    {
+      "name": "approver_name_in_approval",
+      "reason": "named natural person (ATAP §7.6)",
+      "event": {
+        "event_type": "code_crew:approval",
+        "payload": {
+          "timestamp": "2026-10-08T12:00:01Z", "evidence": "asserted", "role": "owner",
+          "decision": "approve", "channel": "cli",
+          "approval_text_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "approver_name": "Jane Doe"
+        }
+      }
+    },
+    {
+      "name": "approver_email_in_approval",
+      "reason": "email address (ATAP §7.6)",
+      "event": {
+        "event_type": "code_crew:approval",
+        "payload": {
+          "timestamp": "2026-10-08T12:00:01Z", "evidence": "asserted", "role": "owner",
+          "decision": "approve", "channel": "cli",
+          "approval_text_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "approver_email": "jane@example.com"
+        }
+      }
+    },
+    {
+      "name": "person_name_as_approval_role",
+      "reason": "named natural person in place of the role `owner` (ATAP §7.6)",
+      "event": {
+        "event_type": "code_crew:approval",
+        "payload": {
+          "timestamp": "2026-10-08T12:00:01Z", "evidence": "asserted", "role": "Jane Doe",
+          "decision": "approve", "channel": "cli",
+          "approval_text_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "email_in_free_text_note",
+      "reason": "email address in a free-text field (ATAP §7.6)",
+      "event": {
+        "event_type": "code_crew:qa_verdict",
+        "payload": {
+          "timestamp": "2026-10-08T12:00:02Z", "evidence": "asserted", "task_id": "A101",
+          "verdict": "rework", "attempt": 1,
+          "note": "ping jane@example.com about the failing test"
+        }
+      }
+    },
+    {
+      "name": "email_as_model",
+      "reason": "email address smuggled into an opaque identifier field (ATAP §7.6)",
+      "event": {
+        "event_type": "code_crew:task_claimed",
+        "payload": {
+          "timestamp": "2026-10-08T12:00:00Z", "evidence": "asserted", "task_id": "A101",
+          "role": "coder", "model": "jane@example.com"
+        }
+      }
+    },
+    {
+      "name": "client_ip_in_verify_run",
+      "reason": "end-user IP address (ATAP §7.6)",
+      "event": {
+        "event_type": "code_crew:verify_run",
+        "payload": {
+          "timestamp": "2026-10-08T12:00:03Z", "evidence": "asserted",
+          "command_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "exit_code": 0,
+          "output_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "client_ip": "203.0.113.44"
+        }
+      }
+    }
+  ]
+}
