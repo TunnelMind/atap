@@ -18,6 +18,7 @@ import { parseArgs, promisify } from 'node:util'
 import {
   ATTESTATION_STRENGTH_RANK,
   GENESIS_HASH,
+  MAX_AIT_LIFETIME_DAYS,
   CborTag,
   WitnessService,
   canonicalizeBytes,
@@ -67,6 +68,7 @@ const USAGE = `usage:
   atap-witness init [--profile ID] [--dir .atap] [--force]
   atap-witness status
   atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
+  atap-witness ait rotate             (inside an init'd project; no stdin)
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
   atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
@@ -603,15 +605,15 @@ async function init(v: Values): Promise<Record<string, string>> {
   const witness = localOai(privateKey)
   // No constraints: they are optional in the core schema, and a profile's
   // constraints (allowed_repos, models, ...) are the operator's to declare.
-  // ponytail: 30-day lifetime like the profile examples; re-run init (or
-  // declare a new AIT) when it expires.
+  // The core's maximum lifetime, so a drop-in outlives its first AIT for a
+  // year; `ait rotate` declares the next one in the same store.
   const input: AitInput = {
     agentType: profile.split(':')[1] ?? profile,
     profile,
     operator: witness,
     capabilities: Object.keys(caps.capabilities),
     attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
-    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+    expiresAt: new Date(Date.now() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
   }
 
   if (exists) for (const f of INIT_FILES) await rm(join(dir, f), { force: true })
@@ -673,7 +675,7 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(USAGE)
     return 0
   }
-  const cmd = pos[0] === 'ait' && pos[1] === 'declare' ? 'ait declare' : pos[0]
+  const cmd = pos[0] === 'ait' && (pos[1] === 'declare' || pos[1] === 'rotate') ? `ait ${pos[1]}` : pos[0]
 
   // Kill switch for hooks: a hook must never break the user's workflow, so
   // ATAP_OFF=1 turns the two hook-facing writes into silent no-ops before any
@@ -745,8 +747,8 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(json(result))
     return result.ok ? 0 : 1
   }
-  if (!['ait declare', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
-    throw new Error('usage: atap-witness <init | status | ait declare | event | block | receipt | verify | scitt> [options]')
+  if (!['ait declare', 'ait rotate', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
+    throw new Error('usage: atap-witness <init | status | ait declare | ait rotate | event | block | receipt | verify | scitt> [options]')
   }
 
   const strength = parseStrength(v.strength)
@@ -754,8 +756,12 @@ async function main(argv: string[]): Promise<number> {
   if (!witness) throw new Error('--witness-oai <OAI> (or ATAP_WITNESS_OAI) is required')
   const privateKey = await loadKey(v.key)
   const dir = resolve(v.dir ?? '.atap-witness')
+  // rotate rewrites the config it was found through, so it needs one, for this store.
+  if (cmd === 'ait rotate' && (!atap || dir !== atap.dir)) {
+    throw new Error('ait rotate needs the store\'s .atap/config.json; run it inside an init\'d project')
+  }
   // Read stdin before taking the lock so a slow writer never holds it.
-  const input = cmd === 'receipt' ? null : await stdinJson(cmd === 'block')
+  const input = cmd === 'receipt' || cmd === 'ait rotate' ? null : await stdinJson(cmd === 'block')
   const profiles = cmd === 'receipt' ? null : await Profiles.load(resolve(v['profiles-dir'] ?? PROFILES_DIR))
   // Every signed AIT, event and block is checked against its whole core schema
   // as it is written; `receipt` writes nothing, so it needs no guards.
@@ -778,6 +784,26 @@ async function main(argv: string[]): Promise<number> {
         }
         await profiles!.checkAit(input)
         return svc.declareAit(input as unknown as AitInput)
+      case 'ait rotate': {
+        // A fresh AIT with the current one's terms. The old AIT and its
+        // events, blocks and receipts stay as they are and keep verifying;
+        // only config.json moves on, so later commands chain under the new one.
+        const old = await storage.loadAit(requireAit(v))
+        if (!old) throw new Error(`unknown AIT ${v.ait}`)
+        const ait = await svc.declareAit({
+          agentType: old.agent_type,
+          profile: old.profile,
+          operator: old.operator,
+          capabilities: old.capabilities,
+          constraints: old.constraints,
+          attestationPolicy: old.attestation_policy,
+          expiresAt: new Date(Date.now() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
+        })
+        const config = { ...atap!.config, ait: ait.id }
+        await writeFile(join(dir, 'config.json.tmp'), json(config))
+        await rename(join(dir, 'config.json.tmp'), join(dir, 'config.json'))
+        return config
+      }
       case 'event': {
         const aitId = requireAit(v)
         if (!isObject(input) || typeof input.event_type !== 'string' || !isObject(input.payload)) {

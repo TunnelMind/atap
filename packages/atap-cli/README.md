@@ -39,6 +39,7 @@ The last command prints `"ok": true` and `"blocks": 1` and exits 0. The bundled 
 checks the same receipt: `./receipt/verify.sh receipt`.
 [`test/quickstart.test.mjs`](./test/quickstart.test.mjs) runs this block as
 written and times it.
+`atap-witness ait rotate` declares a fresh 365-day AIT in the same store; old receipts keep verifying.
 
 ### Off and uninstall
 
@@ -202,7 +203,7 @@ atap-witness() { node "$REPO/packages/atap-cli/dist/cli.js" "$@"; }
 cd "$(mktemp -d)"
 openssl genpkey -algorithm ed25519 -out witness.pem
 W="--key witness.pem --witness-oai OAI-2026-0010002"
-EXPIRES=$(node -p 'new Date(Date.now() + 30 * 864e5).toISOString()')
+EXPIRES=$(node -p 'new Date(Date.now() + 365 * 864e5).toISOString()')
 
 AIT=$(atap-witness ait declare $W <<JSON | jq -r .id
 {
