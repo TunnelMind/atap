@@ -29,6 +29,7 @@ order, without trusting the agent's self-report.
 | [`packages/atap-py/`](./packages/atap-py/) | `atap` — Python client of `atap-witness`: `atap.code` helpers for the code_crew profile, `run_tests`, `session`, `verify`. Source checkout only, not on PyPI. |
 | [`plugins/claude-code/`](./plugins/claude-code/) | Claude Code plugin that records commits and test runs as witness events. |
 | [`actions/witness/`](./actions/witness/) | GitHub Action that witnesses a CI test run under an ephemeral did:key and uploads its Receipt (self-asserted: integrity only). |
+| [`viewer/`](./viewer/) | One-file receipt viewer (`dist/atap-viewer.html`): open it, drop a Receipt ZIP, it verifies in the browser. Nothing is uploaded. |
 
 ## What ATAP solves
 
@@ -77,6 +78,8 @@ cd receipt/
 ```
 
 Requirements: bash 4+, openssl 3.0+ (or 1.1.1 with `-rawin`), jq 1.6+, python3.
+
+No install: open the one-file browser viewer instead, see [`viewer/README.md`](./viewer/README.md).
 
 ## Building witness services
 
