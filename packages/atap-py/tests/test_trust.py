@@ -66,5 +66,29 @@ class TrustTest(unittest.TestCase):
             self.assertEqual(len(self.recorded()), 1)
 
 
+    def test_run_tests_records_to_the_store_of_its_cwd(self):
+        # coordinator 2026-10-09 (review low): the same rule as change_committed
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t).resolve()
+            for name in ("A", "B"):
+                (t / name / ".atap").mkdir(parents=True)
+                (t / name / ".atap" / "config.json").write_text("{}")
+            os.chdir(t / "A")
+            self.assertEqual(atap.code.run_tests(["true"], cwd=t / "B"), 0)
+            [c] = self.recorded()
+            self.assertEqual(c["cwd"], str(t / "B"))
+            self.assertEqual(json.loads(c["stdin"])["event_type"], "code_crew:verify_run")
+
+    def test_run_tests_survives_no_stdout(self):
+        # a daemonized agent has sys.stdout None; run_tests must still run and record
+        import sys
+        saved = sys.stdout
+        try:
+            sys.stdout = None
+            self.assertEqual(atap.code.run_tests(["sh", "-c", "echo hi; exit 3"]), 3)
+        finally:
+            sys.stdout = saved
+        self.assertEqual(len(self.recorded()), 1)
+
 if __name__ == "__main__":
     unittest.main()

@@ -102,7 +102,7 @@ def change_committed(cwd="."):
         return None
 
 
-def verify_run(command, exit_code, output):
+def verify_run(command, exit_code, output, cwd="."):
     """A test/verify command ran. Only hashes of the command and its output are
     sent, never the text. evidence asserted."""
     try:
@@ -114,7 +114,7 @@ def verify_run(command, exit_code, output):
             "command_sha256": _sha256(command),
             "exit_code": max(-255, min(255, exit_code)),
             "output_sha256": _sha256(output),
-        })
+        }, cwd)  # the store of the repo the tests ran in (as change_committed)
     except Exception:
         return None
 
@@ -128,7 +128,8 @@ def run_tests(command, cwd="."):
     text = command if isinstance(command, str) else " ".join(map(str, command))
     out = getattr(sys.stdout, "buffer", None)
     chunks = []
-    sys.stdout.flush()
+    if sys.stdout is not None:  # None when the agent runs with fd 1 closed (a daemon); never crash on it
+        sys.stdout.flush()
     try:
         p = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     except OSError:
@@ -141,12 +142,12 @@ def run_tests(command, cwd="."):
                 if out is not None:
                     out.write(chunk)
                     out.flush()
-                else:
+                elif sys.stdout is not None:
                     sys.stdout.write(chunk.decode("utf-8", "replace"))
                     sys.stdout.flush()
         code = p.wait()
     try:
-        verify_run(text, code, b"".join(chunks))
+        verify_run(text, code, b"".join(chunks), cwd)
     except Exception:
         pass
     return code
