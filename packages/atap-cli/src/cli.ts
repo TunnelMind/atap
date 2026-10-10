@@ -25,6 +25,7 @@ import {
   checkWitnessEvents,
   didKeyFromPublicKey,
   isDidKey,
+  publicKeyFromDidKey,
   publicKeyFromHex,
   toSignedStatement,
   verifyReceipt,
