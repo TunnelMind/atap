@@ -48,6 +48,7 @@ import {
 } from '@tunnelmindai/atap'
 import { Profiles } from './profile.js'
 import { DirStorage, withLock } from './storage.js'
+import { gitSync } from './gitstore.js'
 
 // The reference verifier ships in the repo root. From dist/cli.js that is
 // three levels up (dist -> atap-cli -> packages -> root).
@@ -74,6 +75,7 @@ const RECEIPT_FILES = [
 const USAGE = `usage:
   atap-witness init [--profile ID] [--dir .atap] [--force]
   atap-witness status
+  atap-witness git sync               (commit the store's records to branch atap/records; no stdin)
   atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
   atap-witness ait rotate [--did-key] (inside an init'd project; no stdin)
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
@@ -693,7 +695,10 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(USAGE)
     return 0
   }
-  const cmd = pos[0] === 'ait' && (pos[1] === 'declare' || pos[1] === 'rotate') ? `ait ${pos[1]}` : pos[0]
+  const cmd =
+    (pos[0] === 'ait' && (pos[1] === 'declare' || pos[1] === 'rotate')) || (pos[0] === 'git' && pos[1] === 'sync')
+      ? `${pos[0]} ${pos[1]}`
+      : pos[0]
 
   // Kill switch for hooks: a hook must never break the user's workflow, so
   // ATAP_OFF=1 turns the two hook-facing writes into silent no-ops before any
@@ -727,6 +732,15 @@ async function main(argv: string[]): Promise<number> {
       blocks: (await storage.blocksOf(ait as AIT_ID)).length,
       last_receipt: lastReceipt,
     }))
+    return 0
+  }
+  // Like status: no stdin, key or OAI. Never pushes; the hint says how.
+  if (cmd === 'git sync') {
+    const dir = v.dir ? resolve(v.dir) : (await findAtap())?.dir
+    if (!dir) throw new Error('no .atap/config.json here or in any parent dir; run atap-witness init (or pass --dir)')
+    const result = await gitSync(dir)
+    process.stdout.write(json(result))
+    if (result.synced) process.stderr.write('to publish: git push origin atap/records\n')
     return 0
   }
   if (cmd === 'verify') {
@@ -771,7 +785,7 @@ async function main(argv: string[]): Promise<number> {
     return result.ok ? 0 : 1
   }
   if (!['ait declare', 'ait rotate', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
-    throw new Error('usage: atap-witness <init | status | ait declare | ait rotate | event | block | receipt | verify | scitt> [options]')
+    throw new Error('usage: atap-witness <init | status | git sync | ait declare | ait rotate | event | block | receipt | verify | scitt> [options]')
   }
 
   const strength = parseStrength(v.strength)
