@@ -39,6 +39,7 @@ All notable changes to ATAP are recorded here.
   event covered by a block. Events after the last block are pending and not
   checked. An OAI witness needs `--keys public_keys.json`; a did:key witness
   needs nothing. Writes nothing.
+- [`viewer/`](./viewer/) — a one-file browser viewer (`viewer/dist/atap-viewer.html`): drop a Receipt ZIP and it runs the same checks as `atap-witness verify`, locally, with no network. See [`viewer/README.md`](./viewer/README.md).
 - [`actions/witness/`](./actions/witness/) — a GitHub Action that witnesses a CI test run (ephemeral did:key, self-asserted) and uploads its Receipt as the `atap-receipt` artifact.
 - Python client `packages/atap-py/` (`atap` 0.1.0, stdlib only, source checkout
   only, not on PyPI) — a thin client of `atap-witness`: `atap.code` helpers that

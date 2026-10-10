@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- No network at all. The inline script and style are allowed by their
+     sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
+<meta http-equiv="Content-Security-Policy" content="{{CSP}}">
+<title>ATAP receipt viewer</title>
+<style>
+body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
+main { max-width: 48rem; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid #000; }
+.drop { border: 2px dashed #000; padding: 1rem; margin: 1rem 0; }
+.drop label { display: block; font-weight: bold; margin-bottom: .5rem; }
+input[type=file] { max-width: 100%; }
+.verdict { border: 3px solid #000; padding: .5rem; font-size: 1.3rem; font-weight: bold; }
+.verdict.bad { border-style: double; border-width: 6px; }
+.notice { border: 1px solid #000; padding: .5rem; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+dt { font-weight: bold; }
+dd { margin: 0; min-width: 0; }
+.hash { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+ol, ul { padding-left: 1.5rem; }
+li { border-bottom: 1px solid #000; padding: .25rem 0; overflow-wrap: anywhere; }
+li span { display: inline-block; margin-right: 1rem; }
+.events .type { font-weight: bold; }
+.events .tier { border: 1px solid #000; padding: 0 .25rem; }
+@media (max-width: 30rem) { dl { grid-template-columns: 1fr; } dd { margin-bottom: .5rem; } }
+</style>
+</head>
+<body>
+<main>
+<h1>ATAP receipt viewer</h1>
+<p>Check an ATAP Receipt ZIP in this page. The file is read here and never sent anywhere.</p>
+<div class="drop">
+<label for="file">Receipt ZIP (choose or drop)</label>
+<input id="file" type="file" accept=".zip,application/zip">
+</div>
+<section id="out" role="status" aria-live="polite"></section>
+</main>
+<script>{{SCRIPT}}</script>
+</body>
+</html>

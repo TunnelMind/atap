@@ -10,6 +10,7 @@ import {
   KeysDocument,
   PublicKey,
   Receipt,
+  WitnessEvent,
   ATAP_CONTEXT,
 } from './types.js'
 import { canonicalizeBytes } from './canonicalize.js'
@@ -242,4 +243,86 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
     attestation_strength: effectiveStrength,
     ...(warnings.length ? { warnings } : {}),
   }
+}
+
+// tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
+export const WITNESS_EVENTS = 'profile_artifacts/witness_events.json'
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+// The block chain binds to the event chain only through chain_head_hash
+// (ATAP §7.3, §10): each block's chain_head_hash is the self_hash of the last
+// event it covers. Recompute every self_hash (§7.7), walk prev_event_hash from
+// genesis, then slice the events by event_count and match each block's head.
+// For an OAI witness no signature check is needed: the signed blocks' heads pin
+// every earlier event through the prev_event_hash chain. For a did:key witness
+// every witness_signature must verify under the key it encodes (ATAP-v0.2
+// §3.1), as verify.sh checks too, over the raw 32-byte self_hash (§7.7).
+export function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
+  if (!Array.isArray(events)) return `${WITNESS_EVENTS} is not an array`
+  let prev: string = GENESIS_HASH
+  for (const [i, e] of events.entries()) {
+    if (!isObject(e)) return `event ${i} is not an object`
+    const { self_hash, witness_signature: _, ...unsigned } = e
+    if (e.ait !== ait.id) return `event ${i} (${e.id}) is not under ${ait.id}`
+    if (sha256(canonicalizeBytes(unsigned)) !== self_hash) return `event ${i} (${e.id}) self_hash mismatch`
+    if (e.prev_event_hash !== prev) return `event ${i} (${e.id}) prev_event_hash breaks the chain`
+    if (isDidKey(ait.witness)) {
+      const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at)
+      if (!key) return `no key for ${ait.witness} at ${e.witnessed_at}`
+      if (typeof key === 'string') return key
+      // Malformed input is a verdict, not a TypeError.
+      if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, publicKeyFromHex(key.public_key))) {
+        return `event ${i} (${e.id}) signature invalid`
+      }
+    }
+    prev = self_hash
+  }
+  let at = 0
+  for (const b of chain) {
+    const first = events[at]
+    const last = events[at + b.event_count - 1]
+    if (!first || !last) return `block ${b.id} covers events ${at}..${at + b.event_count - 1}; only ${events.length} present`
+    if (first.id !== b.first_event) return `event ${at} (${first.id}) is not block ${b.id}'s first_event`
+    if (last.id !== b.last_event) return `event ${at + b.event_count - 1} (${last.id}) is not block ${b.id}'s last_event`
+    if (last.self_hash !== b.chain_head_hash) return `event ${at + b.event_count - 1} (${last.id}) does not match block ${b.id}'s chain_head_hash`
+    at += b.event_count
+  }
+  if (at !== events.length) return `${events.length} events but the blocks cover ${at}`
+  return null
+}
+
+// A manifest path resolved against a virtual receipt root: the normalised
+// path, or null if `rel` is absolute or lands outside the root (or on it).
+// Pure string work, no node:path, so the browser viewer can bundle it.
+// Backslashes and drive letters are refused outright: on a Windows host the
+// CLI's join() would treat them as separators or roots.
+export function normaliseReceiptPath(rel: string): string | null {
+  if (rel.startsWith('/') || rel.includes('\\') || /^[A-Za-z]:/.test(rel)) return null
+  const out: string[] = []
+  for (const s of rel.split('/')) {
+    if (s === '' || s === '.') continue
+    if (s !== '..') out.push(s)
+    else if (!out.pop()) return null
+  }
+  return out.length ? out.join('/') : null
+}
+
+// manifest.files[] integrity, as verify.sh checks it first. `read` returns a
+// file's bytes or undefined if it is missing; it is synchronous so the viewer
+// can run this inside its record/replay crypto shim. The manifest is untrusted
+// input: a path like ../x is refused before it is read, so a receipt cannot
+// make us hash files outside its own directory.
+export function checkManifestFiles(receipt: Receipt, read: (rel: string) => Uint8Array | undefined): string | null {
+  for (const f of receipt.files ?? []) {
+    const rel = normaliseReceiptPath(f.path)
+    if (rel === null) return `${f.path} escapes the receipt directory`
+    if (f.sha256 === null) continue
+    const bytes = read(rel)
+    if (!bytes) return `${f.path} missing`
+    if (sha256(bytes) !== f.sha256) return `${f.path} sha256 mismatch`
+  }
+  return null
 }

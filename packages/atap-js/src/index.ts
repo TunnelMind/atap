@@ -22,5 +22,14 @@ export {
   type WitnessStorage,
   type AitInput,
 } from './witness.js'
-export { verifyReceipt, pickDidKeyKey, type VerifyOptions, type VerifyResult } from './verify.js'
+export {
+  verifyReceipt,
+  pickDidKeyKey,
+  checkWitnessEvents,
+  checkManifestFiles,
+  normaliseReceiptPath,
+  WITNESS_EVENTS,
+  type VerifyOptions,
+  type VerifyResult,
+} from './verify.js'
 export { toSignedStatement, verifySignedStatement, cborDecode, CborTag } from './scitt.js'

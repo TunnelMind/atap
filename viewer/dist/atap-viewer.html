@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- No network at all. The inline script and style are allowed by their
+     sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-o1aq3hExTOBby7wxBIkeujHyCRgDnV+GVXZ3mRjS8KI='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<title>ATAP receipt viewer</title>
+<style>
+body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
+main { max-width: 48rem; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid #000; }
+.drop { border: 2px dashed #000; padding: 1rem; margin: 1rem 0; }
+.drop label { display: block; font-weight: bold; margin-bottom: .5rem; }
+input[type=file] { max-width: 100%; }
+.verdict { border: 3px solid #000; padding: .5rem; font-size: 1.3rem; font-weight: bold; }
+.verdict.bad { border-style: double; border-width: 6px; }
+.notice { border: 1px solid #000; padding: .5rem; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+dt { font-weight: bold; }
+dd { margin: 0; min-width: 0; }
+.hash { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+ol, ul { padding-left: 1.5rem; }
+li { border-bottom: 1px solid #000; padding: .25rem 0; overflow-wrap: anywhere; }
+li span { display: inline-block; margin-right: 1rem; }
+.events .type { font-weight: bold; }
+.events .tier { border: 1px solid #000; padding: 0 .25rem; }
+@media (max-width: 30rem) { dl { grid-template-columns: 1fr; } dd { margin-bottom: .5rem; } }
+</style>
+</head>
+<body>
+<main>
+<h1>ATAP receipt viewer</h1>
+<p>Check an ATAP Receipt ZIP in this page. The file is read here and never sent anywhere.</p>
+<div class="drop">
+<label for="file">Receipt ZIP (choose or drop)</label>
+<input id="file" type="file" accept=".zip,application/zip">
+</div>
+<section id="out" role="status" aria-live="polite"></section>
+</main>
+<script>
+(function () {
+"use strict";
+const __mods = {};
+__mods["viewer/shim"] = (function () {
+// node:crypto (and Buffer) for atap-js in the browser, by record and replay.
+//
+// atap-js's verifyReceipt is synchronous and calls node:crypto; WebCrypto's
+// SHA-256 and Ed25519 are async. So the shim answers from `known` when it can.
+// On a miss it records the request in `pending` and returns a placeholder (a
+// zero hash; `true` for a signature, so the pass runs on and finds more
+// requests). The glue (main.js) reruns verification, resolving `pending` with
+// WebCrypto between passes, until a pass misses nothing: that pass saw only
+// real answers, so its result is the verdict. A placeholder never reaches it.
+
+const known = new Map()
+const pending = new Map()
+
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
+
+// crypto.ts wraps raw keys in an Ed25519 SPKI DER (12-byte prefix + 32 bytes).
+const SPKI_PREFIX_LEN = 12
+
+const nodeCrypto = {
+  createHash(alg) {
+    if (alg !== 'sha256') throw new Error(`unsupported hash ${alg}`)
+    const parts = []
+    const h = {
+      update(d) {
+        parts.push(d)
+        return h
+      },
+      digest() {
+        const data = new Uint8Array(parts.reduce((a, p) => a + p.length, 0))
+        let off = 0
+        for (const p of parts) {
+          data.set(p, off)
+          off += p.length
+        }
+        const key = `sha256:${hex(data)}`
+        if (known.has(key)) return known.get(key)
+        pending.set(key, async () => new Uint8Array(await crypto.subtle.digest('SHA-256', data)))
+        return new Uint8Array(32)
+      },
+    }
+    return h
+  },
+  createPublicKey({ key }) {
+    if (key.length !== SPKI_PREFIX_LEN + 32) throw new Error('Ed25519 public key must be 32 bytes')
+    return { raw: key.slice(SPKI_PREFIX_LEN) }
+  },
+  verify(_alg, msg, pub, sig) {
+    const key = `ed25519:${hex(pub.raw)}:${hex(sig)}:${hex(msg)}`
+    if (known.has(key)) return known.get(key)
+    pending.set(key, async () => {
+      // A key or signature WebCrypto refuses outright is a failed check, not an error.
+      try {
+        const k = await crypto.subtle.importKey('raw', pub.raw, { name: 'Ed25519' }, false, ['verify'])
+        return await crypto.subtle.verify({ name: 'Ed25519' }, k, sig, msg)
+      } catch {
+        return false
+      }
+    })
+    return true
+  },
+  // The viewer only verifies; signing is never reached.
+  createPrivateKey() {
+    throw new Error('signing is not available in the viewer')
+  },
+  sign() {
+    throw new Error('signing is not available in the viewer')
+  },
+}
+
+// crypto.ts only calls Buffer.from on bytes it then hands to node:crypto.
+const Buffer = { from: b => (b instanceof Uint8Array ? b : new Uint8Array(b)) }
+
+function pendingCount() {
+  return pending.size
+}
+
+async function resolvePending() {
+  const reqs = [...pending]
+  pending.clear()
+  const results = await Promise.all(reqs.map(([, f]) => f()))
+  reqs.forEach(([k], i) => known.set(k, results[i]))
+}
+return { nodeCrypto, Buffer, pendingCount, resolvePending };
+})();
+__mods["atap/types"] = (function () {
+// ATAP v0.1 — TypeScript types
+// Mirrors the JSON Schemas at https://tunnelmind.ai/atap/schemas/v0.1/
+const ATTESTATION_STRENGTH_RANK = {
+    'self-asserted': 0,
+    software: 1,
+    'tee-tpm': 2,
+    'silicon-root': 3,
+};
+const GENESIS_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000';
+const ATAP_CONTEXT = 'https://tunnelmind.ai/atap/context.jsonld';
+const ATAP_VERSION = '0.1';
+const MAX_PAYLOAD_BYTES = 16_384;
+const MAX_CONSTRAINTS_BYTES = 4_096;
+const MAX_CAPABILITIES = 64;
+const MIN_BLOCK_INTERVAL_S = 60;
+const MAX_BLOCK_INTERVAL_S = 3_600;
+const MAX_AIT_LIFETIME_DAYS = 365;
+const REPLAY_WINDOW_SECONDS = 30;
+return { ATTESTATION_STRENGTH_RANK, GENESIS_HASH, ATAP_CONTEXT, ATAP_VERSION, MAX_PAYLOAD_BYTES, MAX_CONSTRAINTS_BYTES, MAX_CAPABILITIES, MIN_BLOCK_INTERVAL_S, MAX_BLOCK_INTERVAL_S, MAX_AIT_LIFETIME_DAYS, REPLAY_WINDOW_SECONDS };
+})();
+__mods["atap/canonicalize"] = (function () {
+// RFC 8785 JSON Canonicalization Scheme (JCS) — subset sufficient for ATAP v0.1.
+//
+// JCS specifies an unambiguous serialization of JSON. v0.1 artifacts use a constrained
+// subset of JSON (no NaN/Infinity, no extreme floats, no surrogate escapes) so this
+// implementation is short and auditable. For artifacts that hit JCS edge cases,
+// substitute a strict library.
+const ESC = {
+    '"': '\\"',
+    '\\': '\\\\',
+    '\b': '\\b',
+    '\f': '\\f',
+    '\n': '\\n',
+    '\r': '\\r',
+    '\t': '\\t',
+};
+function encodeString(s) {
+    let out = '"';
+    for (let i = 0; i < s.length; i++) {
+        const ch = s.charAt(i);
+        const code = s.charCodeAt(i);
+        if (ch in ESC) {
+            out += ESC[ch];
+        }
+        else if (code < 0x20) {
+            out += '\\u' + code.toString(16).padStart(4, '0');
+        }
+        else {
+            out += ch;
+        }
+    }
+    return out + '"';
+}
+function encodeNumber(n) {
+    if (!Number.isFinite(n)) {
+        throw new Error(`JCS: non-finite number ${n} is not encodable`);
+    }
+    if (Number.isInteger(n)) {
+        return String(n);
+    }
+    // ECMA-262 / JCS shortest round-trip representation.
+    return String(n);
+}
+function canonicalize(value) {
+    if (value === null)
+        return 'null';
+    if (typeof value === 'boolean')
+        return value ? 'true' : 'false';
+    if (typeof value === 'number')
+        return encodeNumber(value);
+    if (typeof value === 'string')
+        return encodeString(value);
+    if (Array.isArray(value)) {
+        return '[' + value.map(canonicalize).join(',') + ']';
+    }
+    if (typeof value === 'object') {
+        const obj = value;
+        const keys = Object.keys(obj)
+            .filter(k => obj[k] !== undefined)
+            .sort();
+        return ('{' +
+            keys
+                .map(k => encodeString(k) + ':' + canonicalize(obj[k]))
+                .join(',') +
+            '}');
+    }
+    throw new Error(`JCS: unsupported type ${typeof value}`);
+}
+function canonicalizeBytes(value) {
+    return new TextEncoder().encode(canonicalize(value));
+}
+return { canonicalize, canonicalizeBytes };
+})();
+__mods["atap/crypto"] = (function () {
+const { Buffer } = __mods["viewer/shim"];
+// SHA-256 and Ed25519 helpers (Node 20+ crypto module).
+const { createHash, createPrivateKey, createPublicKey, sign: nodeSign, verify: nodeVerify, } = __mods["viewer/shim"].nodeCrypto;
+function toHex(b) {
+    return Array.from(b)
+        .map(x => x.toString(16).padStart(2, '0'))
+        .join('');
+}
+function fromHex(hex) {
+    const s = hex.startsWith('0x') ? hex.slice(2) : hex;
+    if (s.length % 2 !== 0)
+        throw new Error('fromHex: odd-length hex');
+    const out = new Uint8Array(s.length / 2);
+    for (let i = 0; i < out.length; i++) {
+        const byte = parseInt(s.substr(i * 2, 2), 16);
+        if (Number.isNaN(byte))
+            throw new Error('fromHex: bad hex character');
+        out[i] = byte;
+    }
+    return out;
+}
+function sha256(data) {
+    const h = createHash('sha256').update(data).digest();
+    return ('0x' + toHex(new Uint8Array(h)));
+}
+// Ed25519 PKCS#8 DER prefix for a raw 32-byte private key: 302e020100300506032b657004220420
+const ED25519_PKCS8_PREFIX = new Uint8Array([
+    0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06,
+    0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+]);
+// Ed25519 SubjectPublicKeyInfo DER prefix for a raw 32-byte public key: 302a300506032b6570032100
+const ED25519_SPKI_PREFIX = new Uint8Array([
+    0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65,
+    0x70, 0x03, 0x21, 0x00,
+]);
+function concat(...parts) {
+    const total = parts.reduce((a, p) => a + p.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) {
+        out.set(p, off);
+        off += p.length;
+    }
+    return out;
+}
+function privateKeyFromRaw(raw32) {
+    if (raw32.length !== 32)
+        throw new Error('Ed25519 private key must be 32 bytes');
+    const der = concat(ED25519_PKCS8_PREFIX, raw32);
+    return createPrivateKey({ key: Buffer.from(der), format: 'der', type: 'pkcs8' });
+}
+function publicKeyFromRaw(raw32) {
+    if (raw32.length !== 32)
+        throw new Error('Ed25519 public key must be 32 bytes');
+    const der = concat(ED25519_SPKI_PREFIX, raw32);
+    return createPublicKey({ key: Buffer.from(der), format: 'der', type: 'spki' });
+}
+function publicKeyFromHex(hex) {
+    return publicKeyFromRaw(fromHex(hex));
+}
+function ed25519Sign(message, privateKey) {
+    const sig = nodeSign(null, Buffer.from(message), privateKey);
+    return ('ed25519:0x' + toHex(new Uint8Array(sig)));
+}
+function ed25519Verify(message, signature, publicKey) {
+    const sigHex = signature.replace(/^ed25519:0x/, '');
+    return nodeVerify(null, Buffer.from(message), publicKey, fromHex(sigHex));
+}
+return { sha256, privateKeyFromRaw, publicKeyFromRaw, publicKeyFromHex, ed25519Sign, ed25519Verify, toHex, fromHex };
+})();
+__mods["atap/didkey"] = (function () {
+// did:key for Ed25519 public keys (ATAP-v0.2 §3; W3C did:key method).
+// did:key:z<base58btc(0xed 0x01 || raw32)> — 'z' is the multibase prefix for
+// base58btc and 0xed01 is the varint of multicodec ed25519-pub.
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const PREFIX = 'did:key:z';
+// Mirrors the did:key pattern in profiles/atap-v0.2-schemas/ait.schema.json;
+// keep the two in step. 34 bytes with the 0xed01 prefix always encode to
+// 'z6Mk' + 44 base58 characters.
+const DID_KEY_RE = /^did:key:z6Mk[1-9A-HJ-NP-Za-km-z]{44}$/;
+function base58Encode(bytes) {
+    let n = 0n;
+    for (const b of bytes)
+        n = (n << 8n) | BigInt(b);
+    let out = '';
+    while (n > 0n) {
+        out = B58[Number(n % 58n)] + out;
+        n /= 58n;
+    }
+    // Each leading zero byte is a leading '1'.
+    for (let i = 0; i < bytes.length && bytes[i] === 0; i++)
+        out = '1' + out;
+    return out;
+}
+function base58Decode(s) {
+    let n = 0n;
+    for (const c of s) {
+        const v = B58.indexOf(c);
+        if (v < 0)
+            throw new Error(`did:key: bad base58 character '${c}'`);
+        n = n * 58n + BigInt(v);
+    }
+    const body = [];
+    while (n > 0n) {
+        body.unshift(Number(n & 0xffn));
+        n >>= 8n;
+    }
+    let zeros = 0;
+    while (zeros < s.length && s[zeros] === '1')
+        zeros++;
+    return new Uint8Array([...new Array(zeros).fill(0), ...body]);
+}
+function isDidKey(s) {
+    return typeof s === 'string' && DID_KEY_RE.test(s);
+}
+function didKeyFromPublicKey(raw32) {
+    if (raw32.length !== 32)
+        throw new Error('did:key: Ed25519 public key must be 32 bytes');
+    const bytes = new Uint8Array(34);
+    bytes[0] = 0xed;
+    bytes[1] = 0x01;
+    bytes.set(raw32, 2);
+    return `${PREFIX}${base58Encode(bytes)}`;
+}
+function publicKeyFromDidKey(did) {
+    if (typeof did !== 'string' || !did.startsWith(PREFIX)) {
+        throw new Error(`did:key: must start with '${PREFIX}'`);
+    }
+    const bytes = base58Decode(did.slice(PREFIX.length));
+    // Only Ed25519 (ATAP-v0.2 §3): secp256k1 (0xe701), x25519 (0xec01) etc. are refused.
+    if (bytes[0] !== 0xed || bytes[1] !== 0x01) {
+        throw new Error('did:key: multicodec is not ed25519-pub (0xed01)');
+    }
+    if (bytes.length !== 34) {
+        throw new Error(`did:key: decodes to ${bytes.length} bytes, want 34`);
+    }
+    return bytes.slice(2);
+}
+return { isDidKey, didKeyFromPublicKey, publicKeyFromDidKey };
+})();
+__mods["atap/verify"] = (function () {
+// In-process verifier. Parallel to /atap/verify.sh — same logic, JS-native.
+const { ATTESTATION_STRENGTH_RANK, GENESIS_HASH, ATAP_CONTEXT, } = __mods["atap/types"];
+const { canonicalizeBytes } = __mods["atap/canonicalize"];
+const { ed25519Verify, fromHex, publicKeyFromHex, sha256, toHex } = __mods["atap/crypto"];
+const { isDidKey, publicKeyFromDidKey } = __mods["atap/didkey"];
+function pickKey(doc, witness, at) {
+    for (const k of doc.keys) {
+        if (k.witness !== witness)
+            continue;
+        if (k.valid_from > at || k.valid_until <= at)
+            continue;
+        if (k.status === 'compromised') {
+            if (!k.compromise_notice || at >= k.compromise_notice.disclosed_at)
+                continue;
+        }
+        return k;
+    }
+    return null;
+}
+// ATAP-v0.2 §3.1/§3.2: a key entry for a did:key witness must carry the key
+// the did:key encodes and declare 'self-asserted'. Returns why not, or null.
+function didKeyEntryProblem(k, didRaw) {
+    if (toHex(fromHex(k.public_key)) !== toHex(didRaw)) {
+        return `key ${k.key_id} public_key is not the key ${k.witness} encodes (ATAP-v0.2 §3.1)`;
+    }
+    if (k.attestation_strength !== 'self-asserted') {
+        return `key ${k.key_id} for did:key witness must declare attestation_strength 'self-asserted', got '${k.attestation_strength ?? 'absent'}' (ATAP-v0.2 §3.2)`;
+    }
+    return null;
+}
+// Key lookup for a did:key witness (ATAP-v0.2 §3.1). The key is the one the
+// did:key encodes, so it has no validity window: valid_from/valid_until are
+// ignored. An entry is still required, every entry for the witness must pass
+// didKeyEntryProblem (they all describe the one key), and a compromise notice
+// on any of them in force at `at` voids the key. Returns the entry, null for
+// no usable entry, or the reason an entry is refused.
+function pickDidKeyKey(doc, witness, didRaw, at) {
+    const entries = doc.keys.filter(k => k.witness === witness);
+    for (const k of entries) {
+        const problem = didKeyEntryProblem(k, didRaw);
+        if (problem)
+            return problem;
+        if (k.status === 'compromised' && (!k.compromise_notice || at >= k.compromise_notice.disclosed_at))
+            return null;
+    }
+    return entries[0] ?? null;
+}
+function verifyReceipt(opts) {
+    const { receipt, ait, chain, keys } = opts;
+    if (ait['@context'] !== ATAP_CONTEXT) {
+        return { ok: false, blocks: 0, reason: `bad @context on AIT` };
+    }
+    // ATAP-v0.2 §3. `didRaw` is the witness's own public key when the witness is
+    // a did:key; null for an OAI witness, which verifies exactly as in v0.1 (§3.4).
+    let didRaw = null;
+    let didIdentified = false;
+    for (const [field, id] of [['witness', ait.witness], ['operator', ait.operator]]) {
+        // Malformed input is a verdict, not a TypeError.
+        if (typeof id !== 'string')
+            return { ok: false, blocks: 0, reason: `AIT ${field} is not a string` };
+        if (!id.startsWith('did:'))
+            continue;
+        didIdentified = true;
+        if (!isDidKey(id)) {
+            return { ok: false, blocks: 0, reason: `AIT ${field} ${id} is not an Ed25519 did:key (ATAP-v0.2 §3)` };
+        }
+        // §3.3: a did:key-identified AIT must declare 0.2.
+        if (ait.ait_version !== '0.2') {
+            return { ok: false, blocks: 0, reason: `AIT with did:key ${field} declares ait_version '${ait.ait_version}', want '0.2' (ATAP-v0.2 §3.3)` };
+        }
+        if (field === 'witness')
+            didRaw = publicKeyFromDidKey(id); // §3.5: only the witness binds a key
+    }
+    // ATAP-v0.2 §3.1: for a did:key witness the receipt and AIT name the same
+    // witness. OAI-witnessed records are not held to it, as in v0.1 (§3.4).
+    // Prefix match, as verify.sh: a malformed did:key is still held to it.
+    // After the loop above, so ait.witness is known to be a string.
+    if (typeof receipt.witness !== 'string')
+        return { ok: false, blocks: 0, reason: 'receipt witness is not a string' };
+    if ((receipt.witness.startsWith('did:key:') || ait.witness.startsWith('did:key:')) && receipt.witness !== ait.witness) {
+        return { ok: false, blocks: 0, reason: `receipt witness ${receipt.witness} != AIT witness ${ait.witness}` };
+    }
+    // 1. AIT signature
+    const aitKey = didRaw ? pickDidKeyKey(keys, ait.witness, didRaw, ait.issued_at) : pickKey(keys, ait.witness, ait.issued_at);
+    if (!aitKey) {
+        return {
+            ok: false,
+            blocks: 0,
+            reason: `no key for AIT witness ${ait.witness} at ${ait.issued_at}`,
+        };
+    }
+    if (typeof aitKey === 'string')
+        return { ok: false, blocks: 0, reason: aitKey };
+    const { witness_signature: aitSig, ...aitMinusSig } = ait;
+    const aitOk = ed25519Verify(canonicalizeBytes(aitMinusSig), aitSig, publicKeyFromHex(aitKey.public_key));
+    if (!aitOk)
+        return { ok: false, blocks: 0, reason: 'AIT signature invalid' };
+    // 2. Block chain
+    let prev = GENESIS_HASH;
+    for (const block of chain) {
+        // ATAP-v0.2 §3.3: every block under a did:key-identified AIT declares 0.2.
+        if (didIdentified && block.ab_version !== '0.2') {
+            return { ok: false, blocks: 0, reason: `block ${block.id} declares ab_version '${block.ab_version}' under a v0.2 AIT (ATAP-v0.2 §3.3)` };
+        }
+        if (block.prev_block_hash !== prev) {
+            return {
+                ok: false,
+                blocks: 0,
+                reason: `block chain break at ${block.id} (want prev=${prev}, got ${block.prev_block_hash})`,
+            };
+        }
+        const { self_hash, witness_signature, ...rest } = block;
+        const expectedHash = sha256(canonicalizeBytes(rest));
+        if (expectedHash !== self_hash) {
+            return { ok: false, blocks: 0, reason: `self_hash mismatch on ${block.id}` };
+        }
+        const blockKey = didRaw
+            ? pickDidKeyKey(keys, receipt.witness, didRaw, block.period_end)
+            : pickKey(keys, receipt.witness, block.period_end);
+        if (!blockKey) {
+            return {
+                ok: false,
+                blocks: 0,
+                reason: `no key for ${receipt.witness} at ${block.period_end}`,
+            };
+        }
+        if (typeof blockKey === 'string')
+            return { ok: false, blocks: 0, reason: blockKey };
+        const blockOk = ed25519Verify(fromHex(self_hash), // ATAP §7.7: signature is over the raw 32-byte digest
+        witness_signature, publicKeyFromHex(blockKey.public_key));
+        if (!blockOk) {
+            return { ok: false, blocks: 0, reason: `block signature invalid on ${block.id}` };
+        }
+        prev = self_hash;
+    }
+    if (receipt.chain_head_hash !== prev) {
+        return {
+            ok: false,
+            blocks: chain.length,
+            reason: `receipt chain_head_hash ${receipt.chain_head_hash} != last block self_hash ${prev}`,
+        };
+    }
+    // Receipt signature, over the canonical receipt minus its signature. Only for
+    // did:key witnesses (ATAP-v0.2 §3.1), whose key has no validity window, so a
+    // receipt of an expired AIT still verifies. v0.1 records are not checked
+    // here, as in verify.sh: their key's valid_until is the AIT's expires_at,
+    // and a receipt of an expired AIT is generated after it.
+    if (didRaw) {
+        const rcptKey = pickDidKeyKey(keys, receipt.witness, didRaw, receipt.generated_at);
+        if (!rcptKey) {
+            return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${receipt.generated_at}` };
+        }
+        if (typeof rcptKey === 'string')
+            return { ok: false, blocks: chain.length, reason: rcptKey };
+        const { witness_signature: rcptSig, ...rcptMinusSig } = receipt;
+        if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, publicKeyFromHex(rcptKey.public_key))) {
+            return { ok: false, blocks: chain.length, reason: 'receipt signature invalid' };
+        }
+    }
+    // ATAP-v0.2 §3.2: a did:key receipt says exactly 'self-asserted'; absent is not enough.
+    if (didRaw && receipt.attestation_strength !== 'self-asserted') {
+        return {
+            ok: false,
+            blocks: chain.length,
+            reason: `did:key witness receipt must carry attestation_strength 'self-asserted', got '${receipt.attestation_strength ?? 'absent'}' (ATAP-v0.2 §3.2)`,
+        };
+    }
+    // 3. Attestation strength (ATAP §7.4.1 — optional in v0.1.x, required at v0.2)
+    const warnings = [];
+    let effectiveStrength = 'self-asserted';
+    if (receipt.attestation_strength) {
+        if (!(receipt.attestation_strength in ATTESTATION_STRENGTH_RANK)) {
+            return {
+                ok: false,
+                blocks: chain.length,
+                reason: `unrecognized attestation_strength '${receipt.attestation_strength}'`,
+            };
+        }
+        effectiveStrength = receipt.attestation_strength;
+    }
+    else {
+        warnings.push("manifest.attestation_strength missing — treated as 'self-asserted' (ATAP §7.4.1). Required at v0.2.");
+    }
+    // Cross-check against the AIT-period key, if that key declares a strength.
+    // Step 1 looked it up already (pickKey for an OAI, pickDidKeyKey for a did:key).
+    const aitPeriodKey = aitKey;
+    if (aitPeriodKey?.attestation_strength) {
+        const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength];
+        const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength];
+        if (rcptRank > keyRank) {
+            return {
+                ok: false,
+                blocks: chain.length,
+                reason: `attestation_strength=${effectiveStrength} exceeds key attestation_strength=${aitPeriodKey.attestation_strength}`,
+            };
+        }
+    }
+    else if (receipt.attestation_strength) {
+        warnings.push("matching key entry omits attestation_strength — receipt's claim is not key-attested (ATAP §8.1). Required at v0.2.");
+    }
+    return {
+        ok: true,
+        blocks: chain.length,
+        attestation_strength: effectiveStrength,
+        ...(warnings.length ? { warnings } : {}),
+    };
+}
+// tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
+const WITNESS_EVENTS = 'profile_artifacts/witness_events.json';
+function isObject(v) {
+    return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+// The block chain binds to the event chain only through chain_head_hash
+// (ATAP §7.3, §10): each block's chain_head_hash is the self_hash of the last
+// event it covers. Recompute every self_hash (§7.7), walk prev_event_hash from
+// genesis, then slice the events by event_count and match each block's head.
+// For an OAI witness no signature check is needed: the signed blocks' heads pin
+// every earlier event through the prev_event_hash chain. For a did:key witness
+// every witness_signature must verify under the key it encodes (ATAP-v0.2
+// §3.1), as verify.sh checks too, over the raw 32-byte self_hash (§7.7).
+function checkWitnessEvents(events, chain, ait, keys) {
+    if (!Array.isArray(events))
+        return `${WITNESS_EVENTS} is not an array`;
+    let prev = GENESIS_HASH;
+    for (const [i, e] of events.entries()) {
+        if (!isObject(e))
+            return `event ${i} is not an object`;
+        const { self_hash, witness_signature: _, ...unsigned } = e;
+        if (e.ait !== ait.id)
+            return `event ${i} (${e.id}) is not under ${ait.id}`;
+        if (sha256(canonicalizeBytes(unsigned)) !== self_hash)
+            return `event ${i} (${e.id}) self_hash mismatch`;
+        if (e.prev_event_hash !== prev)
+            return `event ${i} (${e.id}) prev_event_hash breaks the chain`;
+        if (isDidKey(ait.witness)) {
+            const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at);
+            if (!key)
+                return `no key for ${ait.witness} at ${e.witnessed_at}`;
+            if (typeof key === 'string')
+                return key;
+            // Malformed input is a verdict, not a TypeError.
+            if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, publicKeyFromHex(key.public_key))) {
+                return `event ${i} (${e.id}) signature invalid`;
+            }
+        }
+        prev = self_hash;
+    }
+    let at = 0;
+    for (const b of chain) {
+        const first = events[at];
+        const last = events[at + b.event_count - 1];
+        if (!first || !last)
+            return `block ${b.id} covers events ${at}..${at + b.event_count - 1}; only ${events.length} present`;
+        if (first.id !== b.first_event)
+            return `event ${at} (${first.id}) is not block ${b.id}'s first_event`;
+        if (last.id !== b.last_event)
+            return `event ${at + b.event_count - 1} (${last.id}) is not block ${b.id}'s last_event`;
+        if (last.self_hash !== b.chain_head_hash)
+            return `event ${at + b.event_count - 1} (${last.id}) does not match block ${b.id}'s chain_head_hash`;
+        at += b.event_count;
+    }
+    if (at !== events.length)
+        return `${events.length} events but the blocks cover ${at}`;
+    return null;
+}
+// A manifest path resolved against a virtual receipt root: the normalised
+// path, or null if `rel` is absolute or lands outside the root (or on it).
+// Pure string work, no node:path, so the browser viewer can bundle it.
+// Backslashes and drive letters are refused outright: on a Windows host the
+// CLI's join() would treat them as separators or roots.
+function normaliseReceiptPath(rel) {
+    if (rel.startsWith('/') || rel.includes('\\') || /^[A-Za-z]:/.test(rel))
+        return null;
+    const out = [];
+    for (const s of rel.split('/')) {
+        if (s === '' || s === '.')
+            continue;
+        if (s !== '..')
+            out.push(s);
+        else if (!out.pop())
+            return null;
+    }
+    return out.length ? out.join('/') : null;
+}
+// manifest.files[] integrity, as verify.sh checks it first. `read` returns a
+// file's bytes or undefined if it is missing; it is synchronous so the viewer
+// can run this inside its record/replay crypto shim. The manifest is untrusted
+// input: a path like ../x is refused before it is read, so a receipt cannot
+// make us hash files outside its own directory.
+function checkManifestFiles(receipt, read) {
+    for (const f of receipt.files ?? []) {
+        const rel = normaliseReceiptPath(f.path);
+        if (rel === null)
+            return `${f.path} escapes the receipt directory`;
+        if (f.sha256 === null)
+            continue;
+        const bytes = read(rel);
+        if (!bytes)
+            return `${f.path} missing`;
+        if (sha256(bytes) !== f.sha256)
+            return `${f.path} sha256 mismatch`;
+    }
+    return null;
+}
+return { pickDidKeyKey, verifyReceipt, WITNESS_EVENTS, checkWitnessEvents, normaliseReceiptPath, checkManifestFiles };
+})();
+__mods["viewer/zip"] = (function () {
+// A small ZIP reader for one receipt. The ZIP is hostile input: every size,
+// offset and name is checked before use, and anything this reader does not
+// need (ZIP64, multi-disk, encryption, methods other than stored and deflate)
+// is refused with a plain error rather than guessed at.
+
+const MAX_ZIP_BYTES = 20 * 1024 * 1024
+const MAX_ENTRY_BYTES = 10 * 1024 * 1024
+const MAX_ENTRIES = 64
+
+const EOCD_SIG = 0x06054b50
+const CDH_SIG = 0x02014b50
+const LFH_SIG = 0x04034b50
+
+// Names that could land outside the receipt if anyone ever unpacked them:
+// `..` segments, absolute paths, drive letters, backslashes, NUL.
+function checkPath(name) {
+  if (
+    name === '' ||
+    name.includes('\0') ||
+    name.includes('\\') ||
+    name.startsWith('/') ||
+    /^[A-Za-z]:/.test(name) ||
+    name.split('/').includes('..')
+  ) {
+    throw new Error(`refused path in ZIP: ${JSON.stringify(name)}`)
+  }
+}
+
+// Inflates one entry, stopping as soon as the output passes the declared size
+// or the cap: the declared size is the attacker's number, so the cap is
+// enforced on the bytes actually produced.
+async function inflate(name, method, data, size) {
+  if (method === 0) {
+    if (data.length !== size) throw new Error(`${name}: stored size ${data.length} != declared ${size}`)
+    return data.slice()
+  }
+  if (method !== 8) throw new Error(`${name}: compression method ${method} is not supported (stored or deflate only)`)
+  const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader()
+  const chunks = []
+  let n = 0
+  for (;;) {
+    let r
+    try {
+      r = await reader.read()
+    } catch {
+      throw new Error(`${name}: bad deflate data`)
+    }
+    if (r.done) break
+    n += r.value.length
+    if (n > size || n > MAX_ENTRY_BYTES) {
+      reader.cancel().catch(() => {})
+      throw new Error(`${name} inflates past its declared size or the ${MAX_ENTRY_BYTES}-byte cap`)
+    }
+    chunks.push(r.value)
+  }
+  if (n !== size) throw new Error(`${name} inflated to ${n} bytes, declared ${size}`)
+  const out = new Uint8Array(n)
+  let off = 0
+  for (const c of chunks) {
+    out.set(c, off)
+    off += c.length
+  }
+  return out
+}
+
+// Returns Map<path, Uint8Array> rooted at the receipt's manifest.json.
+// ponytail: CRCs are not checked; manifest.files[] sha256s cover every file
+// the verifier reads, and the manifest itself is checked by signature.
+async function readZip(input) {
+  const buf = input instanceof Uint8Array ? input : new Uint8Array(input)
+  if (buf.length > MAX_ZIP_BYTES) throw new Error(`the ZIP is over the ${MAX_ZIP_BYTES}-byte cap`)
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+  const u16 = o => dv.getUint16(o, true)
+  const u32 = o => dv.getUint32(o, true)
+
+  // End of central directory: 22 bytes plus a comment of up to 65535.
+  let eocd = -1
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 0xffff); i--) {
+    if (u32(i) === EOCD_SIG) {
+      eocd = i
+      break
+    }
+  }
+  if (eocd < 0) throw new Error('not a ZIP file (no end of central directory)')
+  const [disk, cdDisk, onDisk, total] = [u16(eocd + 4), u16(eocd + 6), u16(eocd + 8), u16(eocd + 10)]
+  const [cdSize, cdOff] = [u32(eocd + 12), u32(eocd + 16)]
+  if (total === 0xffff || cdSize === 0xffffffff || cdOff === 0xffffffff) throw new Error('ZIP64 is not supported')
+  if (disk !== 0 || cdDisk !== 0 || onDisk !== total) throw new Error('multi-disk ZIPs are not supported')
+  if (total > MAX_ENTRIES) throw new Error(`the ZIP has ${total} entries; the cap is ${MAX_ENTRIES}`)
+  if (cdOff + cdSize > eocd) throw new Error('central directory out of bounds')
+
+  const files = new Map()
+  let p = cdOff
+  for (let i = 0; i < total; i++) {
+    if (p + 46 > eocd || u32(p) !== CDH_SIG) throw new Error('bad central directory entry')
+    const flags = u16(p + 8)
+    const method = u16(p + 10)
+    const csize = u32(p + 20)
+    const usize = u32(p + 24)
+    const nlen = u16(p + 28)
+    const lho = u32(p + 42)
+    if (p + 46 + nlen > eocd) throw new Error('bad central directory entry')
+    let name
+    try {
+      name = new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(p + 46, p + 46 + nlen))
+    } catch {
+      throw new Error('a ZIP entry name is not UTF-8')
+    }
+    p += 46 + nlen + u16(p + 30) + u16(p + 32)
+    checkPath(name)
+    if (flags & 1) throw new Error(`${name} is encrypted`)
+    if (csize === 0xffffffff || usize === 0xffffffff || lho === 0xffffffff) throw new Error('ZIP64 is not supported')
+    if (name.endsWith('/')) continue
+    if (usize > MAX_ENTRY_BYTES) throw new Error(`${name} is over the ${MAX_ENTRY_BYTES}-byte cap`)
+    if (files.has(name)) throw new Error(`${name} appears twice in the ZIP`)
+    if (lho + 30 > buf.length || u32(lho) !== LFH_SIG) throw new Error(`${name}: bad local header`)
+    const start = lho + 30 + u16(lho + 26) + u16(lho + 28)
+    if (start + csize > buf.length) throw new Error(`${name}: truncated`)
+    files.set(name, await inflate(name, method, buf.subarray(start, start + csize), usize))
+  }
+
+  // `zip -r x.zip dir` puts the receipt under one top folder; the CLI's own
+  // receipt.zip does not. Root the entries at the one manifest.json.
+  const manifests = [...files.keys()].filter(k => /^([^/]+\/)?manifest\.json$/.test(k))
+  if (manifests.length !== 1) {
+    throw new Error(manifests.length ? 'more than one manifest.json in the ZIP' : 'no manifest.json in the ZIP')
+  }
+  const prefix = manifests[0].slice(0, -'manifest.json'.length)
+  return new Map(
+    [...files].filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [k.slice(prefix.length), v]),
+  )
+}
+return { MAX_ZIP_BYTES, MAX_ENTRY_BYTES, MAX_ENTRIES, readZip };
+})();
+__mods["viewer/render"] = (function () {
+// Draws verifyZip's view. Every string here may come from a hostile ZIP, so
+// the DOM is built with createElement and textContent only: no receipt string is ever
+// parsed as HTML.
+// `doc` is anything with createElement (the page's document, or a stub in a
+// DOM-free test) whose elements have textContent, className, appendChild.
+
+const NO_ED25519 =
+  "This browser can't verify Ed25519 signatures, so it can't check this receipt. " +
+  'Use a current Chrome, Edge, Firefox or Safari, or the atap-witness CLI.'
+
+function render(doc, view) {
+  const el = (tag, text, cls) => {
+    const e = doc.createElement(tag)
+    if (text !== undefined) e.textContent = String(text)
+    if (cls) e.className = cls
+    return e
+  }
+  const add = (parent, ...kids) => {
+    for (const k of kids) parent.appendChild(k)
+    return parent
+  }
+  const root = el('div')
+  if (view.status === 'no-ed25519') return add(root, el('p', NO_ED25519, 'notice'))
+  if (view.status === 'error') return add(root, el('p', `Could not read this ZIP: ${view.reason}`, 'notice'))
+
+  const { result } = view
+  add(root, el('p', result.ok ? 'Verified: yes' : 'Verified: no', result.ok ? 'verdict ok' : 'verdict bad'))
+  // A receipt that fails says nothing we can rely on, so only the reason shows.
+  if (!result.ok) return add(root, el('p', `Reason: ${result.reason}`))
+
+  const { receipt, ait, events } = view
+  const dl = el('dl')
+  const row = (k, v, cls) => add(dl, el('dt', k), el('dd', v ?? '—', cls))
+  const witness = String(receipt.witness)
+  row('Witness', `${witness} (${witness.startsWith('did:key:') ? 'did:key' : 'OAI'})`, 'hash')
+  row('Operator', ait.operator, 'hash')
+  row('Attestation strength', result.attestation_strength)
+  row('Profile', receipt.profile)
+  row('AIT', receipt.ait, 'hash')
+  row('Receipt', receipt.id, 'hash')
+  row('Period', `${receipt.period_start} – ${receipt.period_end}`)
+  row('Blocks', result.blocks)
+  row('Events', events.length)
+  row('Chain head hash', receipt.chain_head_hash, 'hash')
+  add(root, dl)
+
+  if (result.warnings?.length) {
+    add(root, el('h2', 'Warnings'), add(el('ul'), ...result.warnings.map(w => el('li', w))))
+  }
+
+  // The tier is the profile's payload.evidence (asserted / anchored / witnessed).
+  add(root, el('h2', 'Events'))
+  const ol = add(root, el('ol', undefined, 'events'))
+  for (const e of events) {
+    add(
+      ol,
+      add(
+        el('li'),
+        el('span', e.event_type, 'type'),
+        el('span', e.payload?.evidence ?? 'no tier', 'tier'),
+        el('span', e.witnessed_at, 'time'),
+      ),
+    )
+  }
+
+  add(root, el('h2', 'Files'))
+  const files = add(root, el('ul', undefined, 'files'))
+  for (const f of receipt.files ?? []) {
+    add(files, add(el('li'), el('span', f.path), el('span', f.sha256 ?? '(not hashed)', 'hash')))
+  }
+  return root
+}
+return { NO_ED25519, render };
+})();
+__mods["viewer/main"] = (function () {
+// The page's verifier and its wiring to the DOM.
+//
+// verifyFiles runs the same steps as `atap-witness verify DIR` (packages/
+// atap-cli/src/cli.ts: verify) in the same order. The rules themselves
+// (checkManifestFiles, verifyReceipt, checkWitnessEvents) live in atap-js and
+// are bundled, so the page and the CLI share one implementation.
+
+const { checkManifestFiles, checkWitnessEvents, fromHex, verifyReceipt, WITNESS_EVENTS } = Object.assign({}, __mods["atap/types"], __mods["atap/canonicalize"], __mods["atap/crypto"], __mods["atap/didkey"], __mods["atap/verify"]);
+const { pendingCount, resolvePending } = __mods["viewer/shim"];
+const { MAX_ZIP_BYTES, readZip } = __mods["viewer/zip"];
+const { render } = __mods["viewer/render"];
+
+// RFC 8032 §7.1 test 1: the empty message signed by this key.
+const TEST_PK = fromHex('d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a')
+const TEST_SIG = fromHex('e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b')
+
+async function ed25519Supported() {
+  try {
+    const k = await crypto.subtle.importKey('raw', TEST_PK, { name: 'Ed25519' }, false, ['verify'])
+    return await crypto.subtle.verify({ name: 'Ed25519' }, k, TEST_SIG, new Uint8Array(0))
+  } catch {
+    return false
+  }
+}
+
+function readJson(files, name) {
+  try {
+    return JSON.parse(new TextDecoder().decode(files.get(name)))
+  } catch {
+    throw new Error(`cannot read ${name} in the receipt`)
+  }
+}
+
+// files: Map<path, bytes> from readZip. Returns { result, receipt, ait, events }.
+// Where the CLI would crash with an error, the result carries it as the reason.
+async function verifyFiles(files) {
+  const fail = reason => ({ result: { ok: false, blocks: 0, reason } })
+  const receipt = readJson(files, 'manifest.json')
+  const listed = receipt.files?.some(f => f.path === WITNESS_EVENTS)
+  let ait
+  let events = []
+  // Everything that hashes or verifies runs inside a pass, manifest files
+  // first, so the shim can record and replay it. A read error here was a
+  // crash in the CLI; it lands in the reason, as verifyZip would put it.
+  const run = () => {
+    try {
+      const bad = checkManifestFiles(receipt, rel => files.get(rel))
+      if (bad) return { ok: false, blocks: 0, reason: bad }
+      ait = readJson(files, 'ait.json')
+      const chain = readJson(files, 'attestation_chain.json')
+      const keys = readJson(files, 'public_keys.json')
+      const result = verifyReceipt({ receipt, ait, chain, keys })
+      if (!result.ok || !listed) return result
+      events = readJson(files, WITNESS_EVENTS)
+      const reason = checkWitnessEvents(events, chain, ait, keys)
+      return reason ? { ok: false, blocks: 0, reason } : result
+    } catch (e) {
+      return { ok: false, blocks: 0, reason: String(e?.message ?? e) }
+    }
+  }
+  // See shim.js. Each pass gets at least one hash or signature further, so
+  // this bound only stops a loop that would never settle.
+  // ponytail: every pass reruns from the top, O(n²) in blocks+events; fine
+  // under the 10 MiB entry cap, batch-precompute if receipts grow past that.
+  const chain = readJsonOr(files, 'attestation_chain.json')
+  const n = (receipt.files?.length ?? 0) + (Array.isArray(chain) ? chain.length : 0) + (listed ? (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0) : 0)
+  for (let pass = 0; pass <= 4 * n + 8; pass++) {
+    const result = run()
+    if (pendingCount() === 0) return { result, receipt, ait, events }
+    await resolvePending()
+  }
+  return fail('verification did not settle')
+}
+
+function readJsonOr(files, name) {
+  try {
+    return readJson(files, name)
+  } catch {
+    return null
+  }
+}
+
+// One receipt ZIP (ArrayBuffer or Uint8Array) to the view render() draws.
+// No Ed25519 in WebCrypto means no verdict at all, never an unverified view.
+async function verifyZip(buf) {
+  if (!(await ed25519Supported())) return { status: 'no-ed25519' }
+  let files
+  try {
+    files = await readZip(buf)
+  } catch (e) {
+    return { status: 'error', reason: e.message }
+  }
+  try {
+    return { status: 'done', ...(await verifyFiles(files)) }
+  } catch (e) {
+    return { status: 'done', result: { ok: false, blocks: 0, reason: e.message } }
+  }
+}
+
+globalThis.atapViewer = { verifyZip, render, readZip }
+
+if (typeof document !== 'undefined') {
+  const input = document.getElementById('file')
+  const out = document.getElementById('out')
+  let seq = 0
+  const show = async file => {
+    const mine = ++seq
+    out.replaceChildren(document.createTextNode('Checking…'))
+    const view =
+      file.size > MAX_ZIP_BYTES
+        ? { status: 'error', reason: `the ZIP is over the ${MAX_ZIP_BYTES}-byte cap` }
+        : await verifyZip(await file.arrayBuffer())
+    // A later file replaces an earlier one still being checked.
+    if (mine === seq) out.replaceChildren(render(document, view))
+  }
+  input.addEventListener('change', () => input.files[0] && show(input.files[0]))
+  // The whole window is the drop target, so a near miss never makes the
+  // browser navigate to the file.
+  window.addEventListener('dragover', e => e.preventDefault())
+  window.addEventListener('drop', e => {
+    e.preventDefault()
+    const f = e.dataTransfer?.files[0]
+    if (f) show(f)
+  })
+}
+return { ed25519Supported, verifyZip };
+})();
+})();
+</script>
+</body>
+</html>

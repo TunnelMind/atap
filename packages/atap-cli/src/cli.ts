@@ -11,28 +11,26 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import {
   ATTESTATION_STRENGTH_RANK,
-  GENESIS_HASH,
   MAX_AIT_LIFETIME_DAYS,
   CborTag,
   WitnessService,
-  canonicalizeBytes,
   cborDecode,
+  checkManifestFiles,
+  checkWitnessEvents,
   didKeyFromPublicKey,
-  ed25519Verify,
-  fromHex,
   isDidKey,
-  pickDidKeyKey,
   publicKeyFromDidKey,
   publicKeyFromHex,
   toSignedStatement,
   verifyReceipt,
   verifySignedStatement,
+  WITNESS_EVENTS,
   type AIT,
   type AIT_ID,
   type AitInput,
@@ -57,9 +55,6 @@ import { gitRestore, gitSync } from './gitstore.js'
 const VERIFY_SH = fileURLToPath(new URL('../../../verify.sh', import.meta.url))
 // ponytail: same source-checkout ceiling as VERIFY_SH.
 const PROFILES_DIR = fileURLToPath(new URL('../../../profiles', import.meta.url))
-
-// tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
-const WITNESS_EVENTS = 'profile_artifacts/witness_events.json'
 
 // §7.5 layout. manifest.json cannot carry its own hash, so it is listed with null.
 const RECEIPT_FILES = [
@@ -326,48 +321,6 @@ async function readJsonFile<T>(dir: string, name: string): Promise<T> {
   }
 }
 
-// The block chain binds to the event chain only through chain_head_hash
-// (ATAP §7.3, §10): each block's chain_head_hash is the self_hash of the last
-// event it covers. Recompute every self_hash (§7.7), walk prev_event_hash from
-// genesis, then slice the events by event_count and match each block's head.
-// For an OAI witness no signature check is needed: the signed blocks' heads pin
-// every earlier event through the prev_event_hash chain. For a did:key witness
-// every witness_signature must verify under the key it encodes (ATAP-v0.2
-// §3.1), as verify.sh checks too, over the raw 32-byte self_hash (§7.7).
-function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
-  if (!Array.isArray(events)) return `${WITNESS_EVENTS} is not an array`
-  let prev: string = GENESIS_HASH
-  for (const [i, e] of events.entries()) {
-    if (!isObject(e)) return `event ${i} is not an object`
-    const { self_hash, witness_signature: _, ...unsigned } = e
-    if (e.ait !== ait.id) return `event ${i} (${e.id}) is not under ${ait.id}`
-    if (sha256(canonicalizeBytes(unsigned)) !== self_hash) return `event ${i} (${e.id}) self_hash mismatch`
-    if (e.prev_event_hash !== prev) return `event ${i} (${e.id}) prev_event_hash breaks the chain`
-    if (isDidKey(ait.witness)) {
-      const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at)
-      if (!key) return `no key for ${ait.witness} at ${e.witnessed_at}`
-      if (typeof key === 'string') return key
-      // Malformed input is a verdict, not a TypeError.
-      if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, publicKeyFromHex(key.public_key))) {
-        return `event ${i} (${e.id}) signature invalid`
-      }
-    }
-    prev = self_hash
-  }
-  let at = 0
-  for (const b of chain) {
-    const first = events[at]
-    const last = events[at + b.event_count - 1]
-    if (!first || !last) return `block ${b.id} covers events ${at}..${at + b.event_count - 1}; only ${events.length} present`
-    if (first.id !== b.first_event) return `event ${at} (${first.id}) is not block ${b.id}'s first_event`
-    if (last.id !== b.last_event) return `event ${at + b.event_count - 1} (${last.id}) is not block ${b.id}'s last_event`
-    if (last.self_hash !== b.chain_head_hash) return `event ${at + b.event_count - 1} (${last.id}) does not match block ${b.id}'s chain_head_hash`
-    at += b.event_count
-  }
-  if (at !== events.length) return `${events.length} events but the blocks cover ${at}`
-  return null
-}
-
 // True if `rel`, resolved under `root`, lands outside it (or on it).
 function escapes(root: string, rel: string): boolean {
   const r = relative(root, resolve(root, rel))
@@ -380,24 +333,14 @@ function escapes(root: string, rel: string): boolean {
 async function verify(dir: string): Promise<VerifyResult> {
   const receipt = await readJsonFile<Receipt>(dir, 'manifest.json')
   const root = resolve(dir)
-  for (const f of receipt.files ?? []) {
-    // The manifest is untrusted input: refuse a path like ../x before reading
-    // it, so a receipt cannot make us hash files outside its own directory.
-    if (escapes(root, f.path)) {
-      return { ok: false, blocks: 0, reason: `${f.path} escapes the receipt directory` }
-    }
-    const rel = relative(root, resolve(root, f.path))
-    if (f.sha256 === null) continue
-    let bytes: Buffer
+  const bad = checkManifestFiles(receipt, rel => {
     try {
-      bytes = await readFile(join(root, rel))
+      return readFileSync(join(root, rel))
     } catch {
-      return { ok: false, blocks: 0, reason: `${f.path} missing` }
+      return undefined
     }
-    if (sha256(bytes) !== f.sha256) {
-      return { ok: false, blocks: 0, reason: `${f.path} sha256 mismatch` }
-    }
-  }
+  })
+  if (bad) return { ok: false, blocks: 0, reason: bad }
   const ait = await readJsonFile<AIT>(dir, 'ait.json')
   const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
   const keys = await readJsonFile<KeysDocument>(dir, 'public_keys.json')
