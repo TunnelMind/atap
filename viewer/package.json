@@ -5,7 +5,8 @@
   "description": "One-file ATAP receipt viewer: drop a Receipt ZIP, verify it in the browser.",
   "scripts": {
     "build": "node build.mjs",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "node build.mjs --check && node --test test/*.test.mjs",
+    "check": "node build.mjs --check"
   },
   "license": "Apache-2.0"
 }

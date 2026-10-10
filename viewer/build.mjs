@@ -73,6 +73,17 @@ const csp = [
 ].join('; ')
 
 const html = template.replace('{{CSP}}', () => csp).replace('{{SCRIPT}}', () => script)
-mkdirSync(here('dist'), { recursive: true })
-writeFileSync(here('dist/atap-viewer.html'), html)
-console.log(`dist/atap-viewer.html ${html.length} bytes`)
+// --check: fail if the committed file differs from a fresh build (a stale download is a viewer that
+// verifies with old rules; review medium, 2026-10-09). Writes nothing.
+if (process.argv.includes('--check')) {
+  const committed = existsSync(here('dist/atap-viewer.html')) ? readFileSync(here('dist/atap-viewer.html'), 'utf8') : ''
+  if (committed !== html) {
+    console.error('dist/atap-viewer.html is stale: run `npm run build` in viewer/ and commit it')
+    process.exit(1)
+  }
+  console.log('dist/atap-viewer.html is current')
+} else {
+  mkdirSync(here('dist'), { recursive: true })
+  writeFileSync(here('dist/atap-viewer.html'), html)
+  console.log(`dist/atap-viewer.html ${html.length} bytes`)
+}
