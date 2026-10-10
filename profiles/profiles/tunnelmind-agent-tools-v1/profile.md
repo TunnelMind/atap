@@ -99,8 +99,14 @@ Under this profile these never appear, only their sha256 or nothing:
 - tool arguments and tool results (`input_sha256`, `output_sha256` only);
 - the subject of a human decision (`subject_sha256` only);
 - the human: a decision records the role, never the person;
-- free text, names and emails: no payload has a free-text key, and identifiers
-  admit no spaces or `@`.
+- free text and emails: no payload has a free-text key, and identifiers admit no
+  spaces or `@`.
+
+**Limit:** the schema cannot tell a handle from a name. An identifier such as
+`jane-doe` matches the identifier pattern, so a producer that names an agent or
+tool after a person would get past validation. Producers (and the adapters) MUST
+use the agent's or tool's configured id, never a person's name. A verifier cannot
+detect the difference, so this rule rests on the producer.
 
 [`tests/pii-rejection.json`](tests/pii-rejection.json) is the §9.4(2) evidence:
 19 events, each smuggling a name, email, phone number, sentence or raw prompt
