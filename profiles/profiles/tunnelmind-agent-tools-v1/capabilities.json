@@ -1,0 +1,10 @@
+{
+  "profile": "tunnelmind:agent_tools:v1",
+  "description": "Canonical capability vocabulary for the tunnelmind:agent_tools:v1 profile. An AIT's `capabilities` array MUST draw only from these tokens. The witness rejects an AIT declaring a capability outside this set.",
+  "capabilities": {
+    "agent_tools:call_tools": "Call tools (functions, MCP tools, APIs) and record each call's outcome, with inputs and outputs as sha256 only.",
+    "agent_tools:call_models": "Call models and record each call's token counts and duration, with the output as sha256 only.",
+    "agent_tools:handoff": "Hand work from one agent to another.",
+    "agent_tools:ask_human": "Ask a human, recorded by role only, to approve, reject or edit something."
+  }
+}

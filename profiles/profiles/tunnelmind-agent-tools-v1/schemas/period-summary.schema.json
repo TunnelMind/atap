@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-agent-tools-v1/period-summary.schema.json",
+  "title": "tunnelmind:agent_tools:v1 — Attestation Block period_summary",
+  "description": "Validates the `period_summary` object of an ATAP v0.1 Attestation Block under the tunnelmind:agent_tools:v1 profile. Every field is a non-negative integer count over the block's events. No field resolves to a natural person (ATAP v0.1 §7.6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["events", "tool_outcomes", "total_tokens"],
+  "properties": {
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_started", "tool_called", "model_called", "handoff", "human_decision"],
+      "properties": {
+        "session_started": { "$ref": "#/$defs/count" },
+        "tool_called": { "$ref": "#/$defs/count" },
+        "model_called": { "$ref": "#/$defs/count" },
+        "handoff": { "$ref": "#/$defs/count" },
+        "human_decision": { "$ref": "#/$defs/count" }
+      },
+      "description": "Events in the period, per event type."
+    },
+    "tool_outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "error", "denied"],
+      "properties": {
+        "ok": { "$ref": "#/$defs/count" },
+        "error": { "$ref": "#/$defs/count" },
+        "denied": { "$ref": "#/$defs/count" }
+      },
+      "description": "`tool_called` events in the period, per outcome."
+    },
+    "total_tokens": {
+      "$ref": "#/$defs/count",
+      "description": "Sum of input_tokens and output_tokens over the period's `model_called` events that report them."
+    }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 }
+  }
+}
