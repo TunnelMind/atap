@@ -34,6 +34,12 @@ All notable changes to ATAP are recorded here.
   `run_tests` (records exit code and output hash), `atap.session()` and
   `atap.verify()` (CLI and `verify.sh`). Never raises into the caller; failures
   go to `.atap/hook.log`; `ATAP_OFF=1` or `atap.off()` silences it.
+- Python framework adapters in `packages/atap-py/` (source checkout only) —
+  `atap.adapters.openai_agents` (`AtapRunHooks`), `atap.adapters.langgraph`
+  (`AtapMiddleware`) and `atap.adapters.crewai` (`AtapListener`) record
+  `tunnelmind:agent_tools:v1` events through the `atap.agent_tools` helpers.
+  No new runtime dependency: each framework is imported lazily, only by its
+  adapter. Arguments, results and model output travel only as sha256.
 - ATAP v0.2 did:key witnesses (DRAFT, unpublished) —
   [`ATAP-v0.2.md`](./ATAP-v0.2.md) is a delta to v0.1 letting `witness` and
   `operator` be an Ed25519 `did:key` (always `self-asserted`), with schemas in
