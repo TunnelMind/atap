@@ -73,7 +73,7 @@ const RECEIPT_FILES = [
 ] as const
 
 const USAGE = `usage:
-  atap-witness init [--profile ID] [--dir .atap] [--force]
+  atap-witness init [--profile ID] [--dir .atap] [--force] [--git]
   atap-witness status
   atap-witness git sync               (commit the store's records to branch atap/records; no stdin)
   atap-witness git restore [--into DIR]  (rebuild a store, minus key and config, from atap/records; default ./.atap)
@@ -107,6 +107,7 @@ type Values = {
   profile?: string
   force?: boolean
   'did-key'?: boolean
+  git?: boolean
 }
 
 async function readStdin(): Promise<string> {
@@ -602,7 +603,7 @@ async function nextSteps(dir: string, profile: string): Promise<string> {
 // `init`: one command from nothing to a witness with a declared AIT. Every
 // check (dir, profile, capabilities) runs before the first write; a failure
 // after that removes the dir if init created it.
-async function init(v: Values): Promise<Record<string, string>> {
+async function init(v: Values): Promise<Record<string, string | boolean>> {
   const dir = resolve(v.dir ?? '.atap')
   const profile = v.profile ?? 'tunnelmind:code_crew:v1'
   const exists = await stat(dir).then(() => true, () => false)
@@ -649,7 +650,8 @@ async function init(v: Values): Promise<Record<string, string>> {
     const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: 'self-asserted' })
     const ait = await withLock(dir, () => svc.declareAit(input))
     // key is relative to the dir, so the dir can move as a whole.
-    const config = { profile, key: 'witness.pem', witness_oai: witness, oai_origin: 'did:key', ait: ait.id }
+    // git_sync only with --git, so a plain init's config.json is unchanged.
+    const config = { profile, key: 'witness.pem', witness_oai: witness, oai_origin: 'did:key', ait: ait.id, ...(v.git ? { git_sync: true } : {}) }
     await writeFile(join(dir, 'config.json'), json(config))
     return config
   } catch (e) {
@@ -691,6 +693,7 @@ async function main(argv: string[]): Promise<number> {
       profile: { type: 'string' },
       force: { type: 'boolean' },
       'did-key': { type: 'boolean' },
+      git: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   }) as { values: Values; positionals: string[] }
@@ -716,7 +719,7 @@ async function main(argv: string[]): Promise<number> {
     const config = await init(v)
     process.stdout.write(json(config))
     // A hint must never fail an init that already succeeded.
-    process.stderr.write(await nextSteps(resolve(v.dir ?? '.atap'), config.profile!).catch(() => ''))
+    process.stderr.write(await nextSteps(resolve(v.dir ?? '.atap'), config.profile as string).catch(() => ''))
     return 0
   }
   // Read-only summary of the nearest .atap: no stdin, key or lock.
@@ -882,6 +885,13 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'receipt' && atap && dir === atap.dir) {
     const rcpt = result as Receipt
     await writeFile(join(atap.dir, 'last-receipt.json'), json({ out: resolve(v.out!), at: new Date().toISOString(), id: rcpt.id }))
+  }
+  // `init --git`: each block also lands on atap/records. The plugin and atap-py
+  // call this `block`, so they get it through config.json too. Runs after the
+  // lock is released (gitSync takes it). Best-effort: the block is already
+  // durable, so a failed sync only warns and never changes stdout or exit code.
+  if (cmd === 'block' && atap?.config.git_sync === true && dir === atap.dir) {
+    await gitSync(dir).catch((e: unknown) => process.stderr.write(`git sync failed: ${(e as Error).message ?? String(e)}\n`))
   }
   process.stdout.write(json(result))
   return 0
