@@ -1,0 +1,29 @@
+name: atap-witness
+
+# Dogfoods ./actions/witness on the atap repo itself: the atap-cli test run is
+# witnessed and its Receipt uploaded as an artifact. The Receipt is signed by
+# an ephemeral did:key, so it is self-asserted and proves integrity only.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'profiles/**'
+      - 'verify.sh'
+      - 'actions/witness/**'
+      - '.github/workflows/atap-witness.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  witness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: ./actions/witness
+        with:
+          test-command: cd packages/atap-cli && npm ci && npm test
