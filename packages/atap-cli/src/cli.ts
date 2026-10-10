@@ -48,7 +48,7 @@ import {
 } from '@tunnelmindai/atap'
 import { Profiles } from './profile.js'
 import { DirStorage, withLock } from './storage.js'
-import { gitSync } from './gitstore.js'
+import { gitRestore, gitSync } from './gitstore.js'
 
 // The reference verifier ships in the repo root. From dist/cli.js that is
 // three levels up (dist -> atap-cli -> packages -> root).
@@ -76,6 +76,7 @@ const USAGE = `usage:
   atap-witness init [--profile ID] [--dir .atap] [--force]
   atap-witness status
   atap-witness git sync               (commit the store's records to branch atap/records; no stdin)
+  atap-witness git restore [--into DIR]  (rebuild a store, minus key and config, from atap/records; default ./.atap)
   atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
   atap-witness ait rotate [--did-key] (inside an init'd project; no stdin)
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
@@ -98,6 +99,7 @@ type Values = {
   strength?: string
   ait?: string
   out?: string
+  into?: string
   'profiles-dir'?: string
   'unregistered-profile'?: boolean
   issuer?: string
@@ -681,6 +683,7 @@ async function main(argv: string[]): Promise<number> {
       strength: { type: 'string' },
       ait: { type: 'string' },
       out: { type: 'string' },
+      into: { type: 'string' },
       'profiles-dir': { type: 'string' },
       'unregistered-profile': { type: 'boolean' },
       issuer: { type: 'string' },
@@ -696,7 +699,7 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
   const cmd =
-    (pos[0] === 'ait' && (pos[1] === 'declare' || pos[1] === 'rotate')) || (pos[0] === 'git' && pos[1] === 'sync')
+    (pos[0] === 'ait' && (pos[1] === 'declare' || pos[1] === 'rotate')) || (pos[0] === 'git' && (pos[1] === 'sync' || pos[1] === 'restore'))
       ? `${pos[0]} ${pos[1]}`
       : pos[0]
 
@@ -743,6 +746,11 @@ async function main(argv: string[]): Promise<number> {
     if (result.synced) process.stderr.write('to publish: git push origin atap/records\n')
     return 0
   }
+  // No stdin, key or config: the git calls run in the repo holding the cwd.
+  if (cmd === 'git restore') {
+    process.stdout.write(json(await gitRestore(process.cwd(), resolve(v.into ?? '.atap'))))
+    return 0
+  }
   if (cmd === 'verify') {
     if (!pos[1]) throw new Error('usage: atap-witness verify <dir>')
     const result = await verify(pos[1])
@@ -785,7 +793,7 @@ async function main(argv: string[]): Promise<number> {
     return result.ok ? 0 : 1
   }
   if (!['ait declare', 'ait rotate', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
-    throw new Error('usage: atap-witness <init | status | git sync | ait declare | ait rotate | event | block | receipt | verify | scitt> [options]')
+    throw new Error('usage: atap-witness <init | status | git sync | git restore | ait declare | ait rotate | event | block | receipt | verify | scitt> [options]')
   }
 
   const strength = parseStrength(v.strength)
