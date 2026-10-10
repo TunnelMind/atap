@@ -27,6 +27,12 @@ All notable changes to ATAP are recorded here.
 
 ### Added
 
+- `atap-witness git sync` / `git restore [--into DIR]` / `init --git` — the
+  witness store's records (`aits.jsonl`, `blocks.jsonl`, `cleared.jsonl`,
+  `events.jsonl`; never the key or `config.json`) committed to the orphan
+  branch `atap/records` with git plumbing only (HEAD, index and worktree
+  untouched), append-only. Restore rebuilds them in a fresh clone; `init --git`
+  syncs after every `block`, best-effort. The CLI never pushes.
 - [`actions/witness/`](./actions/witness/) — a GitHub Action that witnesses a CI test run (ephemeral did:key, self-asserted) and uploads its Receipt as the `atap-receipt` artifact.
 - Python client `packages/atap-py/` (`atap` 0.1.0, stdlib only, source checkout
   only, not on PyPI) — a thin client of `atap-witness`: `atap.code` helpers that

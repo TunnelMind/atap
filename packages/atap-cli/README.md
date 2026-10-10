@@ -60,8 +60,10 @@ unaffected. Uninstall is `rm -rf .atap`: nothing is created outside it.
 ## Commands
 
 ```
-atap-witness init [--profile ID] [--dir .atap] [--force]
+atap-witness init [--profile ID] [--dir .atap] [--force] [--git]
 atap-witness status
+atap-witness git sync
+atap-witness git restore [--into DIR]
 atap-witness ait rotate [--did-key]
 atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
 atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
@@ -76,6 +78,9 @@ atap-witness scitt register DIR --service URL
 | Command | Stdin | Stdout |
 |---|---|---|
 | `init` | none | Sets up `./.atap/` (store, key `witness.pem` 0600, its own `.gitignore`, `config.json`) and declares one AIT (365 days) whose witness and operator are the key's did:key. Writes nothing outside `.atap/`; refuses if it exists (`--force` only re-inits an empty store) |
+| `init --git` | none | As `init`, and also writes `git_sync: true` into `config.json`, so every `block` then runs `git sync`. See [Records in git](#records-in-git) |
+| `git sync` | none | `{synced, commit, events, blocks}`. Commits the store's records to the branch `atap/records`. See [Records in git](#records-in-git) |
+| `git restore` | none | `{restored, dir, commit}`. Rebuilds a store's records from `atap/records` into `--into DIR` (default `./.atap`) |
 | `ait rotate` | none | Declares a new AIT in the same store, with the same key and profile, and points `config.json` at it. The old chain stays intact and receiptable. With `--did-key`, the new AIT's witness and operator are the key's did:key and `config.json` gets `witness_oai` = that did:key, `oai_origin: "did:key"` (for `OAI-0000-*` stores) |
 | `status` | none | `{profile, ait, witness_oai, dir, events, blocks, last_receipt}` for the nearest `.atap/` at or above cwd; `last_receipt` is `{out, at, id}` from the last `receipt` run there, or `null`. Exit 1 outside any `.atap/` |
 | `ait declare` | An `AitInput` object (`agentType`, `profile`, `operator`, `capabilities`, `attestationPolicy`, `expiresAt`; lifetime at most 365 days) | The signed AIT |
@@ -102,6 +107,59 @@ Flags:
 | `--unregistered-profile` | `ait declare` | Declare an AIT whose `profile` is not in the registry. |
 
 Errors go to stderr as one line of `{"error": "..."}` with a non-zero exit.
+
+## Records in git
+
+The store's records can live in the project's own git repo, on an orphan
+branch `atap/records` (`refs/heads/atap/records`), so they travel with a
+clone.
+
+**Sync.** `atap-witness git sync` commits the records of the nearest
+`.atap/` (or `--dir DIR`) to `atap/records`. It must run inside the git repo
+that holds the store; outside one it fails with `run git init first`. It
+uses plumbing only (`hash-object`, `mktree`, `commit-tree`, `update-ref`), so
+it never touches `HEAD`, the index or the worktree. Each commit has the
+message `atap: N events, M blocks` and the fixed author `atap-witness`, so no
+`user.name` is needed. A sync with nothing new is a no-op (`"synced": false`).
+The branch is append-only: if a file on it is not a whole-line prefix of the
+store's, sync refuses rather than drop history.
+
+**Push.** The CLI never pushes. After a commit it prints
+`to publish: git push origin atap/records` on stderr; running it is your step.
+
+**What is on the branch.** Only the four record files: `aits.jsonl`,
+`blocks.jsonl`, `cleared.jsonl` and `events.jsonl`. Never `witness.pem`,
+`config.json`, `last-receipt.json` or `.gitignore`. The key never leaves the
+machine.
+
+**Sync on every block.** `init --git` writes `git_sync: true` into
+`config.json`. After that, `block` runs a sync once the block is written. It
+is best-effort: a failure prints `git sync failed: ...` on stderr and the
+block still succeeds, with the same stdout and exit code. A plain `init` is
+unchanged.
+
+**Restore.** `atap-witness git restore [--into DIR]` (default `./.atap`)
+rebuilds the records from `atap/records`, or from `origin/atap/records` when
+only a clone's remote copy exists. If neither exists it says to run
+`git fetch origin atap/records:atap/records`. It reads with `rev-parse`,
+`ls-tree` and `cat-file` only, and writes only the four JSONL files plus a
+`.gitignore` containing `witness.pem`. It writes no key and no
+`config.json`, so `receipt` then needs `--key`, `--dir`, `--ait` and
+`--witness-oai`. It refuses to overwrite a file that differs, checking every
+target before the first write; restoring twice is a no-op.
+
+From a fresh clone. Copy the witness key in by hand to `.atap/witness.pem`,
+which the restored `.gitignore` covers; never put it anywhere git would commit it.
+
+```sh
+git fetch origin atap/records:atap/records
+atap-witness git restore
+atap-witness receipt --dir .atap --key .atap/witness.pem --ait ID --witness-oai OAI --out receipt
+atap-witness verify receipt
+```
+
+`ID` is the AIT's `id` in `.atap/aits.jsonl` and `OAI` is its `witness`
+(the did:key for an `init` store).
 
 ## What the witness enforces
 
