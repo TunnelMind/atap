@@ -60,14 +60,17 @@ unaffected. Uninstall is `rm -rf .atap`: nothing is created outside it.
 ## Commands
 
 ```
-atap-witness init [--profile ID] [--dir .atap] [--force]
+atap-witness init [--profile ID] [--dir .atap] [--force] [--git]
 atap-witness status
+atap-witness git sync
+atap-witness git restore [--into DIR]
 atap-witness ait rotate [--did-key]
 atap-witness ait declare            --key K --witness-oai OAI   < AitInput  [--unregistered-profile]
 atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
 atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
 atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
 atap-witness verify DIR
+atap-witness verify --store [DIR] [--ait ID] [--keys public_keys.json]
 atap-witness scitt export DIR --key K [--issuer ISS]
 atap-witness scitt verify DIR
 atap-witness scitt register DIR --service URL
@@ -76,6 +79,9 @@ atap-witness scitt register DIR --service URL
 | Command | Stdin | Stdout |
 |---|---|---|
 | `init` | none | Sets up `./.atap/` (store, key `witness.pem` 0600, its own `.gitignore`, `config.json`) and declares one AIT (365 days) whose witness and operator are the key's did:key. Writes nothing outside `.atap/`; refuses if it exists (`--force` only re-inits an empty store) |
+| `init --git` | none | As `init`, and also writes `git_sync: true` into `config.json`, so every `block` then runs `git sync`. See [Records in git](#records-in-git) |
+| `git sync` | none | `{synced, commit, events, blocks}`. Commits the store's records to the branch `atap/records`. See [Records in git](#records-in-git) |
+| `git restore` | none | `{restored, dir, commit}`. Rebuilds a store's records from `atap/records` into `--into DIR` (default `./.atap`) |
 | `ait rotate` | none | Declares a new AIT in the same store, with the same key and profile, and points `config.json` at it. The old chain stays intact and receiptable. With `--did-key`, the new AIT's witness and operator are the key's did:key and `config.json` gets `witness_oai` = that did:key, `oai_origin: "did:key"` (for `OAI-0000-*` stores) |
 | `status` | none | `{profile, ait, witness_oai, dir, events, blocks, last_receipt}` for the nearest `.atap/` at or above cwd; `last_receipt` is `{out, at, id}` from the last `receipt` run there, or `null`. Exit 1 outside any `.atap/` |
 | `ait declare` | An `AitInput` object (`agentType`, `profile`, `operator`, `capabilities`, `attestationPolicy`, `expiresAt`; lifetime at most 365 days) | The signed AIT |
@@ -83,6 +89,7 @@ atap-witness scitt register DIR --service URL
 | `block` | A `period_summary` object; empty stdin means `{}` (which the profile's schema may refuse) | The signed Attestation Block over the events since the last block |
 | `receipt` | none | The signed Receipt (`manifest.json`). Writes the §7.5 files to `--out DIR` and `DIR.zip` |
 | `verify DIR` | none | `{"ok", "blocks", ...}`. Checks `manifest.files[]` hashes, then signatures and chains. Exit 0 only if `ok` is true |
+| `verify --store [DIR]` | none | `{"ok", "events", "blocks", "witness", "attestation_strength"}`, plus `reason` on failure. Checks a store (`--dir`, DIR, the nearest `.atap/`, or `./.atap`) with no receipt and no key. See [Records in git](#records-in-git). Exit 0 only if `ok` is true |
 | `scitt export\|verify\|register DIR` | none | See [SCITT export](#scitt-export) |
 
 Flags:
@@ -92,7 +99,8 @@ Flags:
 | `--key PATH` | `ait declare`, `event`, `block`, `receipt`, `scitt export` | Ed25519 private key, PEM. Required. |
 | `--witness-oai OAI` | `ait declare`, `event`, `block`, `receipt` | The witness's OAI (or did:key). Falls back to `$ATAP_WITNESS_OAI`, then `config.json`. Required outside an init'd project. Without it, `receipt` signs as its AIT's own witness. |
 | `--did-key` | `ait rotate` | Rotate onto the key's did:key as witness and operator; no `--witness-oai` needed. |
-| `--ait ID` | `event`, `block`, `receipt` | The AIT id returned by `ait declare`. |
+| `--ait ID` | `event`, `block`, `receipt`, `verify --store` | The AIT id returned by `ait declare`. `verify --store` needs it only when the store holds more than one AIT. |
+| `--keys PATH` | `verify --store` | `public_keys.json` (e.g. from a receipt) for an OAI witness. Not needed for a did:key witness. |
 | `--out DIR` | `receipt` | Output directory; `DIR.zip` is written next to it. |
 | `--dir DIR` | `ait declare`, `event`, `block`, `receipt` | Witness store (JSONL files). Default `./.atap-witness`. |
 | `--strength TIER` | `ait declare`, `event`, `block`, `receipt` | `attestation_strength` to declare. Default `self-asserted`. See [Evidence tiers](#evidence-tiers). |
@@ -102,6 +110,75 @@ Flags:
 | `--unregistered-profile` | `ait declare` | Declare an AIT whose `profile` is not in the registry. |
 
 Errors go to stderr as one line of `{"error": "..."}` with a non-zero exit.
+
+## Records in git
+
+The store's records can live in the project's own git repo, on an orphan
+branch `atap/records` (`refs/heads/atap/records`), so they travel with a
+clone.
+
+**Sync.** `atap-witness git sync` commits the records of the nearest
+`.atap/` (or `--dir DIR`) to `atap/records`. It must run inside the git repo
+that holds the store; outside one it fails with `run git init first`. It
+uses plumbing only (`hash-object`, `mktree`, `commit-tree`, `update-ref`), so
+it never touches `HEAD`, the index or the worktree. Each commit has the
+message `atap: N events, M blocks` and the fixed author `atap-witness`, so no
+`user.name` is needed. A sync with nothing new is a no-op (`"synced": false`).
+The branch is append-only: if a file on it is not a whole-line prefix of the
+store's, sync refuses rather than drop history.
+
+**Push.** The CLI never pushes. After a commit it prints
+`to publish: git push origin atap/records` on stderr; running it is your step.
+
+**What is on the branch.** Only the four record files: `aits.jsonl`,
+`blocks.jsonl`, `cleared.jsonl` and `events.jsonl`. Never `witness.pem`,
+`config.json`, `last-receipt.json` or `.gitignore`. The key never leaves the
+machine.
+
+**Sync on every block.** `init --git` writes `git_sync: true` into
+`config.json`. After that, `block` runs a sync once the block is written. It
+is best-effort: a failure prints `git sync failed: ...` on stderr and the
+block still succeeds, with the same stdout and exit code. A plain `init` is
+unchanged.
+
+**Restore.** `atap-witness git restore [--into DIR]` (default `./.atap`)
+rebuilds the records from `atap/records`, or from `origin/atap/records` when
+only a clone's remote copy exists. If neither exists it says to run
+`git fetch origin atap/records:atap/records`. It reads with `rev-parse`,
+`ls-tree` and `cat-file` only, and writes only the four JSONL files plus a
+`.gitignore` containing `witness.pem`. It writes no key and no
+`config.json`, so `receipt` then needs `--key`, `--dir`, `--ait` and
+`--witness-oai`. It refuses to overwrite a file that differs, checking every
+target before the first write; restoring twice is a no-op.
+
+**Verify a store.** A reviewer needs no key:
+
+```sh
+git fetch origin atap/records:atap/records && atap-witness git restore && atap-witness verify --store
+```
+
+`verify --store` reads only the JSONL files and writes nothing. It checks the
+AIT signature, every block's signature and the block chain (the same
+`verifyReceipt` that `verify` uses), then every event the blocks cover: each
+`self_hash`, the `prev_event_hash` chain, each block's `first_event`,
+`last_event` and `chain_head_hash`, and for a did:key witness each event's
+signature. Events after the last block are pending: not checked, not counted
+in `events`. A did:key witness is its own public key. An OAI witness needs
+`--keys public_keys.json`, since the store holds no public keys. If the store
+holds several AITs (after `ait rotate`), pick one with `--ait`.
+
+A receipt still needs the key holder. From a fresh clone, copy the witness key in by hand to `.atap/witness.pem`,
+which the restored `.gitignore` covers; never put it anywhere git would commit it.
+
+```sh
+git fetch origin atap/records:atap/records
+atap-witness git restore
+atap-witness receipt --dir .atap --key .atap/witness.pem --ait ID --witness-oai OAI --out receipt
+atap-witness verify receipt
+```
+
+`ID` is the AIT's `id` in `.atap/aits.jsonl` and `OAI` is its `witness`
+(the did:key for an `init` store).
 
 ## What the witness enforces
 

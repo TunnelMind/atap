@@ -222,6 +222,21 @@ test('a non-default --strength is declared by the key entry and verifies', async
   assert.equal(v.code, 0, v.stdout)
 })
 
+test('verify --store on an OAI-witnessed store needs --keys, and passes with them', async () => {
+  const ctx = setup()
+  const { ait, common } = await declare(ctx)
+  await ok(['event', '--ait', ait.id, ...common], JSON.stringify(EXAMPLES[0]))
+  await ok(['block', '--ait', ait.id, ...common], JSON.stringify(SUMMARY))
+  // The key holder publishes public_keys.json with a receipt.
+  const out = join(ctx.tmp, 'r')
+  await ok(['receipt', '--ait', ait.id, '--out', out, ...common], '')
+  const bare = await run(['verify', '--store', '--dir', ctx.store])
+  assert.notEqual(bare.code, 0)
+  assert.match(JSON.parse(bare.stderr).error, new RegExp(`OAI witness ${WITNESS}: pass --keys public_keys.json`))
+  const v = await ok(['verify', '--store', ctx.store, '--keys', join(out, 'public_keys.json')])
+  assert.deepEqual(v, { ok: true, events: 1, blocks: 1, witness: WITNESS, attestation_strength: 'self-asserted' })
+})
+
 test('a torn final line is an error naming the file and line, and the file is left untouched', async () => {
   const ctx = setup()
   const { ait, common } = await declare(ctx)
