@@ -8,3 +8,6 @@ dist/
 
 # generated knowledge graph — rebuilt by /understand, never committed
 .understand-anything/
+
+# the viewer's one-file build is committed so users can download it
+!viewer/dist/
