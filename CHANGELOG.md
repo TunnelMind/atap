@@ -33,6 +33,12 @@ All notable changes to ATAP are recorded here.
   branch `atap/records` with git plumbing only (HEAD, index and worktree
   untouched), append-only. Restore rebuilds them in a fresh clone; `init --git`
   syncs after every `block`, best-effort. The CLI never pushes.
+- `atap-witness verify --store [DIR]` — checks a store's own JSONL (default
+  `./.atap`, e.g. one `git restore` rebuilt) with no receipt and no private
+  key: the AIT and block signatures and chain (`verifyReceipt`), then every
+  event covered by a block. Events after the last block are pending and not
+  checked. An OAI witness needs `--keys public_keys.json`; a did:key witness
+  needs nothing. Writes nothing.
 - [`actions/witness/`](./actions/witness/) — a GitHub Action that witnesses a CI test run (ephemeral did:key, self-asserted) and uploads its Receipt as the `atap-receipt` artifact.
 - Python client `packages/atap-py/` (`atap` 0.1.0, stdlib only, source checkout
   only, not on PyPI) — a thin client of `atap-witness`: `atap.code` helpers that

@@ -47,7 +47,7 @@ import {
   type WitnessEvent,
 } from '@tunnelmindai/atap'
 import { Profiles } from './profile.js'
-import { DirStorage, withLock } from './storage.js'
+import { DirStorage, readJsonl, withLock } from './storage.js'
 import { gitRestore, gitSync } from './gitstore.js'
 
 // The reference verifier ships in the repo root. From dist/cli.js that is
@@ -83,6 +83,8 @@ const USAGE = `usage:
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
   atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
   atap-witness verify DIR
+  atap-witness verify --store [DIR] [--ait ID] [--keys public_keys.json]
+                                    (check a store, e.g. a restored one, with no receipt or key; default ./.atap)
   atap-witness scitt export DIR --key K [--issuer ISS]
   atap-witness scitt verify DIR
   atap-witness scitt register DIR --service URL
@@ -108,6 +110,8 @@ type Values = {
   force?: boolean
   'did-key'?: boolean
   git?: boolean
+  store?: boolean
+  keys?: string
 }
 
 async function readStdin(): Promise<string> {
@@ -211,12 +215,11 @@ const didKeyOf = (privateKey: KeyObject): DidKey => didKeyFromPublicKey(Buffer.f
 const DID_KEY_VALID_UNTIL = '9999-12-31T23:59:59.999Z'
 
 function keysDocument(
-  privateKey: KeyObject,
+  hex: string,
   witness: OAI | DidKey,
   ait: AIT,
   strength: AttestationStrength,
 ): KeysDocument {
-  const hex = publicHex(privateKey)
   const from = new Date(ait.issued_at.slice(0, 10) + 'T00:00:00Z')
   const until = new Date(isDidKey(witness) ? DID_KEY_VALID_UNTIL : ait.expires_at)
   return {
@@ -285,7 +288,7 @@ async function receipt(svc: WitnessService, storage: DirStorage, v: Values, key:
     'summary.json': Buffer.from(
       json(chain.reduce((acc, b) => mergeSummary(acc, b.period_summary), {} as Record<string, unknown>)),
     ),
-    'public_keys.json': Buffer.from(json(keysDocument(key, witness, ait, strength))),
+    'public_keys.json': Buffer.from(json(keysDocument(publicHex(key), witness, ait, strength))),
     'verify.sh': verifySh,
     [WITNESS_EVENTS]: Buffer.from(json(covered)),
   }
@@ -402,6 +405,84 @@ async function verify(dir: string): Promise<VerifyResult> {
   if (!result.ok || !receipt.files?.some(f => f.path === WITNESS_EVENTS)) return result
   const reason = checkWitnessEvents(await readJsonFile<WitnessEvent[]>(dir, WITNESS_EVENTS), chain, ait, keys)
   return reason ? { ok: false, blocks: 0, reason } : result
+}
+
+type StoreResult = { ok: boolean; events: number; blocks: number; witness: string; attestation_strength?: AttestationStrength; reason?: string }
+
+// verify --store: the same checks as verify, run on a store's own JSONL (e.g.
+// one `git restore` rebuilt) instead of a receipt. Reads no key and no
+// config.json and writes nothing. The inputs are the ones receipt() builds,
+// minus the signing; events past the last block are pending and left out.
+async function verifyStore(dir: string, v: Values): Promise<StoreResult> {
+  let aits: AIT[]
+  try {
+    aits = await readJsonl<AIT>(join(dir, 'aits.jsonl'))
+  } catch (e) {
+    return { ok: false, events: 0, blocks: 0, witness: '', reason: (e as Error).message }
+  }
+  if (aits.length === 0) throw new Error(`no AIT in ${join(dir, 'aits.jsonl')}; is ${dir} an atap store?`)
+  if (!v.ait && aits.length > 1) throw new Error(`${dir} holds ${aits.length} AITs; pick one with --ait: ${aits.map(a => a.id).join(', ')}`)
+  const ait = v.ait ? aits.find(a => a.id === v.ait) : aits[0]
+  if (!ait) throw new Error(`unknown AIT ${v.ait}`)
+  const witness = ait.witness
+
+  let keys: KeysDocument
+  if (isDidKey(witness)) {
+    // A did:key is its own public key: no file needed, as receipt() does.
+    keys = keysDocument(Buffer.from(publicKeyFromDidKey(witness)).toString('hex'), witness, ait, 'self-asserted')
+  } else {
+    if (!v.keys) throw new Error(`OAI witness ${witness}: pass --keys public_keys.json (the store has no public keys)`)
+    try {
+      keys = JSON.parse(await readFile(v.keys, 'utf8')) as KeysDocument
+    } catch {
+      throw new Error(`cannot read --keys ${v.keys}`)
+    }
+  }
+  const strength = keys.keys?.find(k => k.witness === witness)?.attestation_strength
+
+  const storage = new DirStorage(dir, {})
+  let chain: AttestationBlock[]
+  let events: WitnessEvent[]
+  try {
+    chain = await storage.blocksOf(ait.id)
+    events = await storage.eventsOf(ait.id)
+  } catch (e) {
+    return { ok: false, events: 0, blocks: 0, witness, reason: (e as Error).message }
+  }
+  const covered = events.slice(0, events.findIndex(e => e.id === chain.at(-1)?.last_event) + 1)
+  const done = (r: { ok: boolean; reason?: string; attestation_strength?: AttestationStrength }): StoreResult => ({
+    ok: r.ok,
+    events: covered.length,
+    blocks: chain.length,
+    witness,
+    attestation_strength: r.attestation_strength ?? strength,
+    ...(r.reason ? { reason: r.reason } : {}),
+  })
+  if (chain.length === 0) return done({ ok: false, reason: `no blocks for ${ait.id}` })
+
+  // Only the fields verifyReceipt reads; the rest of a Receipt describes files
+  // a store does not have.
+  const rcpt = {
+    witness,
+    chain_head_hash: chain.at(-1)!.self_hash,
+    attestation_strength: strength,
+    generated_at: new Date().toISOString(),
+    // Well-formed but never valid: there is no key to sign with (see below).
+    witness_signature: `ed25519:0x${'00'.repeat(64)}`,
+  } as Receipt
+  let result = verifyReceipt({ receipt: rcpt, ait, chain, keys })
+  // For a did:key witness verifyReceipt ends by checking the receipt's own
+  // signature, which needs the private key; this stand-in's zero signature
+  // must fail it. That check runs after the AIT, every block and the chain head have
+  // passed, and the checks after it hold by construction (strength is
+  // 'self-asserted' on both sides), so this one reason means the store passed.
+  // If the library ever words it differently, this fails closed.
+  if (isDidKey(witness) && result.reason === 'receipt signature invalid') {
+    result = { ok: true, blocks: chain.length, attestation_strength: 'self-asserted' }
+  }
+  if (!result.ok) return done(result)
+  const reason = checkWitnessEvents(covered, chain, ait, keys)
+  return done(reason ? { ok: false, reason } : result)
 }
 
 // SCITT view of an unpacked receipt (RFC 9943): every artifact as a COSE_Sign1
@@ -694,6 +775,8 @@ async function main(argv: string[]): Promise<number> {
       force: { type: 'boolean' },
       'did-key': { type: 'boolean' },
       git: { type: 'boolean' },
+      store: { type: 'boolean' },
+      keys: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   }) as { values: Values; positionals: string[] }
@@ -754,8 +837,16 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(json(await gitRestore(process.cwd(), resolve(v.into ?? '.atap'))))
     return 0
   }
+  if (cmd === 'verify' && v.store) {
+    // A restored store has no config.json, so findAtap misses it; fall back to ./.atap.
+    const dir = v.dir ?? pos[1] ?? (await findAtap())?.dir ?? (existsSync(join('.atap', 'aits.jsonl')) ? '.atap' : undefined)
+    if (!dir) throw new Error('no store: pass --dir or DIR, or run inside a project with .atap/')
+    const result = await verifyStore(resolve(dir), v)
+    process.stdout.write(json(result))
+    return result.ok ? 0 : 1
+  }
   if (cmd === 'verify') {
-    if (!pos[1]) throw new Error('usage: atap-witness verify <dir>')
+    if (!pos[1]) throw new Error('usage: atap-witness verify <dir> | verify --store [dir]')
     const result = await verify(pos[1])
     process.stdout.write(json(result))
     return result.ok ? 0 : 1
@@ -796,7 +887,7 @@ async function main(argv: string[]): Promise<number> {
     return result.ok ? 0 : 1
   }
   if (!['ait declare', 'ait rotate', 'event', 'block', 'receipt'].includes(cmd ?? '')) {
-    throw new Error('usage: atap-witness <init | status | git sync | git restore | ait declare | ait rotate | event | block | receipt | verify | scitt> [options]')
+    throw new Error('usage: atap-witness <init | status | git sync | git restore | ait declare | ait rotate | event | block | receipt | verify [--store] | scitt> [options]')
   }
 
   const strength = parseStrength(v.strength)

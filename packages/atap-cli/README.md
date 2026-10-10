@@ -70,6 +70,7 @@ atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type",
 atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
 atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
 atap-witness verify DIR
+atap-witness verify --store [DIR] [--ait ID] [--keys public_keys.json]
 atap-witness scitt export DIR --key K [--issuer ISS]
 atap-witness scitt verify DIR
 atap-witness scitt register DIR --service URL
@@ -88,6 +89,7 @@ atap-witness scitt register DIR --service URL
 | `block` | A `period_summary` object; empty stdin means `{}` (which the profile's schema may refuse) | The signed Attestation Block over the events since the last block |
 | `receipt` | none | The signed Receipt (`manifest.json`). Writes the §7.5 files to `--out DIR` and `DIR.zip` |
 | `verify DIR` | none | `{"ok", "blocks", ...}`. Checks `manifest.files[]` hashes, then signatures and chains. Exit 0 only if `ok` is true |
+| `verify --store [DIR]` | none | `{"ok", "events", "blocks", "witness", "attestation_strength"}`, plus `reason` on failure. Checks a store (`--dir`, DIR, the nearest `.atap/`, or `./.atap`) with no receipt and no key. See [Records in git](#records-in-git). Exit 0 only if `ok` is true |
 | `scitt export\|verify\|register DIR` | none | See [SCITT export](#scitt-export) |
 
 Flags:
@@ -97,7 +99,8 @@ Flags:
 | `--key PATH` | `ait declare`, `event`, `block`, `receipt`, `scitt export` | Ed25519 private key, PEM. Required. |
 | `--witness-oai OAI` | `ait declare`, `event`, `block`, `receipt` | The witness's OAI (or did:key). Falls back to `$ATAP_WITNESS_OAI`, then `config.json`. Required outside an init'd project. Without it, `receipt` signs as its AIT's own witness. |
 | `--did-key` | `ait rotate` | Rotate onto the key's did:key as witness and operator; no `--witness-oai` needed. |
-| `--ait ID` | `event`, `block`, `receipt` | The AIT id returned by `ait declare`. |
+| `--ait ID` | `event`, `block`, `receipt`, `verify --store` | The AIT id returned by `ait declare`. `verify --store` needs it only when the store holds more than one AIT. |
+| `--keys PATH` | `verify --store` | `public_keys.json` (e.g. from a receipt) for an OAI witness. Not needed for a did:key witness. |
 | `--out DIR` | `receipt` | Output directory; `DIR.zip` is written next to it. |
 | `--dir DIR` | `ait declare`, `event`, `block`, `receipt` | Witness store (JSONL files). Default `./.atap-witness`. |
 | `--strength TIER` | `ait declare`, `event`, `block`, `receipt` | `attestation_strength` to declare. Default `self-asserted`. See [Evidence tiers](#evidence-tiers). |
@@ -148,7 +151,23 @@ only a clone's remote copy exists. If neither exists it says to run
 `--witness-oai`. It refuses to overwrite a file that differs, checking every
 target before the first write; restoring twice is a no-op.
 
-From a fresh clone. Copy the witness key in by hand to `.atap/witness.pem`,
+**Verify a store.** A reviewer needs no key:
+
+```sh
+git fetch origin atap/records:atap/records && atap-witness git restore && atap-witness verify --store
+```
+
+`verify --store` reads only the JSONL files and writes nothing. It checks the
+AIT signature, every block's signature and the block chain (the same
+`verifyReceipt` that `verify` uses), then every event the blocks cover: each
+`self_hash`, the `prev_event_hash` chain, each block's `first_event`,
+`last_event` and `chain_head_hash`, and for a did:key witness each event's
+signature. Events after the last block are pending: not checked, not counted
+in `events`. A did:key witness is its own public key. An OAI witness needs
+`--keys public_keys.json`, since the store holds no public keys. If the store
+holds several AITs (after `ait rotate`), pick one with `--ait`.
+
+A receipt still needs the key holder. From a fresh clone, copy the witness key in by hand to `.atap/witness.pem`,
 which the restored `.gitignore` covers; never put it anywhere git would commit it.
 
 ```sh

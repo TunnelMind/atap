@@ -49,7 +49,7 @@ function badLine(path: string, n: number, why: string): Error {
   return new Error(`${path}: line ${n} is not valid JSON (${why}); the chain was not changed, inspect or restore the file`)
 }
 
-async function readJsonl<T>(path: string): Promise<T[]> {
+export async function readJsonl<T>(path: string): Promise<T[]> {
   const records: T[] = []
   const lines = (await readText(path)).split('\n')
   // Index before skipping blank lines so the reported number matches the file.
