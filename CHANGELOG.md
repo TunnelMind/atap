@@ -28,6 +28,12 @@ All notable changes to ATAP are recorded here.
 ### Added
 
 - [`actions/witness/`](./actions/witness/) — a GitHub Action that witnesses a CI test run (ephemeral did:key, self-asserted) and uploads its Receipt as the `atap-receipt` artifact.
+- Python client `packages/atap-py/` (`atap` 0.1.0, stdlib only, source checkout
+  only, not on PyPI) — a thin client of `atap-witness`: `atap.code` helpers that
+  record the five code_crew events with only the schema's required keys,
+  `run_tests` (records exit code and output hash), `atap.session()` and
+  `atap.verify()` (CLI and `verify.sh`). Never raises into the caller; failures
+  go to `.atap/hook.log`; `ATAP_OFF=1` or `atap.off()` silences it.
 - ATAP v0.2 did:key witnesses (DRAFT, unpublished) —
   [`ATAP-v0.2.md`](./ATAP-v0.2.md) is a delta to v0.1 letting `witness` and
   `operator` be an Ed25519 `did:key` (always `self-asserted`), with schemas in
