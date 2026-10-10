@@ -64,11 +64,12 @@ def _log(store, event, msg):
         pass
 
 
-def _witness(args, input=None):
-    """One `atap-witness <args>` run from the store's project; parsed stdout or None."""
+def _witness(args, input=None, cwd="."):
+    """One `atap-witness <args>` run from the project of the store at or above
+    `cwd`; parsed stdout or None."""
     if _off or os.environ.get("ATAP_OFF") == "1":
         return None
-    store = find_store()
+    store = find_store(cwd)
     if store is None:
         return None
     # Never a path from the project: .atap/config.json can be committed, so a
@@ -104,9 +105,10 @@ def _witness(args, input=None):
         return None
 
 
-def event(type, payload):
-    """Witness one event under the store's AIT; the signed event, or None."""
-    return _witness(["event"], {"event_type": type, "payload": payload})
+def event(type, payload, cwd="."):
+    """Witness one event under the AIT of the store at or above `cwd`; the
+    signed event, or None."""
+    return _witness(["event"], {"event_type": type, "payload": payload}, cwd)
 
 
 def block(summary=None):
@@ -120,16 +122,15 @@ def receipt(out):
 
 
 def _verify_sh():
-    # The repo's verify.sh: ATAP_VERIFY_SH if set, else the first verify.sh at
-    # or above this file (a repo checkout or editable install). An installed
-    # wheel finds none, and verify() then reports verify_sh False, never a skip.
+    # ATAP_VERIFY_SH if set (the user's own environment), else the copy of the
+    # repo's verify.sh shipped inside this package. Never one found by a search
+    # of cwd or parent dirs, and never the receipt's own bundled verify.sh: both
+    # are untrusted input, and verify() would run whatever it found.
     env = os.environ.get("ATAP_VERIFY_SH")
     if env:
         return env
-    for p in Path(__file__).resolve().parents:
-        if (p / "verify.sh").is_file():
-            return str(p / "verify.sh")
-    return None
+    sh = Path(__file__).with_name("verify.sh")
+    return str(sh) if sh.is_file() else None
 
 
 def _ok(cmd, timeout):

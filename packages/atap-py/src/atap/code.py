@@ -97,7 +97,7 @@ def change_committed(cwd="."):
             repo = f"local/{root[:12]}"
         return event("code_crew:change_committed", {
             "timestamp": _now(), "evidence": "anchored", "repo": repo, "commit_sha": sha,
-        })
+        }, cwd)  # the store of the same repo: a commit in X never lands in Y's store
     except Exception:
         return None
 

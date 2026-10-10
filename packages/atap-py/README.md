@@ -18,10 +18,10 @@ It needs `atap-witness`: build [`packages/atap-cli`](../atap-cli/) per its
 README, then put it on your PATH or point `ATAP_WITNESS` at it. Only your
 environment chooses the binary, never the project's `.atap/config.json`.
 
-`atap.verify()` also needs the repo's [`verify.sh`](../../verify.sh): set
-`ATAP_VERIFY_SH`, or it uses the first `verify.sh` at or above the package
-(a checkout or an editable install). An installed wheel finds none, and
-`verify()` then reports `verify_sh: False`.
+`atap.verify()` also runs [`verify.sh`](../../verify.sh): the package ships
+its own copy (`src/atap/verify.sh`), and `ATAP_VERIFY_SH` overrides it. It
+never runs a `verify.sh` found in the working directory, a parent directory or
+the receipt itself.
 
 ## Quickstart
 
