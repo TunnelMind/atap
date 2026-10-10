@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-agent-tools-v1/constraints.schema.json",
+  "title": "tunnelmind:agent_tools:v1 — AIT constraints",
+  "description": "Validates the `constraints` object of an ATAP v0.1 AIT declared under the tunnelmind:agent_tools:v1 profile. The canonical-byte serialization of `constraints` MUST NOT exceed 4096 bytes (ATAP v0.1 §6.2).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "allowed_tools": {
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" },
+      "description": "Tools the agent may call. Absent means no declared allow-list. Capped at 50 identifiers of at most 64 characters to respect the 4 KB constraints ceiling."
+    },
+    "max_tool_calls_per_session": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Most tool calls the agent may make in one session."
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$",
+      "description": "A tool name. No spaces or `@`, so it cannot carry a sentence or an email."
+    }
+  }
+}
