@@ -48,6 +48,7 @@ async function repo() {
 const snapshot = cwd => ({
   status: git(cwd, ['status', '--porcelain', '--untracked-files=all']),
   cached: git(cwd, ['diff', '--cached']),
+  index: git(cwd, ['ls-files', '-s']),
   head: git(cwd, ['rev-parse', 'HEAD']),
   a: readFileSync(join(cwd, 'a.txt')),
   b: readFileSync(join(cwd, 'b.txt')),
@@ -77,6 +78,27 @@ test('sync commits only the store JSONL files and leaves a dirty worktree and in
   assert.equal(git(cwd, ['log', '-1', '--format=%s', 'atap/records']).trim(), 'atap: 1 events, 0 blocks')
   // Orphan history: no parent from main.
   assert.equal(git(cwd, ['rev-list', '--count', 'atap/records']).trim(), '1')
+})
+
+test('the witness key and config never reach atap/records, by name or by bytes', async () => {
+  const cwd = await repo()
+  await ok(cwd, ['event'], EVENT)
+  await ok(cwd, ['git', 'sync'])
+  await ok(cwd, ['event'], EVENT)
+  await ok(cwd, ['git', 'sync'])
+
+  const names = git(cwd, ['ls-tree', '-r', '--name-only', 'atap/records']).trim().split('\n')
+  assert.ok(!names.some(n => /(^|\/)(witness\.pem|config\.json)$/.test(n)), names.join(','))
+  // Every blob in the branch's whole history, not just the tip.
+  const pem = readFileSync(join(cwd, '.atap', 'witness.pem'), 'utf8')
+  const body = pem.replace(/-----[^-]+-----|\s/g, '')
+  const objs = git(cwd, ['rev-list', '--objects', 'atap/records']).trim().split('\n').map(l => l.split(' ')[0])
+  const blobs = objs.filter(o => git(cwd, ['cat-file', '-t', o]).trim() === 'blob')
+  assert.ok(blobs.length > 0)
+  for (const o of blobs) {
+    const content = git(cwd, ['cat-file', 'blob', o])
+    assert.ok(!content.includes(pem) && !content.replace(/\s/g, '').includes(body), `key bytes in blob ${o}`)
+  }
 })
 
 test('a second sync with no store change is a no-op; a new event adds one child commit', async () => {
