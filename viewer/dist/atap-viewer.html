@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- No network at all. The inline script and style are allowed by their
      sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-CIzKBIL8mvqaSZhVEFPMNYYtcehWG1Ku9XizKHYkSFg='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-o1aq3hExTOBby7wxBIkeujHyCRgDnV+GVXZ3mRjS8KI='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ATAP receipt viewer</title>
 <style>
 body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
@@ -572,7 +572,104 @@ function verifyReceipt(opts) {
         ...(warnings.length ? { warnings } : {}),
     };
 }
-return { pickDidKeyKey, verifyReceipt };
+// tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
+const WITNESS_EVENTS = 'profile_artifacts/witness_events.json';
+function isObject(v) {
+    return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+// The block chain binds to the event chain only through chain_head_hash
+// (ATAP §7.3, §10): each block's chain_head_hash is the self_hash of the last
+// event it covers. Recompute every self_hash (§7.7), walk prev_event_hash from
+// genesis, then slice the events by event_count and match each block's head.
+// For an OAI witness no signature check is needed: the signed blocks' heads pin
+// every earlier event through the prev_event_hash chain. For a did:key witness
+// every witness_signature must verify under the key it encodes (ATAP-v0.2
+// §3.1), as verify.sh checks too, over the raw 32-byte self_hash (§7.7).
+function checkWitnessEvents(events, chain, ait, keys) {
+    if (!Array.isArray(events))
+        return `${WITNESS_EVENTS} is not an array`;
+    let prev = GENESIS_HASH;
+    for (const [i, e] of events.entries()) {
+        if (!isObject(e))
+            return `event ${i} is not an object`;
+        const { self_hash, witness_signature: _, ...unsigned } = e;
+        if (e.ait !== ait.id)
+            return `event ${i} (${e.id}) is not under ${ait.id}`;
+        if (sha256(canonicalizeBytes(unsigned)) !== self_hash)
+            return `event ${i} (${e.id}) self_hash mismatch`;
+        if (e.prev_event_hash !== prev)
+            return `event ${i} (${e.id}) prev_event_hash breaks the chain`;
+        if (isDidKey(ait.witness)) {
+            const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at);
+            if (!key)
+                return `no key for ${ait.witness} at ${e.witnessed_at}`;
+            if (typeof key === 'string')
+                return key;
+            // Malformed input is a verdict, not a TypeError.
+            if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, publicKeyFromHex(key.public_key))) {
+                return `event ${i} (${e.id}) signature invalid`;
+            }
+        }
+        prev = self_hash;
+    }
+    let at = 0;
+    for (const b of chain) {
+        const first = events[at];
+        const last = events[at + b.event_count - 1];
+        if (!first || !last)
+            return `block ${b.id} covers events ${at}..${at + b.event_count - 1}; only ${events.length} present`;
+        if (first.id !== b.first_event)
+            return `event ${at} (${first.id}) is not block ${b.id}'s first_event`;
+        if (last.id !== b.last_event)
+            return `event ${at + b.event_count - 1} (${last.id}) is not block ${b.id}'s last_event`;
+        if (last.self_hash !== b.chain_head_hash)
+            return `event ${at + b.event_count - 1} (${last.id}) does not match block ${b.id}'s chain_head_hash`;
+        at += b.event_count;
+    }
+    if (at !== events.length)
+        return `${events.length} events but the blocks cover ${at}`;
+    return null;
+}
+// A manifest path resolved against a virtual receipt root: the normalised
+// path, or null if `rel` is absolute or lands outside the root (or on it).
+// Pure string work, no node:path, so the browser viewer can bundle it.
+// Backslashes and drive letters are refused outright: on a Windows host the
+// CLI's join() would treat them as separators or roots.
+function normaliseReceiptPath(rel) {
+    if (rel.startsWith('/') || rel.includes('\\') || /^[A-Za-z]:/.test(rel))
+        return null;
+    const out = [];
+    for (const s of rel.split('/')) {
+        if (s === '' || s === '.')
+            continue;
+        if (s !== '..')
+            out.push(s);
+        else if (!out.pop())
+            return null;
+    }
+    return out.length ? out.join('/') : null;
+}
+// manifest.files[] integrity, as verify.sh checks it first. `read` returns a
+// file's bytes or undefined if it is missing; it is synchronous so the viewer
+// can run this inside its record/replay crypto shim. The manifest is untrusted
+// input: a path like ../x is refused before it is read, so a receipt cannot
+// make us hash files outside its own directory.
+function checkManifestFiles(receipt, read) {
+    for (const f of receipt.files ?? []) {
+        const rel = normaliseReceiptPath(f.path);
+        if (rel === null)
+            return `${f.path} escapes the receipt directory`;
+        if (f.sha256 === null)
+            continue;
+        const bytes = read(rel);
+        if (!bytes)
+            return `${f.path} missing`;
+        if (sha256(bytes) !== f.sha256)
+            return `${f.path} sha256 mismatch`;
+    }
+    return null;
+}
+return { pickDidKeyKey, verifyReceipt, WITNESS_EVENTS, checkWitnessEvents, normaliseReceiptPath, checkManifestFiles };
 })();
 __mods["viewer/zip"] = (function () {
 // A small ZIP reader for one receipt. The ZIP is hostile input: every size,
@@ -787,17 +884,15 @@ return { NO_ED25519, render };
 __mods["viewer/main"] = (function () {
 // The page's verifier and its wiring to the DOM.
 //
-// verifyFiles is a port of `atap-witness verify DIR` (packages/atap-cli/src/
-// cli.ts: verify, checkWitnessEvents, escapes): same steps, same order, same
-// reason strings, so the page and the CLI agree. Keep the two in step. The
-// chain and signature checks are atap-js's own verifyReceipt, bundled.
+// verifyFiles runs the same steps as `atap-witness verify DIR` (packages/
+// atap-cli/src/cli.ts: verify) in the same order. The rules themselves
+// (checkManifestFiles, verifyReceipt, checkWitnessEvents) live in atap-js and
+// are bundled, so the page and the CLI share one implementation.
 
-const { canonicalizeBytes, ed25519Verify, fromHex, GENESIS_HASH, isDidKey, pickDidKeyKey, publicKeyFromDidKey, publicKeyFromHex, sha256, verifyReceipt } = Object.assign({}, __mods["atap/types"], __mods["atap/canonicalize"], __mods["atap/crypto"], __mods["atap/didkey"], __mods["atap/verify"]);
+const { checkManifestFiles, checkWitnessEvents, fromHex, verifyReceipt, WITNESS_EVENTS } = Object.assign({}, __mods["atap/types"], __mods["atap/canonicalize"], __mods["atap/crypto"], __mods["atap/didkey"], __mods["atap/verify"]);
 const { pendingCount, resolvePending } = __mods["viewer/shim"];
 const { MAX_ZIP_BYTES, readZip } = __mods["viewer/zip"];
 const { render } = __mods["viewer/render"];
-
-const WITNESS_EVENTS = 'profile_artifacts/witness_events.json'
 
 // RFC 8032 §7.1 test 1: the empty message signed by this key.
 const TEST_PK = fromHex('d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a')
@@ -812,23 +907,6 @@ async function ed25519Supported() {
   }
 }
 
-function isObject(v) {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
-// cli.ts escapes() against a virtual root: the normalised path, or null if
-// `rel` lands outside the root (or on it).
-function normalise(rel) {
-  if (rel.startsWith('/')) return null
-  const out = []
-  for (const s of rel.split('/')) {
-    if (s === '' || s === '.') continue
-    if (s !== '..') out.push(s)
-    else if (!out.pop()) return null
-  }
-  return out.length ? out.join('/') : null
-}
-
 function readJson(files, name) {
   try {
     return JSON.parse(new TextDecoder().decode(files.get(name)))
@@ -837,65 +915,24 @@ function readJson(files, name) {
   }
 }
 
-async function sha256Hex(bytes) {
-  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
-  return '0x' + Array.from(d, x => x.toString(16).padStart(2, '0')).join('')
-}
-
-// Copied from cli.ts checkWitnessEvents; see the comment there.
-function checkWitnessEvents(events, chain, ait, keys) {
-  if (!Array.isArray(events)) return `${WITNESS_EVENTS} is not an array`
-  let prev = GENESIS_HASH
-  for (const [i, e] of events.entries()) {
-    if (!isObject(e)) return `event ${i} is not an object`
-    const { self_hash, witness_signature: _, ...unsigned } = e
-    if (e.ait !== ait.id) return `event ${i} (${e.id}) is not under ${ait.id}`
-    if (sha256(canonicalizeBytes(unsigned)) !== self_hash) return `event ${i} (${e.id}) self_hash mismatch`
-    if (e.prev_event_hash !== prev) return `event ${i} (${e.id}) prev_event_hash breaks the chain`
-    if (isDidKey(ait.witness)) {
-      const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at)
-      if (!key) return `no key for ${ait.witness} at ${e.witnessed_at}`
-      if (typeof key === 'string') return key
-      if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, publicKeyFromHex(key.public_key))) {
-        return `event ${i} (${e.id}) signature invalid`
-      }
-    }
-    prev = self_hash
-  }
-  let at = 0
-  for (const b of chain) {
-    const first = events[at]
-    const last = events[at + b.event_count - 1]
-    if (!first || !last) return `block ${b.id} covers events ${at}..${at + b.event_count - 1}; only ${events.length} present`
-    if (first.id !== b.first_event) return `event ${at} (${first.id}) is not block ${b.id}'s first_event`
-    if (last.id !== b.last_event) return `event ${at + b.event_count - 1} (${last.id}) is not block ${b.id}'s last_event`
-    if (last.self_hash !== b.chain_head_hash) return `event ${at + b.event_count - 1} (${last.id}) does not match block ${b.id}'s chain_head_hash`
-    at += b.event_count
-  }
-  if (at !== events.length) return `${events.length} events but the blocks cover ${at}`
-  return null
-}
-
 // files: Map<path, bytes> from readZip. Returns { result, receipt, ait, events }.
 // Where the CLI would crash with an error, the result carries it as the reason.
 async function verifyFiles(files) {
   const fail = reason => ({ result: { ok: false, blocks: 0, reason } })
   const receipt = readJson(files, 'manifest.json')
-  for (const f of receipt.files ?? []) {
-    const rel = normalise(f.path)
-    if (rel === null) return fail(`${f.path} escapes the receipt directory`)
-    if (f.sha256 === null) continue
-    const bytes = files.get(rel)
-    if (!bytes) return fail(`${f.path} missing`)
-    if ((await sha256Hex(bytes)) !== f.sha256) return fail(`${f.path} sha256 mismatch`)
-  }
-  const ait = readJson(files, 'ait.json')
-  const chain = readJson(files, 'attestation_chain.json')
-  const keys = readJson(files, 'public_keys.json')
   const listed = receipt.files?.some(f => f.path === WITNESS_EVENTS)
+  let ait
   let events = []
+  // Everything that hashes or verifies runs inside a pass, manifest files
+  // first, so the shim can record and replay it. A read error here was a
+  // crash in the CLI; it lands in the reason, as verifyZip would put it.
   const run = () => {
     try {
+      const bad = checkManifestFiles(receipt, rel => files.get(rel))
+      if (bad) return { ok: false, blocks: 0, reason: bad }
+      ait = readJson(files, 'ait.json')
+      const chain = readJson(files, 'attestation_chain.json')
+      const keys = readJson(files, 'public_keys.json')
       const result = verifyReceipt({ receipt, ait, chain, keys })
       if (!result.ok || !listed) return result
       events = readJson(files, WITNESS_EVENTS)
@@ -909,7 +946,8 @@ async function verifyFiles(files) {
   // this bound only stops a loop that would never settle.
   // ponytail: every pass reruns from the top, O(n²) in blocks+events; fine
   // under the 10 MiB entry cap, batch-precompute if receipts grow past that.
-  const n = (Array.isArray(chain) ? chain.length : 0) + (listed ? (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0) : 0)
+  const chain = readJsonOr(files, 'attestation_chain.json')
+  const n = (receipt.files?.length ?? 0) + (Array.isArray(chain) ? chain.length : 0) + (listed ? (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0) : 0)
   for (let pass = 0; pass <= 4 * n + 8; pass++) {
     const result = run()
     if (pendingCount() === 0) return { result, receipt, ait, events }
