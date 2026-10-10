@@ -99,6 +99,7 @@ types and aggregation rules lives in **application profiles**:
 |---|---|---|
 | `sigil:media_buyer:v1` | TunnelMind | Reference profile, ships with v0.1. |
 | `tunnelmind:crew_ops:v1` | TunnelMind | Draft profile, see [`profiles/`](./profiles/profiles/tunnelmind-crew-ops-v1/profile.md). |
+| `tunnelmind:agent_tools:v1` | TunnelMind | Draft profile, see [`profiles/`](./profiles/profiles/tunnelmind-agent-tools-v1/profile.md). |
 | `sigil:ecommerce_buyer:v1` | TBD | Reserved. |
 | `sigil:data_broker:v1` | TBD | Reserved. |
 

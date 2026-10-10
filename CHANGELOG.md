@@ -69,6 +69,13 @@ All notable changes to ATAP are recorded here.
   for a crew's own operations on one host: autonomy decisions, owner
   ratifications, idea-intake decisions. The `atap-witness` CLI accepts it with
   no source change (`packages/atap-cli/test/crew-ops.test.mjs`).
+- `tunnelmind:agent_tools:v1` application profile
+  ([`profiles/profiles/tunnelmind-agent-tools-v1/`](./profiles/profiles/tunnelmind-agent-tools-v1/)),
+  status draft — event vocabulary, schemas, examples, and PII-rejection tests
+  for any agent's tool calls, model calls, handoffs and human decisions, on any
+  framework. Prompts, tool arguments and results, and model outputs appear only
+  as sha256; humans by role only. No change to the core spec, its schemas or
+  the Receipt layout.
 - `crew_ops:owner_command` event on `tunnelmind:crew_ops:v1` — a command the
   owner gave the crew and its outcome: `role` (`owner`), `command`
   (`crew_stop` | `crew_start` | `ratify_yes` | `ratify_no`), `target_sha256`,
