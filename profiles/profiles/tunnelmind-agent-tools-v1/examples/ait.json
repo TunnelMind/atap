@@ -1,0 +1,31 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "AgentIdentityToken",
+  "id": "AIT-01a12088-d200-7e84-aee4-326dd242904f",
+  "ait_version": "0.1",
+  "issued_at": "2026-10-09T12:00:00.000Z",
+  "expires_at": "2026-11-08T12:00:00.000Z",
+  "agent_type": "agent-tools",
+  "profile": "tunnelmind:agent_tools:v1",
+  "operator": "OAI-2026-0010001",
+  "witness": "OAI-2026-0010002",
+  "capabilities": [
+    "agent_tools:call_tools",
+    "agent_tools:call_models",
+    "agent_tools:handoff",
+    "agent_tools:ask_human"
+  ],
+  "constraints": {
+    "allowed_tools": [
+      "web_search",
+      "mcp:files/read"
+    ],
+    "max_tool_calls_per_session": 100
+  },
+  "attestation_policy": {
+    "witness_granularity": "per_action",
+    "block_interval_seconds": 3600,
+    "receipt_generation": "on_demand"
+  },
+  "witness_signature": "ed25519:0xc6a197205c1732087b98c7dfa4259262b6662433442ea048b354b178d68a4e6c2c49600b2f7b0b92fa86dabc317a01c2ddffdf9ea588378bea024eb602cb8e0c"
+}

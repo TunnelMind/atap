@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 import test_core  # noqa: F401  (puts src/ on sys.path)
@@ -78,6 +79,33 @@ class IntegrationTest(unittest.TestCase):
         self.assertIsNotNone(atap.receipt(out), self.hook_log())
         self.assertEqual(atap.verify(out), {"ok": True, "cli": True, "verify_sh": True})
         self.assertEqual(self.hook_log(), "")
+
+    def test_agent_tools_profile(self):
+        # setUp's store has no events yet, so init --force may re-declare it
+        # under another registered profile.
+        subprocess.run([os.environ["ATAP_WITNESS"], "init", "--force", "--profile", "tunnelmind:agent_tools:v1"],
+                       check=True, capture_output=True)
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(), "evidence": "asserted", "tool": "web.search",
+            "input_sha256": "a" * 64, "output_sha256": "b" * 64, "outcome": "ok", "duration_ms": 12,
+        }
+        ev = atap.event("agent_tools:tool_called", payload)
+        self.assertIsNotNone(ev, self.hook_log())
+        self.assertEqual(ev["event_type"], "agent_tools:tool_called")
+        # A PII payload is refused: None, and one fixed-text line in hook.log
+        # that never quotes the payload.
+        self.assertIsNone(atap.event("agent_tools:tool_called", {**payload, "tool": "jane@example.com"}))
+        self.assertEqual(self.hook_log().split(" ", 1)[1], "event atap-witness event failed: exit 1\n")
+        summary = {
+            "events": {"session_started": 0, "tool_called": 1, "model_called": 0, "handoff": 0, "human_decision": 0},
+            "tool_outcomes": {"ok": 1, "error": 0, "denied": 0}, "total_tokens": 0,
+        }
+        block = atap.block(summary)
+        self.assertIsNotNone(block, self.hook_log())
+        self.assertEqual(block["event_count"], 1)
+        out = self.root / "out"
+        self.assertIsNotNone(atap.receipt(out), self.hook_log())
+        self.assertEqual(atap.verify(out), {"ok": True, "cli": True, "verify_sh": True})
 
     def hook_log(self):
         f = self.project / ".atap" / "hook.log"

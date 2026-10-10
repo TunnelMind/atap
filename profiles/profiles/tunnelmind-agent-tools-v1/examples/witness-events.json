@@ -1,0 +1,96 @@
+[
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12088-d7dc-7777-b098-4c6f6054796b",
+    "ait": "AIT-01a12088-d200-7e84-aee4-326dd242904f",
+    "witnessed_at": "2026-10-09T12:00:01.500Z",
+    "event_type": "agent_tools:session_started",
+    "payload": {
+      "timestamp": "2026-10-09T12:00:01.500Z",
+      "evidence": "asserted",
+      "agent": "research-agent",
+      "framework": "langgraph",
+      "model": "claude-sonnet-5-5"
+    },
+    "prev_event_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "self_hash": "0xa2c5d9fbff5dca715484d6bc06fea6e6f84180f5d597d4917cccd340edf1abab",
+    "witness_signature": "ed25519:0xce90772779106b8bcb3a98af43366dcba8a0e8a91920d12d083f90ea77341ac4473725c82c80ef8de01cab0bb978030186ad628ff2c759fe39f8714a66f32d0c"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12088-ddb8-7246-aad4-01d62fd80c1d",
+    "ait": "AIT-01a12088-d200-7e84-aee4-326dd242904f",
+    "witnessed_at": "2026-10-09T12:00:03.000Z",
+    "event_type": "agent_tools:tool_called",
+    "payload": {
+      "timestamp": "2026-10-09T12:00:03.000Z",
+      "evidence": "asserted",
+      "tool": "web_search",
+      "input_sha256": "38e762cfad63193322b5474bc2c6edfb8beb2ba1391f796951f9a255b9d1659d",
+      "output_sha256": "97e2255a47d3fa064bc6f02b70898dbc96ff64bb840b8a2d56b36d9e98b2e681",
+      "outcome": "ok",
+      "duration_ms": 420
+    },
+    "prev_event_hash": "0xa2c5d9fbff5dca715484d6bc06fea6e6f84180f5d597d4917cccd340edf1abab",
+    "self_hash": "0x3eb43f084cf0bf7ec2efe6d92bb75bf6e8dfc5a3c5ac9ef1fbf32f05519a71ff",
+    "witness_signature": "ed25519:0xab0509ae20191399a1e911f6aacfc25cea942c50992f2ab6c87758d1aefc87d26a5ba109cc575ce8461806a4f218046573bbd9317cb669edb293ad75f4013f00"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12088-e394-7778-8b81-394dd25dc2fe",
+    "ait": "AIT-01a12088-d200-7e84-aee4-326dd242904f",
+    "witnessed_at": "2026-10-09T12:00:04.500Z",
+    "event_type": "agent_tools:model_called",
+    "payload": {
+      "timestamp": "2026-10-09T12:00:04.500Z",
+      "evidence": "asserted",
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 1200,
+      "output_tokens": 300,
+      "duration_ms": 2100,
+      "output_sha256": "75a760c305fd35d7a5f8e668c9b4b6eb373cc5c65aeee7316e851f7b7c24673b"
+    },
+    "prev_event_hash": "0x3eb43f084cf0bf7ec2efe6d92bb75bf6e8dfc5a3c5ac9ef1fbf32f05519a71ff",
+    "self_hash": "0x41a93b4791e88895dc4442ab645d0a488a665f56ad33b6f294423626d50c7b7d",
+    "witness_signature": "ed25519:0x318e49da8277ec66aee4a32db3ed699ddd419b06c7749fe44df70c01c01d013d3f6bffe4e177acd23d1dbc261babc40a93806b49fa9edb5cfc21aad5d6f8ee04"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12088-e970-72b9-8683-c5fe1fdc806a",
+    "ait": "AIT-01a12088-d200-7e84-aee4-326dd242904f",
+    "witnessed_at": "2026-10-09T12:00:06.000Z",
+    "event_type": "agent_tools:handoff",
+    "payload": {
+      "timestamp": "2026-10-09T12:00:06.000Z",
+      "evidence": "asserted",
+      "from_agent": "research-agent",
+      "to_agent": "review-agent"
+    },
+    "prev_event_hash": "0x41a93b4791e88895dc4442ab645d0a488a665f56ad33b6f294423626d50c7b7d",
+    "self_hash": "0x908adf601c17d2e3fb096b84f14667d3364e7205fff0006ee6db56730bfe6947",
+    "witness_signature": "ed25519:0xdf72341747dc95f171c0799b5bbfe99376a39e3f640ec7478d95081e90730b8b4bc42375781196b52bebb7f9b885c781271ec1c43d2c8033532fd0a588750e00"
+  },
+  {
+    "@context": "https://tunnelmind.ai/atap/context.jsonld",
+    "@type": "WitnessEvent",
+    "id": "ATAP-WE-01a12088-ef4c-7a42-bd2b-45737e405899",
+    "ait": "AIT-01a12088-d200-7e84-aee4-326dd242904f",
+    "witnessed_at": "2026-10-09T12:00:07.500Z",
+    "event_type": "agent_tools:human_decision",
+    "payload": {
+      "timestamp": "2026-10-09T12:00:07.500Z",
+      "evidence": "asserted",
+      "role": "operator",
+      "decision": "approve",
+      "subject_sha256": "75a760c305fd35d7a5f8e668c9b4b6eb373cc5c65aeee7316e851f7b7c24673b",
+      "channel": "cli"
+    },
+    "prev_event_hash": "0x908adf601c17d2e3fb096b84f14667d3364e7205fff0006ee6db56730bfe6947",
+    "self_hash": "0x51bc61600d2e53226252086ccb8c3a9cef74553bc4dfb04f42a79583d2b8fa73",
+    "witness_signature": "ed25519:0xd6c9d32d7229ec311c44a92b2470ece70fd5a7d129f56d14319d0d92fe6b3728835ed24c8e2bd728d78b795d3072c966681f0c82bdb4d0880e4deace2ede3003"
+  }
+]

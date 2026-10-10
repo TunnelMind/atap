@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-agent-tools-v1/witness-events.schema.json",
+  "title": "tunnelmind:agent_tools:v1 — Witness Event payloads",
+  "description": "Binds each profile event_type to its payload schema. A conformant Witness Event MUST validate against BOTH the ATAP v0.1 base witness-event schema (the envelope: @context, id, hashes, signature) AND this schema (the event_type vocabulary and payload shape). Every payload sets additionalProperties:false — that is how this profile encodes the ATAP §7.6 no-PII prohibition: a payload carrying a person's name, email, IP address, a prompt or a tool result has no permitted key for it and fails validation. Every other field is a closed enum, an integer, an identifier pattern or a sha256 digest, so no field can carry free text.",
+  "type": "object",
+  "required": ["event_type", "payload"],
+  "properties": {
+    "event_type": {
+      "enum": [
+        "agent_tools:session_started",
+        "agent_tools:tool_called",
+        "agent_tools:model_called",
+        "agent_tools:handoff",
+        "agent_tools:human_decision"
+      ]
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "const": "agent_tools:session_started" } }, "required": ["event_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/session_started" } } } },
+    { "if": { "properties": { "event_type": { "const": "agent_tools:tool_called" } }, "required": ["event_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/tool_called" } } } },
+    { "if": { "properties": { "event_type": { "const": "agent_tools:model_called" } }, "required": ["event_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/model_called" } } } },
+    { "if": { "properties": { "event_type": { "const": "agent_tools:handoff" } }, "required": ["event_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/handoff" } } } },
+    { "if": { "properties": { "event_type": { "const": "agent_tools:human_decision" } }, "required": ["event_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/human_decision" } } } }
+  ],
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "evidence": {
+      "enum": ["asserted", "anchored", "witnessed"],
+      "description": "How strong the claim is. asserted: the agent says so — every event the agent's own code reports. anchored: bound to something a verifier can look up. witnessed: a separate process (a proxy, a gateway) observed it, not the agent."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$",
+      "description": "An agent, framework, model, tool or channel name. No spaces or `@`, so it cannot carry a sentence, a person's name or an email."
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "session_started": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "agent", "framework"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "agent": { "$ref": "#/$defs/identifier" },
+        "framework": { "$ref": "#/$defs/identifier", "description": "e.g. `langgraph`, `openai-agents`, `crewai`, `custom`." },
+        "model": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "tool_called": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "tool", "input_sha256", "outcome", "duration_ms"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "tool": { "$ref": "#/$defs/identifier" },
+        "input_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the tool arguments; the arguments stay out of the payload." },
+        "output_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the tool result; absent when the call errored or was denied." },
+        "outcome": { "enum": ["ok", "error", "denied"] },
+        "duration_ms": { "$ref": "#/$defs/count" }
+      }
+    },
+    "model_called": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "model", "duration_ms", "output_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "model": { "$ref": "#/$defs/identifier" },
+        "input_tokens": { "$ref": "#/$defs/count" },
+        "output_tokens": { "$ref": "#/$defs/count" },
+        "duration_ms": { "$ref": "#/$defs/count" },
+        "output_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the model output; the output stays out of the payload." }
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "from_agent", "to_agent"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "from_agent": { "$ref": "#/$defs/identifier" },
+        "to_agent": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "human_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "role", "decision", "subject_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "role": { "enum": ["owner", "operator", "user"], "description": "A human decision records the role, never the person (ATAP §7.6)." },
+        "decision": { "enum": ["approve", "reject", "edit"] },
+        "subject_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of what the human decided on; the subject itself stays out of the payload." },
+        "channel": { "$ref": "#/$defs/identifier" }
+      }
+    }
+  }
+}
