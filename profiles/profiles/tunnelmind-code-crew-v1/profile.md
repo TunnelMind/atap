@@ -25,7 +25,8 @@ The profile string is `tunnelmind:code_crew:v1` — `{namespace}:{domain}:v{N}`.
 TunnelMind claims the `tunnelmind` namespace in this registry. A breaking
 change to any schema in this profile is published as `tunnelmind:code_crew:v2`.
 While the status is draft the identifier may still be renamed; once the status
-is reference, this version's schemas are frozen.
+is reference, this version's schemas are frozen. An additive change, one that
+every existing event still validates against unchanged, stays `v1` (see §12).
 
 ## 3. Witness model
 
@@ -42,8 +43,12 @@ verifier can rely on:
 
 Tier rules for this profile:
 
-- `code_crew:change_committed` and `code_crew:merged` are always `anchored` —
-  the sha is checkable in the repo. The schema pins `evidence` to `anchored`.
+- `code_crew:change_committed` is always `anchored` — the sha is checkable in
+  the repo. The schema pins `evidence` to `anchored`.
+- `code_crew:merged` is `anchored` for a PR merge — the PR and its merge
+  commit are public and checkable in the repo — and `asserted` for a local
+  merge, because no third party can check a private local repo. The schema
+  pins `evidence` per `merge_kind`.
 - `code_crew:verify_run` is `witnessed` only if the witness ran the command
   itself; otherwise `asserted`.
 - `code_crew:deployed` is `anchored` when `version_id` is publicly checkable
@@ -106,7 +111,8 @@ event types, so each carries the `code_crew:` prefix. Every payload requires
 | `code_crew:qa_verdict` | `task_id`, `verdict` (`accepted` \| `rework`), `attempt` (≥ 1) |
 | `code_crew:review_verdict` | `head_sha`, `verdict` (`pass` \| `fail`), `findings` {`critical`, `high`, `medium`, `low`} counts |
 | `code_crew:approval` | `role` (always `owner`), `decision` (`approve` \| `reject`), `channel`, `approval_text_sha256` |
-| `code_crew:merged` | `repo`, `pr_number`, `merge_commit_sha`; `evidence` = `anchored` |
+| `code_crew:merged` (PR merge) | `merge_kind` (`pr`, or absent), `repo` (`owner/repo`), `pr_number` (≥ 1), `merge_commit_sha`; `evidence` = `anchored` |
+| `code_crew:merged` (local merge) | `merge_kind` = `local`, `repo` (repo basename, no owner), `merge_commit_sha`; no `pr_number`; `evidence` = `asserted` |
 | `code_crew:deployed` | `target`, `version_id` |
 
 Commands, outputs and approval texts are recorded as sha256 digests only: the
@@ -201,3 +207,6 @@ are re-verified in CI (`npm run verify`). Repos, shas and OAIs are illustrative.
 
 - **v1 (2026-10-08)** — initial draft profile.
 - **v1 (2026-10-08)** — §9 defines `profile_artifacts/witness_events.json`.
+- **v1 (2026-10-12)** — `code_crew:merged` also accepts a local merge
+  (`merge_kind: "local"`) for a repo with no PR; §3 and §6 updated. Additive:
+  every existing event validates unchanged, so the identifier stays `v1`.

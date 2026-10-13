@@ -6,6 +6,15 @@ All notable changes to ATAP are recorded here.
 
 ### Changed
 
+- **Profile (2026-10-12): `tunnelmind:code_crew:v1` records local merges.**
+  `code_crew:merged` now accepts a second shape for a repo with no PR:
+  `merge_kind: "local"`, `repo` as the repo basename, `merge_commit_sha`, and
+  no `pr_number`. A PR merge (`merge_kind` absent or `"pr"`) is unchanged:
+  `pr_number` required, `repo` as `owner/repo`, evidence `anchored`. A local
+  merge's evidence is `asserted`, because no third party can check a private
+  local repo. Additive and backward compatible: every existing event and
+  Receipt validates unchanged, so the identifier stays `v1`. No `verify.sh`,
+  hash or Receipt layout change.
 - **Editorial (2026-10-08): the profile registry's repository moved.** The
   registry now lives in the `profiles/` directory of this repository; the
   separate `atap-profiles` repository was folded in with its history
