@@ -1,0 +1,146 @@
+{
+  "description": "code_crew:merged payload shapes. A PR merge (merge_kind absent or pr) needs owner/repo + pr_number and is anchored; a local merge (merge_kind local) names the repo basename, carries no pr_number and is asserted, since no third party can check a private local repo. CI asserts every must_accept case validates and every must_reject case fails the profile schema.",
+  "must_accept": [
+    {
+      "name": "pr_merge_without_merge_kind",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "evidence": "anchored",
+          "repo": "example-org/example-repo",
+          "pr_number": 42
+        }
+      }
+    },
+    {
+      "name": "pr_merge_with_merge_kind_pr",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "merge_kind": "pr",
+          "evidence": "anchored",
+          "repo": "example-org/example-repo",
+          "pr_number": 42
+        }
+      }
+    },
+    {
+      "name": "local_merge_asserted",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "merge_kind": "local",
+          "evidence": "asserted",
+          "repo": "tm-crawl"
+        }
+      }
+    }
+  ],
+  "must_reject": [
+    {
+      "name": "local_merge_anchored",
+      "reason": "a local merge cannot be anchored",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "merge_kind": "local",
+          "evidence": "anchored",
+          "repo": "tm-crawl"
+        }
+      }
+    },
+    {
+      "name": "local_merge_with_pr_number",
+      "reason": "a local merge has no PR",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "merge_kind": "local",
+          "evidence": "asserted",
+          "repo": "tm-crawl",
+          "pr_number": 7
+        }
+      }
+    },
+    {
+      "name": "local_merge_owner_repo",
+      "reason": "a local merge repo is a basename, not owner/repo",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "merge_kind": "local",
+          "evidence": "asserted",
+          "repo": "a/b"
+        }
+      }
+    },
+    {
+      "name": "pr_merge_without_pr_number",
+      "reason": "a PR merge needs pr_number",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "evidence": "anchored",
+          "repo": "example-org/example-repo"
+        }
+      }
+    },
+    {
+      "name": "pr_merge_asserted",
+      "reason": "a PR merge is anchored",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "evidence": "asserted",
+          "repo": "example-org/example-repo",
+          "pr_number": 42
+        }
+      }
+    },
+    {
+      "name": "pr_merge_basename_repo",
+      "reason": "a PR merge repo is owner/repo",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "evidence": "anchored",
+          "repo": "tm-crawl",
+          "pr_number": 42
+        }
+      }
+    },
+    {
+      "name": "unknown_merge_kind",
+      "reason": "merge_kind is pr or local",
+      "event": {
+        "event_type": "code_crew:merged",
+        "payload": {
+          "timestamp": "2026-10-12T12:00:00Z",
+          "merge_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+          "merge_kind": "squash",
+          "evidence": "anchored",
+          "repo": "example-org/example-repo",
+          "pr_number": 42
+        }
+      }
+    }
+  ]
+}
