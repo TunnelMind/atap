@@ -51,6 +51,7 @@
     "agent_role": { "enum": ["supervisor", "coder", "qa", "reviewer", "coordinator"] },
     "model": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$" },
     "repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$", "description": "owner/repo" },
+    "repo_name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}$", "description": "Repo basename, no owner; for a private local repo with no public owner/repo." },
     "git_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "count": { "type": "integer", "minimum": 0 },
@@ -139,13 +140,23 @@
     "merged": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timestamp", "evidence", "repo", "pr_number", "merge_commit_sha"],
+      "required": ["timestamp", "evidence", "repo", "merge_commit_sha"],
       "properties": {
         "timestamp": { "$ref": "#/$defs/timestamp" },
-        "evidence": { "$ref": "#/$defs/evidence", "const": "anchored", "description": "The merge commit is checkable in the repo." },
-        "repo": { "$ref": "#/$defs/repo" },
+        "evidence": { "$ref": "#/$defs/evidence", "description": "A PR merge is anchored: the PR and its merge commit are public and checkable in the repo. A local merge is asserted: no third party can check a private local repo." },
+        "merge_kind": { "enum": ["pr", "local"], "description": "pr (the default when absent) or local. Shape per kind is enforced by the if/then/else below." },
+        "repo": { "type": "string", "description": "owner/repo for a PR merge; the repo basename for a local merge." },
         "pr_number": { "type": "integer", "minimum": 1 },
         "merge_commit_sha": { "$ref": "#/$defs/git_sha" }
+      },
+      "if": { "properties": { "merge_kind": { "const": "local" } }, "required": ["merge_kind"] },
+      "then": {
+        "properties": { "evidence": { "const": "asserted" }, "repo": { "$ref": "#/$defs/repo_name" } },
+        "not": { "required": ["pr_number"] }
+      },
+      "else": {
+        "required": ["pr_number"],
+        "properties": { "evidence": { "const": "anchored" }, "repo": { "$ref": "#/$defs/repo" } }
       }
     },
     "deployed": {

@@ -107,6 +107,22 @@ for (const profile of readdirSync(profilesDir)) {
         : pass(`PII case "${c.name}" correctly rejected (${c.reason})`);
     }
   }
+
+  // payload-shape cases (e.g. code_crew:merged PR vs local): must_accept
+  // validates, must_reject fails the profile schema
+  const shapesPath = join(pdir, 'tests', 'merged-shapes.json');
+  if (existsSync(shapesPath)) {
+    const v = compiled['witness-events'];
+    const shapes = readJson(shapesPath);
+    for (const c of shapes.must_accept) {
+      v(c.event) ? pass(`shape case "${c.name}" correctly accepted`) : fail(`shape case "${c.name}" was REJECTED — must be accepted: ${errs(v)}`);
+    }
+    for (const c of shapes.must_reject) {
+      v(c.event)
+        ? fail(`shape case "${c.name}" was ACCEPTED — must be rejected (${c.reason})`)
+        : pass(`shape case "${c.name}" correctly rejected (${c.reason})`);
+    }
+  }
 }
 
 // ── ATAP v0.2: did:key witnesses ─────────────────────────────────────────────
