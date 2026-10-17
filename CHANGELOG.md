@@ -6,6 +6,10 @@ All notable changes to ATAP are recorded here.
 
 ### Changed
 
+- **Spec (2026-10-17): DRAFT ATAP v0.1.1 amendment added** (`ATAP-v0.1.1.md`,
+  DRAFT for Josh, not in force): holder credential at AIT acceptance, receipts
+  from genesis, never run a receipt's bundled `verify.sh`, §13 patch row, and
+  four v0.1 spec gaps.
 - **Verifiers (2026-10-17): `--keys` for OAI witnesses (A003).** A receipt's
   own `public_keys.json` is chosen by whoever made the receipt, so it proves
   nothing about who signed. `verify.sh [RECEIPT_DIR] [--keys FILE_OR_URL]` and
