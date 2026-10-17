@@ -1,0 +1,9 @@
+[
+  {
+    "principle": "I",
+    "file": "profiles/profiles/tunnelmind-crew-ops-v1/scripts/generate-examples.mjs",
+    "reason": "The crew-ops profile's autonomy_decision event records a decision the crew already made, as a witnessed fact (evidence 'asserted'); the example generator writes that recorded value. It is not an authorization outcome the code issues. Pre-existing on main (a8e25db, B501); surfaced when atap-1017 pushed.",
+    "accepted": "2026-10-17",
+    "accepted_by": "Josh (chat 2026-10-17: 'Accept the finding')"
+  }
+]
