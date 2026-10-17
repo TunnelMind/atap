@@ -23,6 +23,8 @@ export async function ed25519Supported() {
   }
 }
 
+const CODE_CREW_PROFILE = 'tunnelmind:code_crew:v1'
+
 function readJson(files, name) {
   try {
     return JSON.parse(new TextDecoder().decode(files.get(name)))
@@ -36,7 +38,14 @@ function readJson(files, name) {
 async function verifyFiles(files) {
   const fail = reason => ({ result: { ok: false, blocks: 0, reason } })
   const receipt = readJson(files, 'manifest.json')
-  const listed = receipt.files?.some(f => f.path === WITNESS_EVENTS)
+  // Every entry must be listed in files[], as in the CLI's receiptEntries (scitt/
+  // is the CLI's own sidecar, never listed).
+  const present = [...files.keys()].filter(k => !k.startsWith('scitt/'))
+  // The events are checked whenever the receipt carries or lists them, or its
+  // profile requires them, as the CLI's verify(): dropping them from files[]
+  // must not skip the check. Absent but required, readJson throws and the
+  // reason says so (the CLI crashes there).
+  const hasEvents = files.has(WITNESS_EVENTS) || receipt.files?.some(f => f.path === WITNESS_EVENTS)
   let ait
   let events = []
   // Everything that hashes or verifies runs inside a pass, manifest files
@@ -44,13 +53,14 @@ async function verifyFiles(files) {
   // crash in the CLI; it lands in the reason, as verifyZip would put it.
   const run = () => {
     try {
-      const bad = checkManifestFiles(receipt, rel => files.get(rel))
+      const bad = checkManifestFiles(receipt, rel => files.get(rel), present)
       if (bad) return { ok: false, blocks: 0, reason: bad }
       ait = readJson(files, 'ait.json')
       const chain = readJson(files, 'attestation_chain.json')
       const keys = readJson(files, 'public_keys.json')
       const result = verifyReceipt({ receipt, ait, chain, keys })
-      if (!result.ok || !listed) return result
+      if (!result.ok) return result
+      if (!hasEvents && ait.profile !== CODE_CREW_PROFILE) return result
       events = readJson(files, WITNESS_EVENTS)
       const reason = checkWitnessEvents(events, chain, ait, keys)
       return reason ? { ok: false, blocks: 0, reason } : result
@@ -63,7 +73,7 @@ async function verifyFiles(files) {
   // ponytail: every pass reruns from the top, O(n²) in blocks+events; fine
   // under the 10 MiB entry cap, batch-precompute if receipts grow past that.
   const chain = readJsonOr(files, 'attestation_chain.json')
-  const n = (receipt.files?.length ?? 0) + (Array.isArray(chain) ? chain.length : 0) + (listed ? (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0) : 0)
+  const n = (receipt.files?.length ?? 0) + (Array.isArray(chain) ? chain.length : 0) + (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0)
   for (let pass = 0; pass <= 4 * n + 8; pass++) {
     const result = run()
     if (pendingCount() === 0) return { result, receipt, ait, events }

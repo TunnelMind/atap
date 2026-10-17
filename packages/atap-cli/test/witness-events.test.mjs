@@ -120,6 +120,13 @@ test('receipt carries the covered events; verify checks them against the blocks'
     'removed last': [e => e.slice(0, -1), /event 4 .*last_event|covers events/],
     altered: [e => (e[2].witnessed_at = '2020-01-01T00:00:00Z', e), /event 2 .*self_hash mismatch/],
     reordered: [e => ([e[3], e[4]] = [e[4], e[3]], e), /event 3 .*prev_event_hash/],
+    // The last event edited and re-hashed: its own hash and link hold, but it
+    // is no longer the event the signed block's chain_head_hash names.
+    'rehashed head': [e => {
+      const { self_hash, witness_signature, ...u } = { ...e[4], witnessed_at: '2020-01-01T00:00:00.000Z' }
+      e[4] = { ...u, self_hash: sha256(canonicalizeBytes(u)), witness_signature }
+      return e
+    }, /event 4 .*chain_head_hash/],
   }
   for (const [name, [edit, reason]] of Object.entries(cases)) {
     const dir = tamper(out, join(tmp, name.replace(' ', '-')), edit, privateKey)
@@ -128,9 +135,9 @@ test('receipt carries the covered events; verify checks them against the blocks'
     const v = JSON.parse(r.stdout)
     assert.equal(v.ok, false)
     assert.match(v.reason, reason, name)
+    // A006 (T3): verify.sh walks the event chain too, for this OAI witness.
+    const sh = verifySh(dir)
+    assert.notEqual(sh.status, 0, `${name}: verify.sh accepted it`)
+    assert.match(sh.stderr, /FAIL: .*(event|covers events)/, name)
   }
-
-  // verify.sh does not read profile_artifacts (§7.5.1), so the re-signed
-  // altered receipt still passes it: the event check is the CLI's job.
-  assert.equal(verifySh(join(tmp, 'altered')).status, 0)
 })

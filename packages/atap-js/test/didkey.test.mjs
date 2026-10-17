@@ -85,7 +85,7 @@ async function chain({ witness, privateKey, operator = 'OAI-2026-0010001' }) {
   await svc.witness(ait.id, 'crew_ops:ratify', { n: 1 })
   await svc.witness(ait.id, 'crew_ops:ratify', { n: 2 })
   const block = await svc.rollUp(ait.id, { ratifications: 2 })
-  const receipt = await svc.generateReceipt(ait.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
   const keys = {
     keys: [{
       witness,
@@ -238,13 +238,14 @@ test('an OAI v0.1 chain still verifies, unchanged', async () => {
 
 // The receipt/AIT witness equality rule is did:key-only (ATAP-v0.2 §3.1); an
 // OAI receipt naming another witness that has a key still verifies, as in v0.1.
+// Re-signed: the receipt signature is checked for OAI witnesses too.
 test('an OAI receipt may name a different OAI witness than its AIT', async () => {
   const { privateKey } = generateKeyPairSync('ed25519')
   const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
   const other = { ...c.keys.keys[0], witness: 'OAI-2026-0010003', key_id: 'k2' }
   const r = verifyReceipt({
     ...c,
-    receipt: { ...c.receipt, witness: 'OAI-2026-0010003' },
+    receipt: resignAit({ ...c.receipt, witness: 'OAI-2026-0010003' }, privateKey),
     keys: { ...c.keys, keys: [...c.keys.keys, other] },
   })
   assert.equal(r.ok, true, r.reason)
@@ -278,4 +279,37 @@ test('an AIT with a missing or non-string witness or operator is rejected, not t
     assert.equal(r.blocks, 0)
     assert.match(r.reason, /not a string/)
   }
+})
+
+// A004: a receipt with no usable block chain fails. With the receipt's head
+// moved to genesis and re-signed, an empty chain used to walk zero blocks and pass.
+test('an empty or non-array attestation chain fails', async () => {
+  const c = await didChain()
+  assert.equal(verifyReceipt(c).ok, true)
+  const receipt = resignReceipt({ ...c.receipt, chain_head_hash: '0x' + '00'.repeat(32) }, c.privateKey)
+  for (const chain of [[], {}, 'x', null]) {
+    const r = verifyReceipt({ ...c, receipt, chain })
+    assert.equal(r.ok, false, JSON.stringify(chain))
+    assert.equal(r.reason, 'attestation chain is not a non-empty array')
+  }
+})
+
+// A005 (T9): the receipt and every block belong to the AIT. Each record is
+// re-signed by the witness, so the signatures, self_hash and chain head are
+// valid and only the binding is wrong.
+test('a block or receipt bound to another AIT or profile fails', async () => {
+  const c = await didChain()
+  assert.equal(verifyReceipt(c).ok, true)
+  const withBlock = edit => {
+    const block = resignBlock({ ...c.chain[0], ...edit }, c.privateKey)
+    const receipt = resignReceipt({ ...c.receipt, chain_head_hash: block.self_hash }, c.privateKey)
+    return verifyReceipt({ ...c, receipt, chain: [block] })
+  }
+  const id = c.chain[0].id
+  let r = withBlock({ ait: 'AIT-00000000-0000-7000-8000-000000000000' })
+  assert.deepEqual([r.ok, r.reason], [false, `block ${id} ait AIT-00000000-0000-7000-8000-000000000000 != AIT id ${c.ait.id}`])
+  r = withBlock({ profile: 'tunnelmind:other:v1' })
+  assert.deepEqual([r.ok, r.reason], [false, `block ${id} profile tunnelmind:other:v1 != AIT profile ${c.ait.profile}`])
+  r = verifyReceipt({ ...c, receipt: resignReceipt({ ...c.receipt, ait: 'AIT-00000000-0000-7000-8000-000000000000' }, c.privateKey) })
+  assert.deepEqual([r.ok, r.reason], [false, `receipt ait AIT-00000000-0000-7000-8000-000000000000 != AIT id ${c.ait.id}`])
 })

@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -180,6 +180,41 @@ test('tamper: an altered event under a refreshed, re-signed manifest fails like 
   const sig = sign(null, canonicalizeBytes(rcpt), fresh.privateKey).toString('hex')
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...rcpt, witness_signature: `ed25519:0x${sig}` }, null, 2) + '\n')
   await sameReasonAsCli(dir, /event 1 .*self_hash mismatch/)
+})
+
+// A fresh receipt copy with manifest.files[] edited by fn and re-signed.
+async function resigned(name, fn) {
+  const { canonicalizeBytes } = await import(ATAP_JS)
+  const dir = join(fresh.dir, name)
+  cpSync(fresh.out, dir, { recursive: true })
+  const { witness_signature: _, ...rcpt } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
+  rcpt.files = fn(rcpt.files)
+  const sig = sign(null, canonicalizeBytes(rcpt), fresh.privateKey).toString('hex')
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...rcpt, witness_signature: `ed25519:0x${sig}` }, null, 2) + '\n')
+  return dir
+}
+
+// R002: every ZIP entry must be listed, as the CLI's verify() (A006); scitt/ is ignored.
+test('an extra file the manifest does not list is refused like the CLI; scitt/ is ignored', { skip: skipFresh }, async () => {
+  const dir = join(fresh.dir, 'extra')
+  cpSync(fresh.out, dir, { recursive: true })
+  mkdirSync(join(dir, 'scitt'))
+  writeFileSync(join(dir, 'scitt', 'index.json'), '[]')
+  assert.equal((await viewer.verifyZip(zipDir(dir))).result.ok, true)
+  writeFileSync(join(dir, 'extra.txt'), 'x')
+  await sameReasonAsCli(dir, /extra\.txt is in the receipt but not listed/)
+})
+
+// R002: dropping the events from files[] must not skip the event check.
+test('code_crew events dropped from files[] are still checked, present or deleted', { skip: skipFresh }, async () => {
+  const dir = await resigned('unlisted', files => files.filter(f => f.path !== ARTIFACT))
+  await sameReasonAsCli(dir, /witness_events\.json is in the receipt but not listed/)
+  // Deleted as well: the profile still requires them (the CLI crashes here).
+  rmSync(join(dir, ARTIFACT))
+  const v = await viewer.verifyZip(zipDir(dir))
+  assert.equal(v.status, 'done')
+  assert.equal(v.result.ok, false)
+  assert.match(v.result.reason, /witness_events\.json/)
 })
 
 test('hostile ZIP: a ../ entry is refused', async () => {

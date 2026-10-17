@@ -104,7 +104,7 @@ test('a v0.1 receipt generated after the AIT (and its key) expired still verifie
   await svc.witness(ait.id, 'code_crew:approval', {})
   const block = await svc.rollUp(ait.id, {})
   t += 2 * 86400_000
-  const receipt = await svc.generateReceipt(ait.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
   assert.ok(receipt.generated_at > ait.expires_at)
   const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
   const keys = {
@@ -122,5 +122,49 @@ test('a v0.1 receipt generated after the AIT (and its key) expired still verifie
     updated_at: receipt.generated_at,
   }
   const r = verifyReceipt({ ait, chain: [block], receipt, keys })
+  assert.equal(r.ok, true, r.reason)
+})
+
+// A query window wider than the blocks selects them, but the receipt signs the
+// chain's own period, so verifyReceipt (which checks it against the first and
+// last block) accepts it.
+test('a receipt for a window wider than its blocks takes the period from the blocks and verifies', async () => {
+  const storage = new InMemoryStorage()
+  const { privateKey } = generateKeyPairSync('ed25519')
+  let t = Date.parse('2026-10-09T12:00:00.000Z')
+  const svc = new WitnessService({ witnessOAI: WITNESS, privateKey, storage, now: () => new Date(t) })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(t + 30 * 86400_000).toISOString(),
+  })
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const b1 = await svc.rollUp(ait.id, {})
+  t += 60_000
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const b2 = await svc.rollUp(ait.id, {})
+  const receipt = await svc.generateReceipt(ait.id, '2026-10-01T00:00:00.000Z', '2026-10-31T00:00:00.000Z')
+  assert.equal(receipt.block_count, 2)
+  assert.equal(receipt.period_start, b1.period_start)
+  assert.equal(receipt.period_end, b2.period_end)
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const keys = {
+    keys: [{
+      witness: WITNESS,
+      key_id: 'k1',
+      algorithm: 'ed25519',
+      public_key: '0x' + toHex(new Uint8Array(der.subarray(der.length - 32))),
+      valid_from: ait.issued_at,
+      valid_until: ait.expires_at,
+      status: 'active',
+      rotated_to: null,
+      compromise_notice: null,
+    }],
+    updated_at: receipt.generated_at,
+  }
+  const r = verifyReceipt({ ait, chain: [b1, b2], receipt, keys })
   assert.equal(r.ok, true, r.reason)
 })

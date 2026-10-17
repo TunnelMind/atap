@@ -6,6 +6,21 @@ All notable changes to ATAP are recorded here.
 
 ### Changed
 
+- **Library (2026-10-17): `generateReceipt` takes the receipt's period from
+  its first and last block (R003).** It used to sign the caller's query window,
+  so a window wider than the blocks gave a receipt the library's own
+  `verifyReceipt` rejected. The arguments now only select the blocks.
+- **Spec (2026-10-17): DRAFT ATAP v0.1.1 amendment added** (`ATAP-v0.1.1.md`,
+  DRAFT for Josh, not in force): holder credential at AIT acceptance, receipts
+  from genesis, never run a receipt's bundled `verify.sh`, §13 patch row, and
+  four v0.1 spec gaps.
+- **Verifiers (2026-10-17): `--keys` for OAI witnesses (A003).** A receipt's
+  own `public_keys.json` is chosen by whoever made the receipt, so it proves
+  nothing about who signed. `verify.sh [RECEIPT_DIR] [--keys FILE_OR_URL]` and
+  `atap-witness verify DIR [--keys FILE]` check an OAI witness against the
+  trusted keys instead, and `verify.sh` prints the keys file's SHA-256. Without
+  `--keys` an OAI receipt still verifies, with a WARNING (`verify.sh` stderr,
+  the CLI's `warnings`). did:key receipts are unchanged.
 - **Profile (2026-10-12): `tunnelmind:code_crew:v1` records local merges.**
   `code_crew:merged` now accepts a second shape for a repo with no PR:
   `merge_kind: "local"`, `repo` as the repo basename, `merge_commit_sha`, and

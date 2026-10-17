@@ -11,7 +11,7 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync } from 'node:fs'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
@@ -22,6 +22,7 @@ import {
   WitnessService,
   cborDecode,
   checkManifestFiles,
+  normaliseReceiptPath,
   checkWitnessEvents,
   didKeyFromPublicKey,
   isDidKey,
@@ -77,7 +78,8 @@ const USAGE = `usage:
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
   atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
-  atap-witness verify DIR
+  atap-witness verify DIR [--keys public_keys.json]
+                                    (--keys: the OAI witness keys you trust, instead of the receipt's own copy)
   atap-witness verify --store [DIR] [--ait ID] [--keys public_keys.json]
                                     (check a store, e.g. a restored one, with no receipt or key; default ./.atap)
   atap-witness scitt export DIR --key K [--issuer ISS]
@@ -327,25 +329,91 @@ function escapes(root: string, rel: string): boolean {
   return r === '' || r === '..' || r.startsWith('..' + sep) || isAbsolute(r)
 }
 
+// True if `rel` (normalised, inside `root`) or any directory above it inside
+// `root` is a symlink. A missing component ends the walk: checkManifestFiles
+// reports a missing file.
+function underSymlink(root: string, rel: string): boolean {
+  const parts = rel.split('/')
+  for (let i = 1; i <= parts.length; i++) {
+    try {
+      if (lstatSync(join(root, ...parts.slice(0, i))).isSymbolicLink()) return true
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+// tunnelmind:code_crew:v1 profile.md §9: its receipts carry WITNESS_EVENTS.
+const CODE_CREW_PROFILE = 'tunnelmind:code_crew:v1'
+
+// Every entry under `root` but directories, relative and '/'-separated as
+// manifest.files[] lists them; scitt/ is left out, since scitt-export writes
+// it after the receipt is sealed. A symlink is an entry, never followed.
+async function receiptEntries(root: string, sub = ''): Promise<string[]> {
+  const out: string[] = []
+  for (const e of await readdir(join(root, sub), { withFileTypes: true })) {
+    const rel = sub ? `${sub}/${e.name}` : e.name
+    if (!e.isDirectory()) out.push(rel)
+    else if (rel !== SCITT_DIR) out.push(...await receiptEntries(root, rel))
+  }
+  return out
+}
+
 // Same checks as verify.sh: manifest.files[] integrity first, then the
 // signatures and chain via the library's verifyReceipt, then the profile's
-// witness events if the manifest lists them.
-async function verify(dir: string): Promise<VerifyResult> {
+// witness events if the manifest lists them. An OAI witness is checked against
+// keysFile when given; the receipt's own public_keys.json was chosen by whoever
+// made the receipt, so leaning on it earns a warning (as verify.sh's WARNING).
+// A did:key is its own key, so its receipts always use the bundled entries.
+async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   const receipt = await readJsonFile<Receipt>(dir, 'manifest.json')
   const root = resolve(dir)
+  const present = await receiptEntries(root)
+  // readFileSync follows symlinks, so a listed link (or a path under a linked
+  // directory) would hash a file outside the receipt. Refused, as verify.sh does.
+  for (const f of receipt.files ?? []) {
+    const rel = typeof f.path === 'string' ? normaliseReceiptPath(f.path) : null
+    if (rel && underSymlink(root, rel)) {
+      // Control characters stripped, as the library's reasons are.
+      return { ok: false, blocks: 0, reason: `${f.path.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')} is or is under a symlink` }
+    }
+  }
   const bad = checkManifestFiles(receipt, rel => {
     try {
       return readFileSync(join(root, rel))
     } catch {
       return undefined
     }
-  })
+  }, present)
   if (bad) return { ok: false, blocks: 0, reason: bad }
   const ait = await readJsonFile<AIT>(dir, 'ait.json')
   const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
-  const keys = await readJsonFile<KeysDocument>(dir, 'public_keys.json')
+  const oai = !isDidKey(ait.witness) || !isDidKey(receipt.witness)
+  let keys: KeysDocument
+  if (oai && keysFile) {
+    try {
+      keys = JSON.parse(await readFile(keysFile, 'utf8')) as KeysDocument
+    } catch {
+      throw new Error(`cannot read --keys ${keysFile}`)
+    }
+    if (!Array.isArray(keys?.keys)) throw new Error(`--keys ${keysFile} is not JSON with a .keys array`)
+  } else {
+    keys = await readJsonFile<KeysDocument>(dir, 'public_keys.json')
+  }
   const result = verifyReceipt({ receipt, ait, chain, keys })
-  if (!result.ok || !receipt.files?.some(f => f.path === WITNESS_EVENTS)) return result
+  if (oai && !keysFile) {
+    result.warnings = [
+      ...(result.warnings ?? []),
+      "OAI witness checked against the receipt's own public_keys.json: proves self-consistency, not who signed; pass --keys",
+    ]
+  }
+  // Checked whenever the receipt carries or lists the events, or its profile
+  // requires them: leaving them out of files[] must not skip the check
+  // (checkManifestFiles has already failed an unlisted events file).
+  if (!result.ok) return result
+  const hasEvents = present.includes(WITNESS_EVENTS) || receipt.files?.some(f => f.path === WITNESS_EVENTS)
+  if (!hasEvents && ait.profile !== CODE_CREW_PROFILE) return result
   const reason = checkWitnessEvents(await readJsonFile<WitnessEvent[]>(dir, WITNESS_EVENTS), chain, ait, keys)
   return reason ? { ok: false, blocks: 0, reason } : result
 }
@@ -406,6 +474,7 @@ async function verifyStore(dir: string, v: Values): Promise<StoreResult> {
   // Only the fields verifyReceipt reads; the rest of a Receipt describes files
   // a store does not have.
   const rcpt = {
+    ait: ait.id,
     witness,
     chain_head_hash: chain.at(-1)!.self_hash,
     attestation_strength: strength,
@@ -414,14 +483,28 @@ async function verifyStore(dir: string, v: Values): Promise<StoreResult> {
     witness_signature: `ed25519:0x${'00'.repeat(64)}`,
   } as Receipt
   let result = verifyReceipt({ receipt: rcpt, ait, chain, keys })
-  // For a did:key witness verifyReceipt ends by checking the receipt's own
-  // signature, which needs the private key; this stand-in's zero signature
-  // must fail it. That check runs after the AIT, every block and the chain head have
-  // passed, and the checks after it hold by construction (strength is
-  // 'self-asserted' on both sides), so this one reason means the store passed.
-  // If the library ever words it differently, this fails closed.
-  if (isDidKey(witness) && result.reason === 'receipt signature invalid') {
-    result = { ok: true, blocks: chain.length, attestation_strength: 'self-asserted' }
+  // verifyReceipt ends by checking the receipt's own signature, which needs
+  // the private key; this stand-in's zero signature must fail it. That check
+  // runs after the AIT, every block and the chain head have passed, so this
+  // one reason means the store passed those. The strength checks verifyReceipt
+  // would run after it are run here instead: a known strength, ranked no
+  // higher than the key in force at ait.issued_at (verifyReceipt's aitKey;
+  // a did:key store has one entry, 'self-asserted' on both sides).
+  // If the library ever words the reason differently, this fails closed.
+  if (result.reason === 'receipt signature invalid') {
+    const at = ait.issued_at
+    const aitKey = keys.keys.find(k =>
+      k.witness === witness &&
+      (isDidKey(witness) || (k.valid_from <= at && k.valid_until > at)) &&
+      (k.status !== 'compromised' || (k.compromise_notice && at < k.compromise_notice.disclosed_at)))
+    if (strength && !Object.hasOwn(ATTESTATION_STRENGTH_RANK, strength)) {
+      result = { ok: false, blocks: chain.length, reason: `unrecognized attestation_strength '${strength}'` }
+    } else if (strength && aitKey?.attestation_strength &&
+      ATTESTATION_STRENGTH_RANK[strength] > ATTESTATION_STRENGTH_RANK[aitKey.attestation_strength]) {
+      result = { ok: false, blocks: chain.length, reason: `attestation_strength=${strength} exceeds key attestation_strength=${aitKey.attestation_strength}` }
+    } else {
+      result = { ok: true, blocks: chain.length, attestation_strength: strength ?? 'self-asserted' }
+    }
   }
   if (!result.ok) return done(result)
   const reason = checkWitnessEvents(covered, chain, ait, keys)
@@ -790,7 +873,7 @@ async function main(argv: string[]): Promise<number> {
   }
   if (cmd === 'verify') {
     if (!pos[1]) throw new Error('usage: atap-witness verify <dir> | verify --store [dir]')
-    const result = await verify(pos[1])
+    const result = await verify(pos[1], v.keys)
     process.stdout.write(json(result))
     return result.ok ? 0 : 1
   }
