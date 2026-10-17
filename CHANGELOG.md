@@ -6,6 +6,10 @@ All notable changes to ATAP are recorded here.
 
 ### Changed
 
+- **Library (2026-10-17): `generateReceipt` takes the receipt's period from
+  its first and last block (R003).** It used to sign the caller's query window,
+  so a window wider than the blocks gave a receipt the library's own
+  `verifyReceipt` rejected. The arguments now only select the blocks.
 - **Spec (2026-10-17): DRAFT ATAP v0.1.1 amendment added** (`ATAP-v0.1.1.md`,
   DRAFT for Josh, not in force): holder credential at AIT acceptance, receipts
   from genesis, never run a receipt's bundled `verify.sh`, §13 patch row, and

@@ -284,8 +284,11 @@ export class WitnessService {
       id,
       ait: aitId,
       profile: ait.profile,
-      period_start: periodStart,
-      period_end: periodEnd,
+      // The receipt's period is the chain's, not the query window: verifyReceipt
+      // requires period_start == the first block's and period_end == the last
+      // block's, so a wider window would sign a receipt that fails to verify.
+      period_start: first.period_start,
+      period_end: last.period_end,
       block_count: blocks.length,
       event_count: eventCount,
       first_block: first.id,
