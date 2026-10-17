@@ -328,6 +328,22 @@ function escapes(root: string, rel: string): boolean {
   return r === '' || r === '..' || r.startsWith('..' + sep) || isAbsolute(r)
 }
 
+// tunnelmind:code_crew:v1 profile.md §9: its receipts carry WITNESS_EVENTS.
+const CODE_CREW_PROFILE = 'tunnelmind:code_crew:v1'
+
+// Every entry under `root` but directories, relative and '/'-separated as
+// manifest.files[] lists them; scitt/ is left out, since scitt-export writes
+// it after the receipt is sealed. A symlink is an entry, never followed.
+async function receiptEntries(root: string, sub = ''): Promise<string[]> {
+  const out: string[] = []
+  for (const e of await readdir(join(root, sub), { withFileTypes: true })) {
+    const rel = sub ? `${sub}/${e.name}` : e.name
+    if (!e.isDirectory()) out.push(rel)
+    else if (rel !== SCITT_DIR) out.push(...await receiptEntries(root, rel))
+  }
+  return out
+}
+
 // Same checks as verify.sh: manifest.files[] integrity first, then the
 // signatures and chain via the library's verifyReceipt, then the profile's
 // witness events if the manifest lists them. An OAI witness is checked against
@@ -337,13 +353,14 @@ function escapes(root: string, rel: string): boolean {
 async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   const receipt = await readJsonFile<Receipt>(dir, 'manifest.json')
   const root = resolve(dir)
+  const present = await receiptEntries(root)
   const bad = checkManifestFiles(receipt, rel => {
     try {
       return readFileSync(join(root, rel))
     } catch {
       return undefined
     }
-  })
+  }, present)
   if (bad) return { ok: false, blocks: 0, reason: bad }
   const ait = await readJsonFile<AIT>(dir, 'ait.json')
   const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
@@ -366,7 +383,12 @@ async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
       "OAI witness checked against the receipt's own public_keys.json: proves self-consistency, not who signed; pass --keys",
     ]
   }
-  if (!result.ok || !receipt.files?.some(f => f.path === WITNESS_EVENTS)) return result
+  // Checked whenever the receipt carries or lists the events, or its profile
+  // requires them: leaving them out of files[] must not skip the check
+  // (checkManifestFiles has already failed an unlisted events file).
+  if (!result.ok) return result
+  const hasEvents = present.includes(WITNESS_EVENTS) || receipt.files?.some(f => f.path === WITNESS_EVENTS)
+  if (!hasEvents && ait.profile !== CODE_CREW_PROFILE) return result
   const reason = checkWitnessEvents(await readJsonFile<WitnessEvent[]>(dir, WITNESS_EVENTS), chain, ait, keys)
   return reason ? { ok: false, blocks: 0, reason } : result
 }

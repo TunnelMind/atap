@@ -215,6 +215,27 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
     }
   }
 
+  // The signed receipt's period and counts must describe this chain (ATAP §7.5,
+  // as verify.sh step 4), or a validly re-signed receipt could claim a period
+  // or size the blocks do not have. After the signature check, which verify
+  // --store relies on reaching with its unsigned stand-in receipt.
+  {
+    const last = chain[chain.length - 1]!
+    const want: [keyof Receipt, unknown][] = [
+      ['period_start', chain[0]!.period_start],
+      ['period_end', last.period_end],
+      ['block_count', chain.length],
+      ['event_count', chain.reduce((n, b) => n + b.event_count, 0)],
+      ['first_block', chain[0]!.id],
+      ['last_block', last.id],
+    ]
+    for (const [field, w] of want) {
+      if (receipt[field] !== w) {
+        return { ok: false, blocks: chain.length, reason: `receipt ${field} mismatch (want ${JSON.stringify(w)}, got ${JSON.stringify(receipt[field])})` }
+      }
+    }
+  }
+
   // ATAP-v0.2 §3.2: a did:key receipt says exactly 'self-asserted'; absent is not enough.
   if (didRaw && receipt.attestation_strength !== 'self-asserted') {
     return {
@@ -305,6 +326,7 @@ export function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlo
   }
   let at = 0
   for (const b of chain) {
+    if (!Number.isInteger(b.event_count) || b.event_count < 1) return `block ${b.id} event_count is not a positive integer`
     const first = events[at]
     const last = events[at + b.event_count - 1]
     if (!first || !last) return `block ${b.id} covers events ${at}..${at + b.event_count - 1}; only ${events.length} present`
@@ -333,19 +355,34 @@ export function normaliseReceiptPath(rel: string): string | null {
   return out.length ? out.join('/') : null
 }
 
+// ATAP §7.5: files every receipt carries. All but manifest.json (which cannot
+// hash itself) are listed with a sha256, so none can be swapped unnoticed.
+const MANDATORY_RECEIPT_FILES = ['manifest.json', 'ait.json', 'attestation_chain.json', 'public_keys.json', 'verify.sh']
+
 // manifest.files[] integrity, as verify.sh checks it first. `read` returns a
 // file's bytes or undefined if it is missing; it is synchronous so the viewer
 // can run this inside its record/replay crypto shim. The manifest is untrusted
 // input: a path like ../x is refused before it is read, so a receipt cannot
-// make us hash files outside its own directory.
-export function checkManifestFiles(receipt: Receipt, read: (rel: string) => Uint8Array | undefined): string | null {
+// make us hash files outside its own directory. `present`, when given, is every
+// file in the receipt (relative paths, scitt/ left out): each must be listed,
+// or a file could ride along in the receipt with no hash covering it.
+export function checkManifestFiles(receipt: Receipt, read: (rel: string) => Uint8Array | undefined, present?: Iterable<string>): string | null {
+  const listed = new Map<string, string | null>()
   for (const f of receipt.files ?? []) {
     const rel = normaliseReceiptPath(f.path)
     if (rel === null) return `${f.path} escapes the receipt directory`
+    listed.set(rel, f.sha256)
     if (f.sha256 === null) continue
     const bytes = read(rel)
     if (!bytes) return `${f.path} missing`
     if (sha256(bytes) !== f.sha256) return `${f.path} sha256 mismatch`
+  }
+  for (const m of MANDATORY_RECEIPT_FILES) {
+    if (!listed.has(m)) return `${m} is not listed in manifest.files[] (ATAP §7.5)`
+    if (m !== 'manifest.json' && typeof listed.get(m) !== 'string') return `${m} is listed with no sha256 (ATAP §7.5)`
+  }
+  for (const p of present ?? []) {
+    if (!listed.has(p)) return `${p} is in the receipt but not listed in manifest.files[]`
   }
   return null
 }

@@ -85,7 +85,7 @@ async function chain({ witness, privateKey, operator = 'OAI-2026-0010001' }) {
   await svc.witness(ait.id, 'crew_ops:ratify', { n: 1 })
   await svc.witness(ait.id, 'crew_ops:ratify', { n: 2 })
   const block = await svc.rollUp(ait.id, { ratifications: 2 })
-  const receipt = await svc.generateReceipt(ait.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
   const keys = {
     keys: [{
       witness,

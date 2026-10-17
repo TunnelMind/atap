@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash, createPublicKey, generateKeyPairSync } from 'node:crypto'
-import { cpSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -123,11 +123,9 @@ test('a v0.1 OAI receipt generated after the AIT expired verifies in both verifi
     attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
     expiresAt: new Date(t + 86400_000).toISOString(),
   })
-  await svc.witness(ait.id, 'code_crew:approval', {})
+  const ev = await svc.witness(ait.id, 'code_crew:approval', {})
   const block = await svc.rollUp(ait.id, {})
   t += 2 * 86400_000
-  const receipt = await svc.generateReceipt(ait.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')
-  assert.ok(receipt.generated_at > ait.expires_at)
   const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
   const keys = {
     keys: [{
@@ -143,9 +141,15 @@ test('a v0.1 OAI receipt generated after the AIT expired verifies in both verifi
     }],
     updated_at: new Date(t).toISOString(),
   }
+  // The §7.5 layout, every file listed with its hash, as the CLI writes it.
   const dir = mkdtempSync(join(tmpdir(), 'atap-v01-expired-'))
-  const files = { 'manifest.json': receipt, 'ait.json': ait, 'attestation_chain.json': [block], 'public_keys.json': keys }
-  for (const [f, v] of Object.entries(files)) writeFileSync(join(dir, f), JSON.stringify(v))
+  const bodies = { 'ait.json': JSON.stringify(ait), 'attestation_chain.json': JSON.stringify([block]), 'public_keys.json': JSON.stringify(keys), 'verify.sh': readFileSync(REPO_VERIFY_SH), 'profile_artifacts/witness_events.json': JSON.stringify([ev]) }
+  mkdirSync(join(dir, 'profile_artifacts'))
+  for (const [f, b] of Object.entries(bodies)) writeFileSync(join(dir, f), b)
+  const files = [{ path: 'manifest.json', sha256: null }, ...Object.entries(bodies).map(([path, b]) => ({ path, sha256: '0x' + createHash('sha256').update(b).digest('hex') }))]
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end, 'full', files)
+  assert.ok(receipt.generated_at > ait.expires_at)
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify(receipt))
   const sh = verifySh(dir)
   assert.equal(sh.status, 0, sh.stderr)
   const cli = cliVerify(dir)

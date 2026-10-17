@@ -104,7 +104,7 @@ test('a v0.1 receipt generated after the AIT (and its key) expired still verifie
   await svc.witness(ait.id, 'code_crew:approval', {})
   const block = await svc.rollUp(ait.id, {})
   t += 2 * 86400_000
-  const receipt = await svc.generateReceipt(ait.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
   assert.ok(receipt.generated_at > ait.expires_at)
   const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
   const keys = {

@@ -343,7 +343,7 @@ else
 fi
 
 ##############################################################################
-# 6. Manifest and did:key event signatures
+# 6. Manifest signature
 ##############################################################################
 # The manifest's witness_signature must verify under the witness's key, or
 # its period, counts, files[] and summary could be edited freely. A did:key's
@@ -351,13 +351,8 @@ fi
 # key's valid_until is often the AIT's expires_at, and a receipt of an expired
 # AIT is generated after it, so the key is the one in force at the last
 # block's period_end (generated_at only for a receipt with no blocks). Each
-# Witness Event's signature is checked for a did:key witness only. After step
-# 5 so a §3.2 failure reports as such.
-if [[ "$WITNESS" =~ ^did:key: ]]; then
-  echo "==> Verifying did:key manifest and event signatures"
-else
-  echo "==> Verifying manifest signature"
-fi
+# After step 5 so a §3.2 failure reports as such.
+echo "==> Verifying manifest signature"
 if [[ "$WITNESS" =~ ^did:key: || -z "${LAST_END:-}" ]]; then
   MAN_TS=$(jq -r '.generated_at' "$RECEIPT_DIR/manifest.json")
 else
@@ -371,19 +366,93 @@ sig=$(jq -r '.witness_signature' "$RECEIPT_DIR/manifest.json" | sed 's/^ed25519:
 verify_sig "$TMP/man.canon" "$TMP/man.pub.pem" "$sig" || err "manifest signature invalid"
 ok "manifest signature"
 
-if [[ "$WITNESS" =~ ^did:key: ]]; then
-  # tunnelmind:code_crew:v1 receipts list their events here (atap-cli WITNESS_EVENTS).
-  EVENTS=profile_artifacts/witness_events.json
-  if jq -e --arg p "$EVENTS" 'any(.files[]?; .path == $p)' "$RECEIPT_DIR/manifest.json" >/dev/null; then
-    [ -f "$RECEIPT_DIR/$EVENTS" ] || err "$EVENTS missing"
-    while IFS= read -r ev; do
-      id=$(jq -r '.id' <<<"$ev")
-      # The signature is over self_hash, so self_hash must be the event's own
-      # hash, or a signature over some other hash would pass.
-      jq 'del(.self_hash, .witness_signature)' <<<"$ev" | canonicalize > "$TMP/ev.canon"
-      want_self=$(jq -r '.self_hash' <<<"$ev" | sed 's/^0x//')
-      got_self=$(openssl dgst -sha256 -binary "$TMP/ev.canon" | xxd -p -c 256)
-      [ "$got_self" = "$want_self" ] || err "self_hash mismatch on event $id"
+##############################################################################
+# 7. The manifest describes this receipt (ATAP §7.5)
+##############################################################################
+# After step 6, so an edit to an unsigned manifest reports as a bad signature.
+# Every file in the receipt is listed in files[] (step 1 hashed the listed
+# ones), or a file could ride along with no hash covering it; scitt/ is left
+# out, since scitt-export writes it after the receipt is sealed. The §7.5
+# mandatory files are listed, with a sha256 for all but manifest.json. Paths
+# are normalised as atap-js normaliseReceiptPath does. python3 -I only reads
+# here; nothing from the receipt is run.
+echo "==> Checking manifest against the receipt"
+PROBLEM=$(python3 -I -c '
+import json, os, posixpath, sys
+root = sys.argv[1]
+def out(msg):
+    print(msg)
+    sys.exit(1)
+files = json.load(open(os.path.join(root, "manifest.json"))).get("files")
+if not isinstance(files, list):
+    out("manifest.files is not an array")
+listed = {}
+for f in files:
+    p = f.get("path") if isinstance(f, dict) else None
+    if not isinstance(p, str):
+        out("manifest.files[] entry has no string path")
+    listed[posixpath.normpath(p)] = f.get("sha256")
+for m in ("manifest.json", "ait.json", "attestation_chain.json", "public_keys.json", "verify.sh"):
+    if m not in listed:
+        out(m + " is not listed in manifest.files[] (ATAP §7.5)")
+    if m != "manifest.json" and not isinstance(listed[m], str):
+        out(m + " is listed with no sha256 (ATAP §7.5)")
+for d, dirs, names in os.walk(root):
+    rel = os.path.relpath(d, root)
+    if rel == ".":
+        dirs[:] = [x for x in dirs if x != "scitt"]
+    # A symlink to a directory is an entry too; os.walk does not descend it.
+    for x in names + [x for x in dirs if os.path.islink(os.path.join(d, x))]:
+        p = posixpath.normpath(posixpath.join(rel.replace(os.sep, "/"), x))
+        if p not in listed:
+            out(p + " is in the receipt but not listed in manifest.files[]")
+' "$RECEIPT_DIR") || err "${PROBLEM:-cannot read manifest.files[]}"
+ok "files[] lists every file in the receipt"
+# Period, counts and ends as the chain has them. Typed comparison, so "3" is
+# not 3; a non-numeric event_count makes jq fail, which fails here.
+PROBLEM=$(jq -r --slurpfile c "$RECEIPT_DIR/attestation_chain.json" '
+  . as $m | $c[0] as $c |
+  [ ["period_start", $c[0].period_start], ["period_end", $c[-1].period_end],
+    ["block_count", ($c | length)], ["event_count", ($c | map(.event_count) | add)],
+    ["first_block", $c[0].id], ["last_block", $c[-1].id] ][] |
+  select($m[.[0]] != .[1]) | "manifest \(.[0]) mismatch (want \(.[1] | tojson), got \($m[.[0]] | tojson))"
+' "$RECEIPT_DIR/manifest.json" | head -1) || err "cannot compare manifest with attestation_chain.json"
+[ -z "$PROBLEM" ] || err "$PROBLEM"
+ok "manifest period and counts match the chain"
+
+##############################################################################
+# 8. Witness Event chain (ATAP §7.3, §10)
+##############################################################################
+# tunnelmind:code_crew:v1 receipts carry their events here (atap-cli
+# WITNESS_EVENTS); checked when present (step 7 made sure it is listed),
+# listed, or required by the profile. As checkWitnessEvents in atap-js: every event's
+# self_hash is its own hash, it is under this AIT, prev_event_hash links from
+# genesis, and the blocks, in order, cover the events exactly, each ending on
+# the event whose self_hash is its chain_head_hash. That pins every event to a
+# signed block, so the per-event signature is checked for a did:key witness
+# only (ATAP-v0.2 §3.1).
+EVENTS=profile_artifacts/witness_events.json
+if [ -e "$RECEIPT_DIR/$EVENTS" ] || [ "$AIT_PROFILE" = "tunnelmind:code_crew:v1" ] \
+  || jq -e --arg p "$EVENTS" 'any(.files[]?; .path == $p)' "$RECEIPT_DIR/manifest.json" >/dev/null; then
+  echo "==> Walking witness event chain"
+  [ -f "$RECEIPT_DIR/$EVENTS" ] || err "$EVENTS missing"
+  jq -e 'type == "array"' "$RECEIPT_DIR/$EVENTS" >/dev/null 2>&1 || err "$EVENTS is not a JSON array"
+  EV_PREV="0x0000000000000000000000000000000000000000000000000000000000000000"
+  EV_IDS=() EV_HASHES=()
+  i=0
+  while IFS= read -r ev; do
+    jq -e 'type == "object"' <<<"$ev" >/dev/null || err "event $i is not an object"
+    id=$(jq -r '.id' <<<"$ev")
+    eait=$(jq -r '.ait' <<<"$ev")
+    [ "$eait" = "$AIT_ID" ] || err "event $i ($id) ait $eait != AIT id $AIT_ID"
+    jq 'del(.self_hash, .witness_signature)' <<<"$ev" | canonicalize > "$TMP/ev.canon"
+    want_self=$(jq -r '.self_hash' <<<"$ev")
+    got_self=$(openssl dgst -sha256 -binary "$TMP/ev.canon" | xxd -p -c 256)
+    [ "0x$got_self" = "$want_self" ] || err "self_hash mismatch on event $id"
+    pe=$(jq -r '.prev_event_hash' <<<"$ev")
+    [ "$pe" = "$EV_PREV" ] || err "event $i ($id) prev_event_hash breaks the chain (want $EV_PREV, got $pe)"
+    if [[ "$WITNESS" =~ ^did:key: ]]; then
+      # The signature is over self_hash, checked above to be the event's own.
       ts=$(jq -r '.witnessed_at' <<<"$ev")
       key_hex=$(lookup_key "$WITNESS" "$ts")
       [ -n "$key_hex" ] || err "no key for $WITNESS at $ts"
@@ -391,9 +460,24 @@ if [[ "$WITNESS" =~ ^did:key: ]]; then
       printf '%s' "$got_self" | xxd -r -p > "$TMP/ev.selfhash"
       sig=$(jq -r '.witness_signature' <<<"$ev" | sed 's/^ed25519:0x//')
       verify_sig "$TMP/ev.selfhash" "$TMP/ev.pub.pem" "$sig" || err "event signature invalid on $id"
-    done < <(jq -c '.[]' "$RECEIPT_DIR/$EVENTS")
-    ok "$EVENTS signatures"
-  fi
+    fi
+    EV_IDS+=("$id") EV_HASHES+=("$want_self")
+    EV_PREV=$want_self
+    i=$((i + 1))
+  done < <(jq -c '.[]' "$RECEIPT_DIR/$EVENTS")
+  at=0
+  # Unit-separated, not @tsv: read collapses empty tab fields, which would shift them.
+  while IFS=$'\x1f' read -r bid n first last head; do
+    [[ "$n" =~ ^[1-9][0-9]*$ ]] || err "block $bid event_count is not a positive integer"
+    end=$((at + n - 1))
+    [ "$end" -lt "${#EV_IDS[@]}" ] || err "block $bid covers events $at..$end; only ${#EV_IDS[@]} present"
+    [ "${EV_IDS[$at]}" = "$first" ] || err "event $at (${EV_IDS[$at]}) is not block $bid's first_event"
+    [ "${EV_IDS[$end]}" = "$last" ] || err "event $end (${EV_IDS[$end]}) is not block $bid's last_event"
+    [ "${EV_HASHES[$end]}" = "$head" ] || err "event $end (${EV_IDS[$end]}) does not match block $bid's chain_head_hash"
+    at=$((end + 1))
+  done < <(jq -r '.[] | [.id, .event_count, .first_event, .last_event, .chain_head_hash] | map(tostring) | join("\u001f")' "$RECEIPT_DIR/attestation_chain.json")
+  [ "$at" -eq "${#EV_IDS[@]}" ] || err "${#EV_IDS[@]} events but the blocks cover $at"
+  ok "$EVENTS (${#EV_IDS[@]} events)"
 fi
 
 echo "==> Receipt verifies (blocks=$COUNT, attestation_strength=$RCPT_STRENGTH)"
