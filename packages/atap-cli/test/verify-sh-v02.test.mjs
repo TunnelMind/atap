@@ -176,8 +176,12 @@ test('an OAI-witnessed AIT paired with a did:key manifest and blocks fails', asy
 // The manifest/AIT witness equality rule is did:key-only (ATAP-v0.2 §3.4), as
 // in verifyReceipt: an OAI manifest naming another OAI witness with a key verifies.
 test('an OAI manifest naming a different OAI witness than its AIT verifies', async () => {
-  const { dir } = await didReceiptDir('OAI-2026-0010002')
-  edit(dir, 'manifest.json', m => ({ ...m, witness: 'OAI-2026-0010003' }))
+  const { dir, privateKey } = await didReceiptDir('OAI-2026-0010002')
+  // Re-signed: the manifest signature is checked for OAI witnesses too.
+  edit(dir, 'manifest.json', ({ witness_signature, ...m }) => {
+    const u = { ...m, witness: 'OAI-2026-0010003' }
+    return { ...u, witness_signature: ed25519Sign(canonicalizeBytes(u), privateKey) }
+  })
   edit(dir, 'public_keys.json', k => ({ ...k, keys: [...k.keys, { ...k.keys[0], witness: 'OAI-2026-0010003', key_id: 'k2' }] }))
   const r = verifySh(dir)
   assert.equal(r.status, 0, r.stderr)

@@ -11,7 +11,7 @@ import { cpSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { WitnessService, InMemoryStorage, toHex } from '@tunnelmindai/atap'
+import { WitnessService, InMemoryStorage, toHex, verifyReceipt } from '@tunnelmindai/atap'
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url))
 const REPO_VERIFY_SH = fileURLToPath(new URL('../../../verify.sh', import.meta.url))
@@ -22,6 +22,15 @@ const NAMES = readdirSync(FIXTURES)
 // on relative paths.
 const verifySh = dir => spawnSync('bash', [REPO_VERIFY_SH, dir], { encoding: 'utf8', cwd: tmpdir() })
 const cliVerify = dir => spawnSync(process.execPath, [CLI, 'verify', dir], { encoding: 'utf8', cwd: tmpdir() })
+
+// The library verifier on a receipt dir, as `atap-witness verify` reads it.
+const read = (dir, f) => JSON.parse(readFileSync(join(dir, f), 'utf8'))
+const jsVerify = dir => verifyReceipt({
+  receipt: read(dir, 'manifest.json'),
+  ait: read(dir, 'ait.json'),
+  chain: read(dir, 'attestation_chain.json'),
+  keys: read(dir, 'public_keys.json'),
+})
 
 // A tmp copy, so a verifier (or a mutation) can never touch the fixture.
 function copy(name) {
@@ -44,11 +53,44 @@ test('every real sealed v0.1 receipt verifies in verify.sh and atap-witness veri
   }
 })
 
+// A002: the manifest's witness_signature is checked for OAI witnesses too, so
+// an edited period, count, files[] or summary no longer passes. Every edit
+// leaves the files the manifest lists untouched, so only the signature can
+// catch it.
+test('the untouched real OAI receipt passes the manifest signature check in both verifiers', () => {
+  const dir = copy('a7-atap-init')
+  const sh = verifySh(dir)
+  assert.equal(sh.status, 0, sh.stderr)
+  assert.match(sh.stdout, /OK {3}manifest signature/)
+  const js = jsVerify(dir)
+  assert.equal(js.ok, true, js.reason)
+})
+
+for (const [what, fn] of [
+  ['period_end', m => { m.period_end = '2026-10-10T00:00:00.000Z' }],
+  ['block_count', m => { m.block_count += 1 }],
+  ['summary', m => { m.summary = 'forged' }],
+  ['files', m => { m.files = m.files.filter(f => f.path !== 'summary.json') }],
+]) {
+  test(`a real OAI receipt with an edited manifest ${what} fails both verifiers`, () => {
+    const dir = copy('a7-atap-init')
+    const m = read(dir, 'manifest.json')
+    fn(m)
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify(m))
+    const sh = verifySh(dir)
+    assert.notEqual(sh.status, 0, 'verify.sh accepted an edited manifest')
+    assert.match(sh.stderr, /manifest signature invalid/)
+    const js = jsVerify(dir)
+    assert.equal(js.ok, false, 'verifyReceipt accepted an edited manifest')
+    assert.match(js.reason, /receipt signature invalid/)
+  })
+}
+
 // One flipped hex digit in a block's witness_signature (prefix and length
 // kept). The manifest's files[] sha256 is rewritten to match, otherwise the
 // file-hash check rejects it first and the block-signature walk is never
 // reached (the weaker check this test used to pin). The manifest signature
-// is left alone: a manifest-signature edit is the known v0.1 gap.
+// is left alone, so the block signature is what fails.
 test('a real receipt with a corrupted block witness_signature fails both verifiers', () => {
   const dir = copy('a7-atap-init')
   const path = join(dir, 'attestation_chain.json')

@@ -238,13 +238,14 @@ test('an OAI v0.1 chain still verifies, unchanged', async () => {
 
 // The receipt/AIT witness equality rule is did:key-only (ATAP-v0.2 §3.1); an
 // OAI receipt naming another witness that has a key still verifies, as in v0.1.
+// Re-signed: the receipt signature is checked for OAI witnesses too.
 test('an OAI receipt may name a different OAI witness than its AIT', async () => {
   const { privateKey } = generateKeyPairSync('ed25519')
   const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
   const other = { ...c.keys.keys[0], witness: 'OAI-2026-0010003', key_id: 'k2' }
   const r = verifyReceipt({
     ...c,
-    receipt: { ...c.receipt, witness: 'OAI-2026-0010003' },
+    receipt: resignAit({ ...c.receipt, witness: 'OAI-2026-0010003' }, privateKey),
     keys: { ...c.keys, keys: [...c.keys.keys, other] },
   })
   assert.equal(r.ok, true, r.reason)

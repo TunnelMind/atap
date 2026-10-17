@@ -219,6 +219,7 @@ while IFS= read -r block; do
   verify_sig "$TMP/blk.selfhash" "$TMP/blk.pub.pem" "$sig" || err "block signature invalid on $(jq -r '.id' <<<"$block")"
 
   PREV="0x$want_self"
+  LAST_END=$ts
   COUNT=$((COUNT + 1))
   ok "$(jq -r '.id' <<<"$block")"
 done < <(jq -c '.[]' "$RECEIPT_DIR/attestation_chain.json")
@@ -274,23 +275,35 @@ else
 fi
 
 ##############################################################################
-# 6. did:key manifest and event signatures
+# 6. Manifest and did:key event signatures
 ##############################################################################
-# For a did:key witness every witness_signature must verify under its key
-# (ATAP-v0.2 §3.1): the manifest's, and each Witness Event's when the receipt
-# carries them. After step 5 so a §3.2 failure reports as such. OAI-witnessed
-# v0.1 records are not checked here (§3.4).
+# The manifest's witness_signature must verify under the witness's key, or
+# its period, counts, files[] and summary could be edited freely. A did:key's
+# key has no validity window (ATAP-v0.2 §3.1), so generated_at serves. An OAI
+# key's valid_until is often the AIT's expires_at, and a receipt of an expired
+# AIT is generated after it, so the key is the one in force at the last
+# block's period_end (generated_at only for a receipt with no blocks). Each
+# Witness Event's signature is checked for a did:key witness only. After step
+# 5 so a §3.2 failure reports as such.
 if [[ "$WITNESS" =~ ^did:key: ]]; then
   echo "==> Verifying did:key manifest and event signatures"
+else
+  echo "==> Verifying manifest signature"
+fi
+if [[ "$WITNESS" =~ ^did:key: || -z "${LAST_END:-}" ]]; then
   MAN_TS=$(jq -r '.generated_at' "$RECEIPT_DIR/manifest.json")
-  key_hex=$(lookup_key "$WITNESS" "$MAN_TS")
-  [ -n "$key_hex" ] || err "no key for $WITNESS at $MAN_TS"
-  pem_from_raw_ed25519 "$key_hex" "$TMP/man.pub.pem"
-  jq 'del(.witness_signature)' "$RECEIPT_DIR/manifest.json" | canonicalize > "$TMP/man.canon"
-  sig=$(jq -r '.witness_signature' "$RECEIPT_DIR/manifest.json" | sed 's/^ed25519:0x//')
-  verify_sig "$TMP/man.canon" "$TMP/man.pub.pem" "$sig" || err "manifest signature invalid"
-  ok "manifest"
+else
+  MAN_TS=$LAST_END
+fi
+key_hex=$(lookup_key "$WITNESS" "$MAN_TS")
+[ -n "$key_hex" ] || err "no key for $WITNESS at $MAN_TS"
+pem_from_raw_ed25519 "$key_hex" "$TMP/man.pub.pem"
+jq 'del(.witness_signature)' "$RECEIPT_DIR/manifest.json" | canonicalize > "$TMP/man.canon"
+sig=$(jq -r '.witness_signature' "$RECEIPT_DIR/manifest.json" | sed 's/^ed25519:0x//')
+verify_sig "$TMP/man.canon" "$TMP/man.pub.pem" "$sig" || err "manifest signature invalid"
+ok "manifest signature"
 
+if [[ "$WITNESS" =~ ^did:key: ]]; then
   # tunnelmind:code_crew:v1 receipts list their events here (atap-cli WITNESS_EVENTS).
   EVENTS=profile_artifacts/witness_events.json
   if jq -e --arg p "$EVENTS" 'any(.files[]?; .path == $p)' "$RECEIPT_DIR/manifest.json" >/dev/null; then

@@ -237,6 +237,26 @@ test('verify --store on an OAI-witnessed store needs --keys, and passes with the
   assert.deepEqual(v, { ok: true, events: 1, blocks: 1, witness: WITNESS, attestation_strength: 'self-asserted' })
 })
 
+// The stand-in receipt takes its strength from the first key entry, so the
+// rank check against the key in force at ait.issued_at must still run for an
+// OAI store: an expired silicon-root entry ahead of the real key is refused.
+test('verify --store refuses an OAI strength above the AIT-period key', async () => {
+  const ctx = setup()
+  const { ait, common } = await declare(ctx)
+  await ok(['event', '--ait', ait.id, ...common], JSON.stringify(EXAMPLES[0]))
+  await ok(['block', '--ait', ait.id, ...common], JSON.stringify(SUMMARY))
+  const out = join(ctx.tmp, 'r')
+  await ok(['receipt', '--ait', ait.id, '--out', out, ...common], '')
+  const keys = JSON.parse(readFileSync(join(out, 'public_keys.json'), 'utf8'))
+  const real = { ...keys.keys[0], attestation_strength: 'self-asserted' }
+  const old = { ...real, key_id: 'old', valid_from: '2000-01-01T00:00:00Z', valid_until: '2001-01-01T00:00:00Z', attestation_strength: 'silicon-root' }
+  const kp = join(ctx.tmp, 'mixed-keys.json')
+  writeFileSync(kp, JSON.stringify({ ...keys, keys: [old, real] }))
+  const v = await run(['verify', '--store', ctx.store, '--keys', kp])
+  assert.notEqual(v.code, 0, v.stdout)
+  assert.match(v.stdout + v.stderr, /attestation_strength=silicon-root exceeds key attestation_strength=self-asserted/)
+})
+
 test('a torn final line is an error naming the file and line, and the file is left untouched', async () => {
   const ctx = setup()
   const { ait, common } = await declare(ctx)

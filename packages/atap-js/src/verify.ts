@@ -175,15 +175,17 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
     }
   }
 
-  // Receipt signature, over the canonical receipt minus its signature. Only for
-  // did:key witnesses (ATAP-v0.2 §3.1), whose key has no validity window, so a
-  // receipt of an expired AIT still verifies. v0.1 records are not checked
-  // here, as in verify.sh: their key's valid_until is the AIT's expires_at,
-  // and a receipt of an expired AIT is generated after it.
-  if (didRaw) {
-    const rcptKey = pickDidKeyKey(keys, receipt.witness, didRaw, receipt.generated_at)
+  // Receipt signature, over the canonical receipt minus its signature, as
+  // verify.sh step 6. A did:key witness's key has no validity window (ATAP-v0.2
+  // §3.1), so generated_at serves. An OAI key's valid_until is often the AIT's
+  // expires_at, and a receipt of an expired AIT is generated after it, so the
+  // key is the one in force at the last block's period_end (generated_at only
+  // for a receipt with no blocks).
+  {
+    const at = didRaw || chain.length === 0 ? receipt.generated_at : chain[chain.length - 1]!.period_end
+    const rcptKey = didRaw ? pickDidKeyKey(keys, receipt.witness, didRaw, at) : pickKey(keys, receipt.witness, at)
     if (!rcptKey) {
-      return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${receipt.generated_at}` }
+      return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${at}` }
     }
     if (typeof rcptKey === 'string') return { ok: false, blocks: chain.length, reason: rcptKey }
     const { witness_signature: rcptSig, ...rcptMinusSig } = receipt
