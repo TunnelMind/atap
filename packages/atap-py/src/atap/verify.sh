@@ -243,6 +243,11 @@ ok "AIT $(jq -r '.id' "$RECEIPT_DIR/ait.json")"
 # 3. Block chain
 ##############################################################################
 echo "==> Walking block chain"
+# The loop below reads jq through a process substitution, which drops jq's exit
+# status: a chain that is not JSON, or not an array, or is empty would walk zero
+# blocks and leave PREV at genesis. A receipt with no blocks attests nothing.
+jq -e 'type == "array" and length > 0' "$RECEIPT_DIR/attestation_chain.json" >/dev/null 2>&1 \
+  || err "attestation_chain.json is not a non-empty JSON array"
 PREV="0x0000000000000000000000000000000000000000000000000000000000000000"
 COUNT=0
 while IFS= read -r block; do

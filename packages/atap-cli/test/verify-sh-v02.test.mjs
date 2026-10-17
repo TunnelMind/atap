@@ -403,3 +403,30 @@ test('a did:key receipt verifies unchanged without --keys, with no warning', asy
   assert.doesNotMatch(r.stdout, /keys file sha256/)
   assert.doesNotMatch((cliVerify(dir).warnings ?? []).join('\n'), /public_keys/)
 })
+
+// A004: parse failures are failures. The manifest's head is moved to genesis
+// and re-signed, so an empty chain is otherwise self-consistent: verify.sh's
+// block loop used to walk zero blocks (its jq exit status is lost in the
+// process substitution) and pass.
+for (const [name, body] of [
+  ['Z1: []', '[]'],
+  ['Z2: invalid JSON', '{'],
+  ['Z2: a string', '"x"'],
+  ['Z2: an object', '{"a":1}'],
+]) {
+  test(`attestation_chain.json ${name} fails verify.sh and the CLI`, async () => {
+    const { dir, privateKey } = await didReceiptDir()
+    edit(dir, 'manifest.json', m => {
+      const { witness_signature, ...u } = { ...m, chain_head_hash: '0x' + '00'.repeat(32) }
+      return { ...u, witness_signature: ed25519Sign(canonicalizeBytes(u), privateKey) }
+    })
+    writeFileSync(join(dir, 'attestation_chain.json'), body)
+    assertFails(verifySh(dir), /attestation_chain\.json is not a non-empty JSON array/)
+    const r = spawnSync(process.execPath, [CLI, 'verify', dir], { encoding: 'utf8', env: { PATH: process.env.PATH } })
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.doesNotMatch(r.stderr, /^\s+at /m) // a reason, not a stack trace
+    const out = JSON.parse(r.stdout || r.stderr)
+    if (out.error) assert.match(out.error, /cannot read attestation_chain\.json/)
+    else assert.deepEqual([out.ok, out.reason], [false, 'attestation chain is not a non-empty array'])
+  })
+}

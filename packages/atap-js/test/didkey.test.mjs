@@ -280,3 +280,16 @@ test('an AIT with a missing or non-string witness or operator is rejected, not t
     assert.match(r.reason, /not a string/)
   }
 })
+
+// A004: a receipt with no usable block chain fails. With the receipt's head
+// moved to genesis and re-signed, an empty chain used to walk zero blocks and pass.
+test('an empty or non-array attestation chain fails', async () => {
+  const c = await didChain()
+  assert.equal(verifyReceipt(c).ok, true)
+  const receipt = resignReceipt({ ...c.receipt, chain_head_hash: '0x' + '00'.repeat(32) }, c.privateKey)
+  for (const chain of [[], {}, 'x', null]) {
+    const r = verifyReceipt({ ...c, receipt, chain })
+    assert.equal(r.ok, false, JSON.stringify(chain))
+    assert.equal(r.reason, 'attestation chain is not a non-empty array')
+  }
+})

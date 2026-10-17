@@ -126,7 +126,12 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
   )
   if (!aitOk) return { ok: false, blocks: 0, reason: 'AIT signature invalid' }
 
-  // 2. Block chain
+  // 2. Block chain. An empty chain would leave prev at genesis and pass against
+  // a receipt whose chain_head_hash is genesis; a receipt with no blocks attests
+  // nothing (as verify.sh).
+  if (!Array.isArray(chain) || chain.length === 0) {
+    return { ok: false, blocks: 0, reason: 'attestation chain is not a non-empty array' }
+  }
   let prev: HexHash = GENESIS_HASH
   for (const block of chain) {
     // ATAP-v0.2 §3.3: every block under a did:key-identified AIT declares 0.2.
