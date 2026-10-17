@@ -69,29 +69,51 @@ else
 fi
 
 # RFC 8785 (JCS) canonicalizer via python3 stdlib. Reads JSON on stdin, writes
-# canonical bytes on stdout. This implements the JCS subset that covers v0.1
-# artifacts (no NaN/Infinity, finite numbers).
+# canonical bytes on stdout. Matches packages/atap-js/src/canonicalize.ts
+# byte-for-byte (finite numbers only; no NaN/Infinity in ATAP artifacts).
 canonicalize() {
   python3 -I -c '
 import json, sys
+def num(o):
+    # RFC 8785 §3.2.2.3 is the ECMAScript Number->String algorithm. repr()
+    # gives the shortest round-trip digits; only the layout differs from ES
+    # (repr writes 1e-07 and 1.5e-05, ES writes 1e-7 and 0.000015). An earlier
+    # ".17g" form expanded 0.7 to 0.69999999999999996 and broke verification.
+    if o == 0:
+        return "0"
+    m, _, e = repr(abs(o)).partition("e")
+    i, _, f = m.partition(".")
+    d = (i + f).lstrip("0")
+    n = len(i) + int(e or 0) - (len(i + f) - len(d))
+    d = d.rstrip("0")
+    k = len(d)
+    # value = 0.d * 10**n; branches follow ECMA-262 Number::toString steps.
+    if k <= n <= 21:
+        s = d + "0" * (n - k)
+    elif 0 < n <= 21:
+        s = d[:n] + "." + d[n:]
+    elif -6 < n <= 0:
+        s = "0." + "0" * -n + d
+    else:
+        x = n - 1
+        s = d[0] + ("." + d[1:] if k > 1 else "") + "e" + ("+" if x >= 0 else "-") + str(abs(x))
+    return "-" + s if o < 0 else s
 def canon(o):
     if isinstance(o, dict):
-        return "{" + ",".join(json.dumps(k) + ":" + canon(v) for k,v in sorted(o.items())) + "}"
+        # JS .sort() compares UTF-16 code units: astral keys sort before
+        # U+E000..U+FFFF, unlike a code point sort. Keys are emitted raw.
+        items = sorted(o.items(), key=lambda kv: kv[0].encode("utf-16-be", "surrogatepass"))
+        return "{" + ",".join(canon(k) + ":" + canon(v) for k,v in items) + "}"
     if isinstance(o, list):
         return "[" + ",".join(canon(x) for x in o) + "]"
     if isinstance(o, bool) or o is None:
         return json.dumps(o)
     if isinstance(o, int):
-        return str(o)
+        # JS parses JSON numbers as doubles, so past 2**53 an int is whatever
+        # the nearest double prints as (9007199254740993 -> ...992).
+        return str(o) if abs(o) <= 2**53 else num(float(o))
     if isinstance(o, float):
-        # RFC 8785 §3.2.2.3 number serialization is the ECMAScript
-        # Number->String algorithm: the shortest string that round-trips.
-        # Python repr() provides that; an integer-valued float serializes
-        # with no fractional part. (An earlier ".17g" form was non-conformant
-        # — it expanded 0.7 to 0.69999999999999996 and broke verification.)
-        if o == int(o) and abs(o) < 1e21:
-            return str(int(o))
-        return repr(o)
+        return num(o)
     return json.dumps(o, ensure_ascii=False)
 print(canon(json.load(sys.stdin)), end="")
 '
