@@ -34,16 +34,38 @@ export interface VerifyResult {
   reason?: string
 }
 
-function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | null {
+// An RFC 3339 time as epoch ms, NaN if it does not parse. Key validity is
+// compared as instants, not strings, so "+00:00" vs "Z" or fractional
+// seconds cannot flip the verdict (as verify.sh's oai_keys_at). The shape is
+// checked first, case-sensitively as verify.sh's jq does: bare Date.parse
+// would also take a date-only or zoneless value, the latter in host local time.
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
+const instant = (s: unknown): number => (typeof s === 'string' && RFC3339.test(s) ? Date.parse(s) : NaN)
+
+// ATAP §8.2 key lookup for an OAI witness: the one entry with valid_from <= at
+// < valid_until that is not compromised before `at`. Returns the entry, null
+// for none, or the reason it is refused: a time that does not parse, or more
+// than one entry in force (taking the first would let file order pick the key).
+function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | string | null {
+  const t = instant(at)
+  if (Number.isNaN(t)) return `${at} is not an RFC 3339 time`
+  const hits: PublicKey[] = []
   for (const k of doc.keys) {
     if (k.witness !== witness) continue
-    if (k.valid_from > at || k.valid_until <= at) continue
+    const from = instant(k.valid_from)
+    const until = instant(k.valid_until)
+    if (Number.isNaN(from) || Number.isNaN(until)) return `key ${k.key_id} validity is not an RFC 3339 time`
+    if (from > t || until <= t) continue
     if (k.status === 'compromised') {
-      if (!k.compromise_notice || at >= k.compromise_notice.disclosed_at) continue
+      if (!k.compromise_notice) continue
+      const disclosed = instant(k.compromise_notice.disclosed_at)
+      if (Number.isNaN(disclosed)) return `key ${k.key_id} disclosed_at is not an RFC 3339 time`
+      if (t >= disclosed) continue
     }
-    return k
+    hits.push(k)
   }
-  return null
+  if (hits.length > 1) return `ambiguous: ${hits.length} keys for ${witness} valid at ${at} (ATAP §8.2)`
+  return hits[0] ?? null
 }
 
 // ATAP-v0.2 §3.1/§3.2: a key entry for a did:key witness must carry the key
@@ -74,7 +96,21 @@ export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8A
   return entries[0] ?? null
 }
 
+// Reasons echo ids and paths from the receipt, which is attacker-controlled:
+// control characters (C0 incl. ESC, DEL, C1) are stripped so a reason printed
+// to a terminal cannot drive it or forge extra lines (as verify.sh's clean).
+function clean(reason: string): string
+function clean(reason: string | null): string | null
+function clean(reason: string | null): string | null {
+  return reason === null ? null : reason.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+}
+
 export function verifyReceipt(opts: VerifyOptions): VerifyResult {
+  const r = verifyReceiptRaw(opts)
+  return r.reason === undefined ? r : { ...r, reason: clean(r.reason) }
+}
+
+function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   const { receipt, ait, chain, keys } = opts
 
   if (ait['@context'] !== ATAP_CONTEXT) {
@@ -305,6 +341,10 @@ function isObject(v: unknown): v is Record<string, unknown> {
 // every witness_signature must verify under the key it encodes (ATAP-v0.2
 // §3.1), as verify.sh checks too, over the raw 32-byte self_hash (§7.7).
 export function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
+  return clean(witnessEventsProblem(events, chain, ait, keys))
+}
+
+function witnessEventsProblem(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
   if (!Array.isArray(events)) return `${WITNESS_EVENTS} is not an array`
   let prev: string = GENESIS_HASH
   for (const [i, e] of events.entries()) {
@@ -355,6 +395,10 @@ export function normaliseReceiptPath(rel: string): string | null {
   return out.length ? out.join('/') : null
 }
 
+// A manifest path that has a .. segment anywhere is refused even if it
+// normalises back inside the receipt, as verify.sh refuses it.
+const hasDotDot = (rel: string): boolean => rel.split('/').includes('..')
+
 // ATAP §7.5: files every receipt carries. All but manifest.json (which cannot
 // hash itself) are listed with a sha256, so none can be swapped unnoticed.
 const MANDATORY_RECEIPT_FILES = ['manifest.json', 'ait.json', 'attestation_chain.json', 'public_keys.json', 'verify.sh']
@@ -367,10 +411,14 @@ const MANDATORY_RECEIPT_FILES = ['manifest.json', 'ait.json', 'attestation_chain
 // file in the receipt (relative paths, scitt/ left out): each must be listed,
 // or a file could ride along in the receipt with no hash covering it.
 export function checkManifestFiles(receipt: Receipt, read: (rel: string) => Uint8Array | undefined, present?: Iterable<string>): string | null {
+  return clean(manifestFilesProblem(receipt, read, present))
+}
+
+function manifestFilesProblem(receipt: Receipt, read: (rel: string) => Uint8Array | undefined, present?: Iterable<string>): string | null {
   const listed = new Map<string, string | null>()
   for (const f of receipt.files ?? []) {
     const rel = normaliseReceiptPath(f.path)
-    if (rel === null) return `${f.path} escapes the receipt directory`
+    if (rel === null || hasDotDot(f.path)) return `${f.path} escapes the receipt directory`
     listed.set(rel, f.sha256)
     if (f.sha256 === null) continue
     const bytes = read(rel)

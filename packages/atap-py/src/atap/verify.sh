@@ -20,8 +20,13 @@
 
 set -euo pipefail
 
-err() { echo "FAIL: $*" >&2; exit 1; }
-ok()  { echo "  OK   $*"; }
+# Messages echo ids and paths from the receipt, which is attacker-controlled:
+# control characters (C0, incl. ESC and newline, and DEL) are stripped so a
+# message cannot drive the terminal or forge an extra output line.
+# (verify.ts's clean() also strips C1, U+0080-U+009F; tr works on bytes here.)
+clean() { printf '%s' "$*" | tr -d '\000-\037\177'; }
+err() { echo "FAIL: $(clean "$*")" >&2; exit 1; }
+ok()  { echo "  OK   $(clean "$*")"; }
 
 # Never cd into the receipt: it is untrusted content, and python3 puts the cwd
 # on sys.path, so a planted json.py or re.py would run. Every receipt file is
@@ -155,17 +160,37 @@ verify_sig() {
   openssl pkeyutl -verify -pubin -inkey "$pemfile" -rawin -in "$msgfile" -sigfile "$TMP/.sig" >/dev/null
 }
 
-# Look up the public key (hex, no 0x) for a given witness OAI at a given RFC-3339 timestamp.
+# The OAI key entries for witness $1 in force at RFC 3339 time $2, as a JSON
+# array of at most one (ATAP §8.2): valid_from <= t < valid_until, and not
+# compromised unless t is before the notice's disclosed_at. Times compare as
+# instants, not strings, so "+00:00" vs "Z" or fractional seconds cannot flip
+# the verdict; a time that does not parse is a failure. Two entries in force
+# at once is a failure too: taking the first would let file order pick the key.
+oai_keys_at() {
+  local out n
+  out=$(jq -c --arg w "$1" --arg t "$2" '
+    def instant:
+      (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>[.][0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):(?<m>[0-9]{2}))$")
+        // error("not an RFC 3339 time")) |
+      (.d + "Z" | fromdateiso8601) + ("0" + (.f // "") | tonumber)
+        - (if .z == "Z" then 0 else (.s + "1" | tonumber) * ((.h | tonumber) * 3600 + (.m | tonumber) * 60) end);
+    ($t | instant) as $at |
+    [ .keys[] |
+      select(.witness == $w and (.valid_from | instant) <= $at and $at < (.valid_until | instant)) |
+      select(.status != "compromised" or (.compromise_notice and $at < (.compromise_notice.disclosed_at | instant))) ]
+  ' "$KEYS_FILE" 2>/dev/null) || err "cannot compare key validity for $1 at $2 as RFC 3339 times"
+  n=$(jq length <<<"$out")
+  [ "$n" -le 1 ] || err "ambiguous: $n keys for $1 valid at $2 (ATAP §8.2)"
+  printf '%s\n' "$out"
+}
+
+# Look up the public key (hex, no 0x) for a given witness at a given RFC-3339 timestamp.
 # With no valid entry this prints an empty line and the caller fails "no key for ...".
 lookup_key() {
-  local witness="$1" t="$2"
+  local witness="$1" t="$2" keys
   if [[ "$witness" =~ ^did:key: ]]; then lookup_did_key "$witness" "$t"; return; fi
-  jq -r --arg w "$witness" --arg t "$t" '
-    .keys[] |
-    select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
-    select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
-    .public_key
-  ' "$KEYS_FILE" | head -1 | sed 's/^0x//'
+  keys=$(oai_keys_at "$witness" "$t") || exit 1
+  jq -r '.[0].public_key // empty' <<<"$keys" | sed 's/^0x//'
 }
 
 # A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1), so
@@ -216,9 +241,22 @@ fi
 # 1. File integrity
 ##############################################################################
 echo "==> Verifying file integrity (manifest.files[])"
-jq -c '.files[] | select(.sha256 != null)' "$RECEIPT_DIR/manifest.json" | while IFS= read -r entry; do
+# Every entry's path is checked; only those with a sha256 are hashed.
+jq -c '.files[]' "$RECEIPT_DIR/manifest.json" | while IFS= read -r entry; do
   path=$(jq -r '.path' <<<"$entry")
   want=$(jq -r '.sha256' <<<"$entry" | sed 's/^0x//')
+  # The manifest is untrusted: a path must stay inside the receipt, or it could
+  # make us hash (and vouch for) any file on this host. No absolute path,
+  # backslash, drive letter or .. segment, and no symlink at or above it.
+  case "$path" in /*|*\\*|[A-Za-z]:*) err "$path is not a relative path inside the receipt";; esac
+  case "/$path/" in */../*) err "$path has a .. segment";; esac
+  p=$path
+  while :; do
+    [ ! -L "$RECEIPT_DIR/$p" ] || err "$path is or is under a symlink"
+    [[ "$p" == */* ]] || break
+    p=${p%/*}
+  done
+  [ "$want" != null ] || continue
   [ -f "$RECEIPT_DIR/$path" ] || err "$path missing"
   got=$(openssl dgst -sha256 -binary "$RECEIPT_DIR/$path" | xxd -p -c 256)
   [ "$got" = "$want" ] || err "$path sha256 mismatch (want $want, got $got)"
@@ -346,12 +384,7 @@ if [[ "$WITNESS" =~ ^did:key: ]]; then
     .attestation_strength // empty
   ' "$RECEIPT_DIR/public_keys.json" | head -1)
 else
-  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" '
-    .keys[] |
-    select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
-    select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
-    .attestation_strength // empty
-  ' "$KEYS_FILE" | head -1)
+  KEY_STRENGTH=$(oai_keys_at "$WITNESS" "$AIT_TS" | jq -r '.[0].attestation_strength // empty')
 fi
 if [ -n "$KEY_STRENGTH" ]; then
   STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }

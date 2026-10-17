@@ -11,7 +11,7 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync } from 'node:fs'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
@@ -22,6 +22,7 @@ import {
   WitnessService,
   cborDecode,
   checkManifestFiles,
+  normaliseReceiptPath,
   checkWitnessEvents,
   didKeyFromPublicKey,
   isDidKey,
@@ -328,6 +329,21 @@ function escapes(root: string, rel: string): boolean {
   return r === '' || r === '..' || r.startsWith('..' + sep) || isAbsolute(r)
 }
 
+// True if `rel` (normalised, inside `root`) or any directory above it inside
+// `root` is a symlink. A missing component ends the walk: checkManifestFiles
+// reports a missing file.
+function underSymlink(root: string, rel: string): boolean {
+  const parts = rel.split('/')
+  for (let i = 1; i <= parts.length; i++) {
+    try {
+      if (lstatSync(join(root, ...parts.slice(0, i))).isSymbolicLink()) return true
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
 // tunnelmind:code_crew:v1 profile.md §9: its receipts carry WITNESS_EVENTS.
 const CODE_CREW_PROFILE = 'tunnelmind:code_crew:v1'
 
@@ -354,6 +370,15 @@ async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   const receipt = await readJsonFile<Receipt>(dir, 'manifest.json')
   const root = resolve(dir)
   const present = await receiptEntries(root)
+  // readFileSync follows symlinks, so a listed link (or a path under a linked
+  // directory) would hash a file outside the receipt. Refused, as verify.sh does.
+  for (const f of receipt.files ?? []) {
+    const rel = typeof f.path === 'string' ? normaliseReceiptPath(f.path) : null
+    if (rel && underSymlink(root, rel)) {
+      // Control characters stripped, as the library's reasons are.
+      return { ok: false, blocks: 0, reason: `${f.path.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')} is or is under a symlink` }
+    }
+  }
   const bad = checkManifestFiles(receipt, rel => {
     try {
       return readFileSync(join(root, rel))
