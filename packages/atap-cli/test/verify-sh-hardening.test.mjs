@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createPublicKey, generateKeyPairSync } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -213,5 +213,47 @@ test('control characters in ids and paths never reach the terminal', async () =>
     const c = cliVerify(q.dir)
     assert.equal(c.ok, false)
     assert.ok(!c.reason.includes(ESC), c.reason)
+  }
+})
+
+// A010: agent-crew's `crew atap verify/close` run the receipt's own copy as
+// `bash verify.sh .` with cwd = the receipt dir, and read only the exit code
+// (0 = PASS, anything else = FAIL). Pin exactly that invocation.
+test("crew contract: `bash verify.sh .` inside the receipt, exit code is the verdict", async () => {
+  const crewRun = (dir, args = ['.']) => spawnSync('bash', ['verify.sh', ...args], { cwd: dir, encoding: 'utf8' })
+
+  const r = await receiptDir()
+  const good = crewRun(r.dir)
+  assert.equal(good.status, 0, good.stderr)
+  assert.match(good.stdout, /^  OK   /m)
+  // No argument defaults to `.`.
+  const noArg = crewRun(r.dir, [])
+  assert.equal(noArg.status, 0, noArg.stderr)
+  assert.equal(noArg.stdout, good.stdout)
+
+  // A block field edited without re-signing the block; the manifest's file
+  // hash is updated (and re-signed) so the block check itself must object.
+  const t = await receiptDir()
+  const chain = readJson(t.dir, 'attestation_chain.json')
+  chain[0].summary = { ratifications: 999 }
+  const body = JSON.stringify(chain)
+  writeFileSync(join(t.dir, 'attestation_chain.json'), body)
+  editManifest(t, m => ({ ...m, files: m.files.map(f => (f.path === 'attestation_chain.json' ? { ...f, sha256: sha256(Buffer.from(body)) } : f)) }))
+  assertFails(crewRun(t.dir), /self_hash mismatch on ATAP-AB-/)
+
+  // python3 puts the cwd on sys.path: planted json.py / re.py in the receipt
+  // must never be imported. Listed in files[] so only the import could fail it.
+  const p = await receiptDir()
+  const marker = join(mkdtempSync(join(tmpdir(), 'atap-marker-')), 'marker')
+  const planted = {}
+  for (const mod of ['json.py', 're.py']) {
+    planted[mod] = `open(${JSON.stringify(marker)}, 'w').write('${mod}')\n`
+    writeFileSync(join(p.dir, mod), planted[mod])
+  }
+  editManifest(p, m => ({ ...m, files: [...m.files, ...Object.entries(planted).map(([path, b]) => ({ path, sha256: sha256(Buffer.from(b)) }))] }))
+  for (const args of [['.'], []]) {
+    const res = crewRun(p.dir, args)
+    assert.equal(res.status, 0, res.stderr)
+    assert.equal(existsSync(marker), false, existsSync(marker) && `ran receipt ${readFileSync(marker, 'utf8')}`)
   }
 })
