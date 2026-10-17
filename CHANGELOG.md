@@ -6,6 +6,13 @@ All notable changes to ATAP are recorded here.
 
 ### Changed
 
+- **Verifiers (2026-10-17): `--keys` for OAI witnesses (A003).** A receipt's
+  own `public_keys.json` is chosen by whoever made the receipt, so it proves
+  nothing about who signed. `verify.sh [RECEIPT_DIR] [--keys FILE_OR_URL]` and
+  `atap-witness verify DIR [--keys FILE]` check an OAI witness against the
+  trusted keys instead, and `verify.sh` prints the keys file's SHA-256. Without
+  `--keys` an OAI receipt still verifies, with a WARNING (`verify.sh` stderr,
+  the CLI's `warnings`). did:key receipts are unchanged.
 - **Profile (2026-10-12): `tunnelmind:code_crew:v1` records local merges.**
   `code_crew:merged` now accepts a second shape for a repo with no PR:
   `merge_kind: "local"`, `repo` as the repo basename, `merge_commit_sha`, and

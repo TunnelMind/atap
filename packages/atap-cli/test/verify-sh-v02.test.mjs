@@ -78,11 +78,11 @@ async function didReceiptDir(oai, { afterExpiry = false } = {}) {
 
 const readJson = (dir, f) => JSON.parse(readFileSync(join(dir, f), 'utf8'))
 function edit(dir, f, fn) { writeFileSync(join(dir, f), JSON.stringify(fn(readJson(dir, f)))) }
-const verifySh = dir => spawnSync('bash', [REPO_VERIFY_SH, dir], { encoding: 'utf8' })
+const verifySh = (dir, ...args) => spawnSync('bash', [REPO_VERIFY_SH, dir, ...args], { encoding: 'utf8' })
 // `atap-witness verify DIR`: the CLI's verify, i.e. verifyReceipt plus the
 // file-integrity and witness-events checks.
-function cliVerify(dir) {
-  const r = spawnSync(process.execPath, [CLI, 'verify', dir], { encoding: 'utf8', env: { PATH: process.env.PATH } })
+function cliVerify(dir, ...args) {
+  const r = spawnSync(process.execPath, [CLI, 'verify', dir, ...args], { encoding: 'utf8', env: { PATH: process.env.PATH } })
   return { status: r.status, ...JSON.parse(r.stdout) }
 }
 
@@ -336,4 +336,70 @@ test('verify.sh run from inside the receipt verifies and never imports receipt p
 test('atap-py ships a byte-identical copy of verify.sh', () => {
   const pyCopy = fileURLToPath(new URL('../../atap-py/src/atap/verify.sh', import.meta.url))
   assert.deepEqual(readFileSync(pyCopy), readFileSync(REPO_VERIFY_SH))
+})
+
+// A003: a receipt's public_keys.json is chosen by whoever made the receipt, so
+// for an OAI witness it proves nothing about who signed. --keys names the
+// keys the verifier trusts instead.
+const OAI = 'OAI-2026-0010002'
+// The receipt's genuine key file, copied outside the receipt.
+function keysOutside(dir) {
+  const f = join(mkdtempSync(join(tmpdir(), 'atap-keys-')), 'keys.json')
+  writeFileSync(f, readFileSync(join(dir, 'public_keys.json')))
+  return f
+}
+
+test('an OAI receipt re-signed under swapped bundled keys passes with a WARNING, and fails with --keys', async () => {
+  const genuine = keysOutside((await didReceiptDir(OAI)).dir)
+  // Same witness, every record signed by the attacker's key, which the
+  // attacker's bundled public_keys.json lists.
+  const { dir } = await didReceiptDir(OAI)
+  const bundled = verifySh(dir)
+  assert.equal(bundled.status, 0, bundled.stderr)
+  assert.match(bundled.stderr, /WARNING: .*public_keys\.json inside the\nWARNING: receipt itself/)
+  assert.match(bundled.stdout, /OK {3}keys file sha256=[0-9a-f]{64} \(from receipt's bundled public_keys\.json\)/)
+  assertFails(verifySh(dir, '--keys', genuine), /AIT signature invalid/)
+
+  const cli = cliVerify(dir)
+  assert.equal(cli.ok, true)
+  assert.match(cli.warnings.join('\n'), /receipt's own public_keys\.json/)
+  const pinned = cliVerify(dir, '--keys', genuine)
+  assert.equal(pinned.status, 1)
+  assert.match(pinned.reason, /AIT signature invalid/)
+})
+
+test('verify.sh --keys GENUINE passes a genuine OAI receipt and prints the keys fingerprint', async () => {
+  const { dir } = await didReceiptDir(OAI)
+  const keys = keysOutside(dir)
+  const want = createHash('sha256').update(readFileSync(keys)).digest('hex')
+  for (const args of [[dir, '--keys', keys], ['--keys', keys, dir], [dir, `--keys=${keys}`]]) {
+    const r = spawnSync('bash', [REPO_VERIFY_SH, ...args], { encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.ok(r.stdout.includes(`keys file sha256=${want} (from --keys ${keys})`), r.stdout)
+    assert.doesNotMatch(r.stderr, /WARNING/)
+  }
+  const cli = cliVerify(dir, '--keys', keys)
+  assert.equal(cli.ok, true, cli.reason)
+  assert.doesNotMatch((cli.warnings ?? []).join('\n'), /public_keys/)
+})
+
+test('a missing, unreadable or non-JSON --keys fails', async () => {
+  const { dir } = await didReceiptDir(OAI)
+  const tmp = mkdtempSync(join(tmpdir(), 'atap-badkeys-'))
+  writeFileSync(join(tmp, 'garbage.json'), 'not json')
+  writeFileSync(join(tmp, 'nokeys.json'), '{"keys": 1}')
+  assertFails(verifySh(dir, '--keys', join(tmp, 'absent.json')), /cannot read --keys/)
+  assertFails(verifySh(dir, '--keys', tmp), /cannot read --keys/)
+  assertFails(verifySh(dir, '--keys', join(tmp, 'garbage.json')), /not JSON with a \.keys array/)
+  assertFails(verifySh(dir, '--keys', join(tmp, 'nokeys.json')), /not JSON with a \.keys array/)
+  assertFails(verifySh(dir, '--keys'), /--keys needs/)
+})
+
+test('a did:key receipt verifies unchanged without --keys, with no warning', async () => {
+  const { dir } = await didReceiptDir()
+  const r = verifySh(dir)
+  assert.equal(r.status, 0, r.stderr)
+  assert.doesNotMatch(r.stderr, /WARNING/)
+  assert.doesNotMatch(r.stdout, /keys file sha256/)
+  assert.doesNotMatch((cliVerify(dir).warnings ?? []).join('\n'), /public_keys/)
 })

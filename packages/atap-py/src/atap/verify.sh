@@ -4,10 +4,15 @@
 # Standard:   https://tunnelmind.ai/atap/standard
 # License:    Apache-2.0
 #
-# Usage: verify.sh [RECEIPT_DIR]
+# Usage: verify.sh [RECEIPT_DIR] [--keys FILE_OR_URL]
 #   RECEIPT_DIR defaults to the current directory. The directory MUST contain
 #   an unpacked ATAP Receipt ZIP (manifest.json, ait.json, attestation_chain.json,
 #   public_keys.json, plus any optional files listed in manifest.files[]).
+#   --keys names the witness public keys you trust (a local file, or an https://
+#   URL fetched with curl). It replaces the receipt's own public_keys.json for
+#   OAI witnesses: that copy ships inside the receipt, so whoever made the
+#   receipt chose it. Without --keys an OAI receipt still verifies, with a
+#   WARNING. A did:key witness's key is its identifier, so --keys never applies.
 #
 # Requirements: bash 4+, jq 1.6+, openssl 3.0+ (or 1.1.1 with -rawin), python3.
 # python3 is used only for RFC 8785 (JSON Canonicalization Scheme) canonicalization
@@ -21,7 +26,16 @@ ok()  { echo "  OK   $*"; }
 # Never cd into the receipt: it is untrusted content, and python3 puts the cwd
 # on sys.path, so a planted json.py or re.py would run. Every receipt file is
 # read through this absolute path instead, and python3 runs with -I.
-RECEIPT_DIR=$(cd -- "${1:-.}" 2>/dev/null && pwd -P) || err "receipt directory ${1:-.} not found"
+RECEIPT_ARG="" KEYS_ARG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --keys)   [ $# -ge 2 ] || err "--keys needs a FILE or https:// URL"; KEYS_ARG=$2; shift 2 ;;
+    --keys=*) KEYS_ARG=${1#--keys=}; shift ;;
+    *)        [ -z "$RECEIPT_ARG" ] || err "usage: verify.sh [RECEIPT_DIR] [--keys FILE_OR_URL]"; RECEIPT_ARG=$1; shift ;;
+  esac
+done
+RECEIPT_ARG=${RECEIPT_ARG:-.}
+RECEIPT_DIR=$(cd -- "$RECEIPT_ARG" 2>/dev/null && pwd -P) || err "receipt directory $RECEIPT_ARG not found"
 
 command -v jq      >/dev/null || err "jq is required"
 command -v openssl >/dev/null || err "openssl is required"
@@ -33,6 +47,26 @@ command -v python3 >/dev/null || err "python3 is required"
 [ -f "$RECEIPT_DIR/public_keys.json"      ] || err "public_keys.json not found"
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+
+# KEYS_FILE is where every OAI witness key lookup reads from: the trusted
+# --keys file when given, else the receipt's own copy (warned about below,
+# once we know the witness is an OAI). did:key lookups always read the bundled
+# file, since the key they accept is fixed by the identifier anyway.
+if [ -n "$KEYS_ARG" ]; then
+  if [[ "$KEYS_ARG" =~ ^https:// ]]; then
+    command -v curl >/dev/null || err "curl is required to fetch --keys $KEYS_ARG"
+    curl -fsS --proto =https -o "$TMP/keys.json" -- "$KEYS_ARG" || err "cannot fetch --keys $KEYS_ARG"
+    KEYS_FILE="$TMP/keys.json"
+  else
+    [ -f "$KEYS_ARG" ] && [ -r "$KEYS_ARG" ] || err "cannot read --keys $KEYS_ARG"
+    KEYS_FILE=$KEYS_ARG
+  fi
+  jq -e '.keys | type == "array"' "$KEYS_FILE" >/dev/null 2>&1 || err "--keys $KEYS_ARG is not JSON with a .keys array"
+  KEYS_SRC="--keys $KEYS_ARG"
+else
+  KEYS_FILE="$RECEIPT_DIR/public_keys.json"
+  KEYS_SRC="receipt's bundled public_keys.json"
+fi
 
 # RFC 8785 (JCS) canonicalizer via python3 stdlib. Reads JSON on stdin, writes
 # canonical bytes on stdout. This implements the JCS subset that covers v0.1
@@ -109,7 +143,7 @@ lookup_key() {
     select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
     select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
     .public_key
-  ' "$RECEIPT_DIR/public_keys.json" | head -1 | sed 's/^0x//'
+  ' "$KEYS_FILE" | head -1 | sed 's/^0x//'
 }
 
 # A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1), so
@@ -139,6 +173,24 @@ lookup_did_key() {
 }
 
 ##############################################################################
+# 0. Which keys an OAI witness is checked against
+##############################################################################
+AIT_WIT=$(jq -r '.witness'     "$RECEIPT_DIR/ait.json")
+WITNESS=$(jq -r '.witness' "$RECEIPT_DIR/manifest.json")
+if [[ ! "$AIT_WIT" =~ ^did:key: || ! "$WITNESS" =~ ^did:key: ]]; then
+  ok "keys file sha256=$(openssl dgst -sha256 -r "$KEYS_FILE" | cut -d' ' -f1) (from $KEYS_SRC)"
+  if [ -z "$KEYS_ARG" ]; then
+    cat >&2 <<'WARN'
+WARNING: this receipt has an OAI witness and no --keys was given, so its
+WARNING: signatures were checked against the public_keys.json inside the
+WARNING: receipt itself. Whoever made the receipt chose those keys: a pass
+WARNING: proves the receipt is self-consistent, NOT who signed it. Re-run with
+WARNING: --keys FILE_OR_URL naming the witness keys you trust.
+WARN
+  fi
+fi
+
+##############################################################################
 # 1. File integrity
 ##############################################################################
 echo "==> Verifying file integrity (manifest.files[])"
@@ -155,7 +207,6 @@ done
 # 2. AIT signature
 ##############################################################################
 echo "==> Verifying AIT witness signature"
-AIT_WIT=$(jq -r '.witness'     "$RECEIPT_DIR/ait.json")
 AIT_TS=$(jq  -r '.issued_at'   "$RECEIPT_DIR/ait.json")
 AIT_SIG=$(jq -r '.witness_signature' "$RECEIPT_DIR/ait.json" | sed 's/^ed25519:0x//')
 MAN_WIT=$(jq -r '.witness' "$RECEIPT_DIR/manifest.json")
@@ -192,7 +243,6 @@ ok "AIT $(jq -r '.id' "$RECEIPT_DIR/ait.json")"
 # 3. Block chain
 ##############################################################################
 echo "==> Walking block chain"
-WITNESS=$(jq -r '.witness' "$RECEIPT_DIR/manifest.json")
 PREV="0x0000000000000000000000000000000000000000000000000000000000000000"
 COUNT=0
 while IFS= read -r block; do
@@ -261,7 +311,7 @@ else
     select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
     select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
     .attestation_strength // empty
-  ' "$RECEIPT_DIR/public_keys.json" | head -1)
+  ' "$KEYS_FILE" | head -1)
 fi
 if [ -n "$KEY_STRENGTH" ]; then
   STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }

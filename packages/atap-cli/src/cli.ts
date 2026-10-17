@@ -77,7 +77,8 @@ const USAGE = `usage:
   atap-witness event   --ait ID       --key K --witness-oai OAI   < {"event_type","payload"}
   atap-witness block   --ait ID       --key K --witness-oai OAI   < period_summary (optional)
   atap-witness receipt --ait ID --out DIR --key K --witness-oai OAI
-  atap-witness verify DIR
+  atap-witness verify DIR [--keys public_keys.json]
+                                    (--keys: the OAI witness keys you trust, instead of the receipt's own copy)
   atap-witness verify --store [DIR] [--ait ID] [--keys public_keys.json]
                                     (check a store, e.g. a restored one, with no receipt or key; default ./.atap)
   atap-witness scitt export DIR --key K [--issuer ISS]
@@ -329,8 +330,11 @@ function escapes(root: string, rel: string): boolean {
 
 // Same checks as verify.sh: manifest.files[] integrity first, then the
 // signatures and chain via the library's verifyReceipt, then the profile's
-// witness events if the manifest lists them.
-async function verify(dir: string): Promise<VerifyResult> {
+// witness events if the manifest lists them. An OAI witness is checked against
+// keysFile when given; the receipt's own public_keys.json was chosen by whoever
+// made the receipt, so leaning on it earns a warning (as verify.sh's WARNING).
+// A did:key is its own key, so its receipts always use the bundled entries.
+async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   const receipt = await readJsonFile<Receipt>(dir, 'manifest.json')
   const root = resolve(dir)
   const bad = checkManifestFiles(receipt, rel => {
@@ -343,8 +347,25 @@ async function verify(dir: string): Promise<VerifyResult> {
   if (bad) return { ok: false, blocks: 0, reason: bad }
   const ait = await readJsonFile<AIT>(dir, 'ait.json')
   const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
-  const keys = await readJsonFile<KeysDocument>(dir, 'public_keys.json')
+  const oai = !isDidKey(ait.witness) || !isDidKey(receipt.witness)
+  let keys: KeysDocument
+  if (oai && keysFile) {
+    try {
+      keys = JSON.parse(await readFile(keysFile, 'utf8')) as KeysDocument
+    } catch {
+      throw new Error(`cannot read --keys ${keysFile}`)
+    }
+    if (!Array.isArray(keys?.keys)) throw new Error(`--keys ${keysFile} is not JSON with a .keys array`)
+  } else {
+    keys = await readJsonFile<KeysDocument>(dir, 'public_keys.json')
+  }
   const result = verifyReceipt({ receipt, ait, chain, keys })
+  if (oai && !keysFile) {
+    result.warnings = [
+      ...(result.warnings ?? []),
+      "OAI witness checked against the receipt's own public_keys.json: proves self-consistency, not who signed; pass --keys",
+    ]
+  }
   if (!result.ok || !receipt.files?.some(f => f.path === WITNESS_EVENTS)) return result
   const reason = checkWitnessEvents(await readJsonFile<WitnessEvent[]>(dir, WITNESS_EVENTS), chain, ait, keys)
   return reason ? { ok: false, blocks: 0, reason } : result
@@ -804,7 +825,7 @@ async function main(argv: string[]): Promise<number> {
   }
   if (cmd === 'verify') {
     if (!pos[1]) throw new Error('usage: atap-witness verify <dir> | verify --store [dir]')
-    const result = await verify(pos[1])
+    const result = await verify(pos[1], v.keys)
     process.stdout.write(json(result))
     return result.ok ? 0 : 1
   }
