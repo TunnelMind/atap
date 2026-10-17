@@ -15,20 +15,22 @@
 
 set -euo pipefail
 
-RECEIPT_DIR="${1:-.}"
-cd "$RECEIPT_DIR"
-
 err() { echo "FAIL: $*" >&2; exit 1; }
 ok()  { echo "  OK   $*"; }
+
+# Never cd into the receipt: it is untrusted content, and python3 puts the cwd
+# on sys.path, so a planted json.py or re.py would run. Every receipt file is
+# read through this absolute path instead, and python3 runs with -I.
+RECEIPT_DIR=$(cd -- "${1:-.}" 2>/dev/null && pwd -P) || err "receipt directory ${1:-.} not found"
 
 command -v jq      >/dev/null || err "jq is required"
 command -v openssl >/dev/null || err "openssl is required"
 command -v python3 >/dev/null || err "python3 is required"
 
-[ -f manifest.json         ] || err "manifest.json not found"
-[ -f ait.json              ] || err "ait.json not found"
-[ -f attestation_chain.json ] || err "attestation_chain.json not found"
-[ -f public_keys.json      ] || err "public_keys.json not found"
+[ -f "$RECEIPT_DIR/manifest.json"         ] || err "manifest.json not found"
+[ -f "$RECEIPT_DIR/ait.json"              ] || err "ait.json not found"
+[ -f "$RECEIPT_DIR/attestation_chain.json" ] || err "attestation_chain.json not found"
+[ -f "$RECEIPT_DIR/public_keys.json"      ] || err "public_keys.json not found"
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
@@ -36,7 +38,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # canonical bytes on stdout. This implements the JCS subset that covers v0.1
 # artifacts (no NaN/Infinity, finite numbers).
 canonicalize() {
-  python3 -c '
+  python3 -I -c '
 import json, sys
 def canon(o):
     if isinstance(o, dict):
@@ -65,7 +67,7 @@ print(canon(json.load(sys.stdin)), end="")
 # unless the input is did:key:z + base58btc(0xed 0x01 || 32-byte key); mirrors
 # packages/atap-js/src/didkey.ts.
 didkey_to_hex() {
-  python3 -c '
+  python3 -I -c '
 import re, sys
 d = sys.argv[1]
 if not re.fullmatch(r"did:key:z6Mk[1-9A-HJ-NP-Za-km-z]{44}", d):
@@ -107,7 +109,7 @@ lookup_key() {
     select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
     select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
     .public_key
-  ' public_keys.json | head -1 | sed 's/^0x//'
+  ' "$RECEIPT_DIR/public_keys.json" | head -1 | sed 's/^0x//'
 }
 
 # A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1), so
@@ -128,11 +130,11 @@ lookup_did_key() {
   done < <(jq -r --arg w "$witness" '
     .keys[] | select(.witness == $w) |
     [(.public_key | sub("^0x"; "")), (.attestation_strength // "absent")] | @tsv
-  ' public_keys.json)
+  ' "$RECEIPT_DIR/public_keys.json")
   jq -e --arg w "$witness" --arg t "$t" '
     any(.keys[]; .witness == $w and .status == "compromised"
       and ((.compromise_notice and $t < .compromise_notice.disclosed_at) | not))
-  ' public_keys.json >/dev/null && first=""
+  ' "$RECEIPT_DIR/public_keys.json" >/dev/null && first=""
   printf '%s\n' "$first"
 }
 
@@ -140,11 +142,11 @@ lookup_did_key() {
 # 1. File integrity
 ##############################################################################
 echo "==> Verifying file integrity (manifest.files[])"
-jq -c '.files[] | select(.sha256 != null)' manifest.json | while IFS= read -r entry; do
+jq -c '.files[] | select(.sha256 != null)' "$RECEIPT_DIR/manifest.json" | while IFS= read -r entry; do
   path=$(jq -r '.path' <<<"$entry")
   want=$(jq -r '.sha256' <<<"$entry" | sed 's/^0x//')
-  [ -f "$path" ] || err "$path missing"
-  got=$(openssl dgst -sha256 -binary "$path" | xxd -p -c 256)
+  [ -f "$RECEIPT_DIR/$path" ] || err "$path missing"
+  got=$(openssl dgst -sha256 -binary "$RECEIPT_DIR/$path" | xxd -p -c 256)
   [ "$got" = "$want" ] || err "$path sha256 mismatch (want $want, got $got)"
   ok "$path"
 done
@@ -153,10 +155,10 @@ done
 # 2. AIT signature
 ##############################################################################
 echo "==> Verifying AIT witness signature"
-AIT_WIT=$(jq -r '.witness'     ait.json)
-AIT_TS=$(jq  -r '.issued_at'   ait.json)
-AIT_SIG=$(jq -r '.witness_signature' ait.json | sed 's/^ed25519:0x//')
-MAN_WIT=$(jq -r '.witness' manifest.json)
+AIT_WIT=$(jq -r '.witness'     "$RECEIPT_DIR/ait.json")
+AIT_TS=$(jq  -r '.issued_at'   "$RECEIPT_DIR/ait.json")
+AIT_SIG=$(jq -r '.witness_signature' "$RECEIPT_DIR/ait.json" | sed 's/^ed25519:0x//')
+MAN_WIT=$(jq -r '.witness' "$RECEIPT_DIR/manifest.json")
 # For a did:key witness the manifest and AIT must name the same witness (same
 # rule as verifyReceipt): that is what binds the manifest and blocks to the key
 # the AIT was signed with (ATAP-v0.2 §3.1). OAI-witnessed v0.1 records are not
@@ -168,29 +170,29 @@ fi
 # so does every block under it (checked in step 3). The operator is otherwise
 # an identifier only (§3.5), but must still be a well-formed Ed25519 did:key.
 DID_AIT=""
-for id in "$AIT_WIT" "$(jq -r '.operator' ait.json)"; do
+for id in "$AIT_WIT" "$(jq -r '.operator' "$RECEIPT_DIR/ait.json")"; do
   if [[ "$id" =~ ^did:key: ]]; then
     didkey_to_hex "$id" >/dev/null || err "AIT identifier $id is not an Ed25519 did:key (ATAP-v0.2 §3)"
     DID_AIT=1
   fi
 done
 if [ -n "$DID_AIT" ]; then
-  AIT_VER=$(jq -r '.ait_version' ait.json)
+  AIT_VER=$(jq -r '.ait_version' "$RECEIPT_DIR/ait.json")
   [ "$AIT_VER" = "0.2" ] || err "AIT with a did:key witness or operator declares ait_version '$AIT_VER', want '0.2' (ATAP-v0.2 §3.3)"
 fi
 [[ "$AIT_SIG" =~ ^[0-9a-f]{128}$ ]] || err "AIT witness_signature malformed"
 AIT_KEY=$(lookup_key "$AIT_WIT" "$AIT_TS")
 [ -n "$AIT_KEY" ] || err "no key for AIT witness $AIT_WIT at $AIT_TS"
 pem_from_raw_ed25519 "$AIT_KEY" "$TMP/ait.pub.pem"
-jq 'del(.witness_signature)' ait.json | canonicalize > "$TMP/ait.canon"
+jq 'del(.witness_signature)' "$RECEIPT_DIR/ait.json" | canonicalize > "$TMP/ait.canon"
 verify_sig "$TMP/ait.canon" "$TMP/ait.pub.pem" "$AIT_SIG" || err "AIT signature invalid"
-ok "AIT $(jq -r '.id' ait.json)"
+ok "AIT $(jq -r '.id' "$RECEIPT_DIR/ait.json")"
 
 ##############################################################################
 # 3. Block chain
 ##############################################################################
 echo "==> Walking block chain"
-WITNESS=$(jq -r '.witness' manifest.json)
+WITNESS=$(jq -r '.witness' "$RECEIPT_DIR/manifest.json")
 PREV="0x0000000000000000000000000000000000000000000000000000000000000000"
 COUNT=0
 while IFS= read -r block; do
@@ -219,16 +221,16 @@ while IFS= read -r block; do
   PREV="0x$want_self"
   COUNT=$((COUNT + 1))
   ok "$(jq -r '.id' <<<"$block")"
-done < <(jq -c '.[]' attestation_chain.json)
+done < <(jq -c '.[]' "$RECEIPT_DIR/attestation_chain.json")
 
 # 4. chain_head_hash in manifest matches last block
-MANIFEST_HEAD=$(jq -r '.chain_head_hash' manifest.json)
+MANIFEST_HEAD=$(jq -r '.chain_head_hash' "$RECEIPT_DIR/manifest.json")
 [ "$MANIFEST_HEAD" = "$PREV" ] || err "manifest chain_head_hash $MANIFEST_HEAD != last block self_hash $PREV"
 
 ##############################################################################
 # 5. Attestation strength (ATAP §7.4.1 — optional in v0.1.x, required at v0.2)
 ##############################################################################
-RCPT_STRENGTH=$(jq -r '.attestation_strength // "MISSING"' manifest.json)
+RCPT_STRENGTH=$(jq -r '.attestation_strength // "MISSING"' "$RECEIPT_DIR/manifest.json")
 # ATAP-v0.2 §3.2: a did:key witness is self-asserted by definition. The receipt
 # must say so explicitly (no v0.1 default); lookup_key holds key entries to the same.
 if [[ "$WITNESS" =~ ^did:key: ]]; then
@@ -251,14 +253,14 @@ if [[ "$WITNESS" =~ ^did:key: ]]; then
     select(.witness == $w) |
     select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
     .attestation_strength // empty
-  ' public_keys.json | head -1)
+  ' "$RECEIPT_DIR/public_keys.json" | head -1)
 else
   KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" '
     .keys[] |
     select(.witness == $w and .valid_from <= $t and .valid_until > $t) |
     select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
     .attestation_strength // empty
-  ' public_keys.json | head -1)
+  ' "$RECEIPT_DIR/public_keys.json" | head -1)
 fi
 if [ -n "$KEY_STRENGTH" ]; then
   STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }
@@ -280,19 +282,19 @@ fi
 # v0.1 records are not checked here (§3.4).
 if [[ "$WITNESS" =~ ^did:key: ]]; then
   echo "==> Verifying did:key manifest and event signatures"
-  MAN_TS=$(jq -r '.generated_at' manifest.json)
+  MAN_TS=$(jq -r '.generated_at' "$RECEIPT_DIR/manifest.json")
   key_hex=$(lookup_key "$WITNESS" "$MAN_TS")
   [ -n "$key_hex" ] || err "no key for $WITNESS at $MAN_TS"
   pem_from_raw_ed25519 "$key_hex" "$TMP/man.pub.pem"
-  jq 'del(.witness_signature)' manifest.json | canonicalize > "$TMP/man.canon"
-  sig=$(jq -r '.witness_signature' manifest.json | sed 's/^ed25519:0x//')
+  jq 'del(.witness_signature)' "$RECEIPT_DIR/manifest.json" | canonicalize > "$TMP/man.canon"
+  sig=$(jq -r '.witness_signature' "$RECEIPT_DIR/manifest.json" | sed 's/^ed25519:0x//')
   verify_sig "$TMP/man.canon" "$TMP/man.pub.pem" "$sig" || err "manifest signature invalid"
   ok "manifest"
 
   # tunnelmind:code_crew:v1 receipts list their events here (atap-cli WITNESS_EVENTS).
   EVENTS=profile_artifacts/witness_events.json
-  if jq -e --arg p "$EVENTS" 'any(.files[]?; .path == $p)' manifest.json >/dev/null; then
-    [ -f "$EVENTS" ] || err "$EVENTS missing"
+  if jq -e --arg p "$EVENTS" 'any(.files[]?; .path == $p)' "$RECEIPT_DIR/manifest.json" >/dev/null; then
+    [ -f "$RECEIPT_DIR/$EVENTS" ] || err "$EVENTS missing"
     while IFS= read -r ev; do
       id=$(jq -r '.id' <<<"$ev")
       # The signature is over self_hash, so self_hash must be the event's own
@@ -308,7 +310,7 @@ if [[ "$WITNESS" =~ ^did:key: ]]; then
       printf '%s' "$got_self" | xxd -r -p > "$TMP/ev.selfhash"
       sig=$(jq -r '.witness_signature' <<<"$ev" | sed 's/^ed25519:0x//')
       verify_sig "$TMP/ev.selfhash" "$TMP/ev.pub.pem" "$sig" || err "event signature invalid on $id"
-    done < <(jq -c '.[]' "$EVENTS")
+    done < <(jq -c '.[]' "$RECEIPT_DIR/$EVENTS")
     ok "$EVENTS signatures"
   fi
 fi

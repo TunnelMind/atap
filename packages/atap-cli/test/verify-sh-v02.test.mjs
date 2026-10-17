@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash, createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -310,4 +310,26 @@ test('a did:key receipt with a tampered witness event signature fails both verif
   const altered = tamperEvents(dir, dir + '-alt', e => (e[0].witnessed_at = '2020-01-01T00:00:00.000Z', e), key)
   assertFails(verifySh(altered), /self_hash mismatch on event ATAP-WE-/)
   assert.match(cliVerify(altered).reason, /event 0 .*self_hash mismatch/)
+})
+
+// verify.sh reads untrusted receipt content, and agent-crew runs it as
+// `bash verify.sh .` from inside the receipt. python3 puts the cwd on sys.path,
+// so it must never cd into the receipt or import from it.
+test('verify.sh run from inside the receipt verifies and never imports receipt python', async () => {
+  const { dir } = await didReceiptDir()
+  const run = cwd => spawnSync('bash', [REPO_VERIFY_SH, cwd === dir ? '.' : dir], { cwd, encoding: 'utf8' })
+  const good = run(dir)
+  assert.equal(good.status, 0, good.stderr)
+  assert.equal(run(tmpdir()).status, 0)
+
+  const marker = join(mkdtempSync(join(tmpdir(), 'atap-marker-')), 'marker')
+  for (const mod of ['json.py', 're.py']) writeFileSync(join(dir, mod), `open(${JSON.stringify(marker)}, 'w').write('${mod}')\n`)
+  const planted = run(dir)
+  assert.equal(planted.status, 0, planted.stderr)
+  assert.equal(existsSync(marker), false, existsSync(marker) && `ran receipt ${readFileSync(marker, 'utf8')}`)
+})
+
+test('atap-py ships a byte-identical copy of verify.sh', () => {
+  const pyCopy = fileURLToPath(new URL('../../atap-py/src/atap/verify.sh', import.meta.url))
+  assert.deepEqual(readFileSync(pyCopy), readFileSync(REPO_VERIFY_SH))
 })
