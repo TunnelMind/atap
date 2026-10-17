@@ -427,6 +427,7 @@ async function verifyStore(dir: string, v: Values): Promise<StoreResult> {
   // Only the fields verifyReceipt reads; the rest of a Receipt describes files
   // a store does not have.
   const rcpt = {
+    ait: ait.id,
     witness,
     chain_head_hash: chain.at(-1)!.self_hash,
     attestation_strength: strength,

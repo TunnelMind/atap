@@ -293,3 +293,23 @@ test('an empty or non-array attestation chain fails', async () => {
     assert.equal(r.reason, 'attestation chain is not a non-empty array')
   }
 })
+
+// A005 (T9): the receipt and every block belong to the AIT. Each record is
+// re-signed by the witness, so the signatures, self_hash and chain head are
+// valid and only the binding is wrong.
+test('a block or receipt bound to another AIT or profile fails', async () => {
+  const c = await didChain()
+  assert.equal(verifyReceipt(c).ok, true)
+  const withBlock = edit => {
+    const block = resignBlock({ ...c.chain[0], ...edit }, c.privateKey)
+    const receipt = resignReceipt({ ...c.receipt, chain_head_hash: block.self_hash }, c.privateKey)
+    return verifyReceipt({ ...c, receipt, chain: [block] })
+  }
+  const id = c.chain[0].id
+  let r = withBlock({ ait: 'AIT-00000000-0000-7000-8000-000000000000' })
+  assert.deepEqual([r.ok, r.reason], [false, `block ${id} ait AIT-00000000-0000-7000-8000-000000000000 != AIT id ${c.ait.id}`])
+  r = withBlock({ profile: 'tunnelmind:other:v1' })
+  assert.deepEqual([r.ok, r.reason], [false, `block ${id} profile tunnelmind:other:v1 != AIT profile ${c.ait.profile}`])
+  r = verifyReceipt({ ...c, receipt: resignReceipt({ ...c.receipt, ait: 'AIT-00000000-0000-7000-8000-000000000000' }, c.privateKey) })
+  assert.deepEqual([r.ok, r.reason], [false, `receipt ait AIT-00000000-0000-7000-8000-000000000000 != AIT id ${c.ait.id}`])
+})

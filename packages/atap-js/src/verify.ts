@@ -108,6 +108,16 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
     return { ok: false, blocks: 0, reason: `receipt witness ${receipt.witness} != AIT witness ${ait.witness}` }
   }
 
+  // The receipt and every block (below) belong to this AIT: a record validly
+  // signed by the witness for another AIT or profile attests nothing here (as
+  // verify.sh). Strings only, so a missing field can't match a missing one.
+  if (typeof ait.id !== 'string' || typeof ait.profile !== 'string') {
+    return { ok: false, blocks: 0, reason: 'AIT id or profile is not a string' }
+  }
+  if (receipt.ait !== ait.id) {
+    return { ok: false, blocks: 0, reason: `receipt ait ${receipt.ait} != AIT id ${ait.id}` }
+  }
+
   // 1. AIT signature
   const aitKey = didRaw ? pickDidKeyKey(keys, ait.witness, didRaw, ait.issued_at) : pickKey(keys, ait.witness, ait.issued_at)
   if (!aitKey) {
@@ -144,6 +154,12 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
         blocks: 0,
         reason: `block chain break at ${block.id} (want prev=${prev}, got ${block.prev_block_hash})`,
       }
+    }
+    if (block.ait !== ait.id) {
+      return { ok: false, blocks: 0, reason: `block ${block.id} ait ${block.ait} != AIT id ${ait.id}` }
+    }
+    if (block.profile !== ait.profile) {
+      return { ok: false, blocks: 0, reason: `block ${block.id} profile ${block.profile} != AIT profile ${ait.profile}` }
     }
     const { self_hash, witness_signature, ...rest } = block
     const expectedHash = sha256(canonicalizeBytes(rest))

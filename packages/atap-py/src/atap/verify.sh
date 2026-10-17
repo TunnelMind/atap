@@ -237,7 +237,15 @@ AIT_KEY=$(lookup_key "$AIT_WIT" "$AIT_TS")
 pem_from_raw_ed25519 "$AIT_KEY" "$TMP/ait.pub.pem"
 jq 'del(.witness_signature)' "$RECEIPT_DIR/ait.json" | canonicalize > "$TMP/ait.canon"
 verify_sig "$TMP/ait.canon" "$TMP/ait.pub.pem" "$AIT_SIG" || err "AIT signature invalid"
-ok "AIT $(jq -r '.id' "$RECEIPT_DIR/ait.json")"
+# Strings only, so a missing id/profile can't match a block's missing one ("null").
+AIT_ID=$(jq -er '.id | strings' "$RECEIPT_DIR/ait.json") || err "AIT id is not a string"
+AIT_PROFILE=$(jq -er '.profile | strings' "$RECEIPT_DIR/ait.json") || err "AIT profile is not a string"
+ok "AIT $AIT_ID"
+# The manifest and every block (step 3) must belong to this AIT: a record
+# validly signed by the witness for another AIT or profile attests nothing here.
+# A missing field reads as "null", which never equals a real id.
+MAN_AIT=$(jq -r '.ait' "$RECEIPT_DIR/manifest.json")
+[ "$MAN_AIT" = "$AIT_ID" ] || err "manifest ait $MAN_AIT != AIT id $AIT_ID"
 
 ##############################################################################
 # 3. Block chain
@@ -253,6 +261,11 @@ COUNT=0
 while IFS= read -r block; do
   pb=$(jq -r '.prev_block_hash' <<<"$block")
   [ "$pb" = "$PREV" ] || err "block chain break (want prev=$PREV, got $pb)"
+  bid=$(jq -r '.id' <<<"$block")
+  bait=$(jq -r '.ait' <<<"$block")
+  [ "$bait" = "$AIT_ID" ] || err "block $bid ait $bait != AIT id $AIT_ID"
+  bprof=$(jq -r '.profile' <<<"$block")
+  [ "$bprof" = "$AIT_PROFILE" ] || err "block $bid profile $bprof != AIT profile $AIT_PROFILE"
   if [ -n "$DID_AIT" ]; then
     abv=$(jq -r '.ab_version' <<<"$block")
     [ "$abv" = "0.2" ] || err "block $(jq -r '.id' <<<"$block") declares ab_version '$abv' under a did:key AIT (ATAP-v0.2 §3.3)"

@@ -430,3 +430,36 @@ for (const [name, body] of [
     else assert.deepEqual([out.ok, out.reason], [false, 'attestation chain is not a non-empty array'])
   })
 }
+
+// A005 (T9): the manifest and every block belong to the AIT. Each record is
+// re-signed by the witness, so signatures, self_hash and chain head are valid
+// and only the binding is wrong.
+const OTHER_AIT = 'AIT-00000000-0000-7000-8000-000000000000'
+for (const [what, field, value, re] of [
+  ['another AIT', 'ait', OTHER_AIT, new RegExp(`block ATAP-AB-\\S+ ait ${OTHER_AIT} != AIT id AIT-`)],
+  ['another profile', 'profile', 'tunnelmind:other:v1', /block ATAP-AB-\S+ profile tunnelmind:other:v1 != AIT profile tunnelmind:crew_ops:v1/],
+]) {
+  test(`a re-signed block bound to ${what} fails verify.sh`, async () => {
+    const { dir, privateKey } = await didReceiptDir()
+    let head
+    edit(dir, 'attestation_chain.json', ([{ self_hash, witness_signature, ...b }]) => {
+      const u = { ...b, [field]: value }
+      head = sha256(canonicalizeBytes(u))
+      return [{ ...u, self_hash: head, witness_signature: ed25519Sign(fromHex(head), privateKey) }]
+    })
+    edit(dir, 'manifest.json', ({ witness_signature, ...m }) => {
+      const u = { ...m, chain_head_hash: head }
+      return { ...u, witness_signature: ed25519Sign(canonicalizeBytes(u), privateKey) }
+    })
+    assertFails(verifySh(dir), re)
+  })
+}
+
+test('a re-signed manifest bound to another AIT fails verify.sh', async () => {
+  const { dir, privateKey } = await didReceiptDir()
+  edit(dir, 'manifest.json', ({ witness_signature, ...m }) => {
+    const u = { ...m, ait: OTHER_AIT }
+    return { ...u, witness_signature: ed25519Sign(canonicalizeBytes(u), privateKey) }
+  })
+  assertFails(verifySh(dir), new RegExp(`manifest ait ${OTHER_AIT} != AIT id AIT-`))
+})
