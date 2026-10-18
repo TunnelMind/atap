@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { performance } from 'node:perf_hooks'
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url))
+const REPO_VERIFY_SH = fileURLToPath(new URL('../../../verify.sh', import.meta.url))
 const README = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
 
 // Never rejects; the caller asserts on the exit code.
@@ -52,10 +53,12 @@ test('README Quickstart runs as written, both verifiers pass, under 10 s', async
   assert.equal(out.ok, true)
   assert.equal(out.blocks, 1)
 
-  // Second verifier: the verify.sh `receipt` bundled into the receipt.
+  // Second verifier: the repo's verify.sh on `receipt`. The copy bundled into
+  // the receipt refuses to verify the receipt it ships in (A102).
   assert.ok(existsSync(join(cwd, 'receipt', 'manifest.json')))
+  assert.ok(existsSync(join(cwd, 'receipt', 'verify.sh')))
   assert.ok(existsSync(join(cwd, 'receipt.zip')))
-  const sh = await run(join(cwd, 'receipt', 'verify.sh'), ['receipt'], cwd, env)
+  const sh = await run('bash', [REPO_VERIFY_SH, 'receipt'], cwd, env)
   assert.equal(sh.code, 0, sh.stdout + sh.stderr)
   assert.match(sh.stdout, /==> Receipt verifies \(blocks=1,/)
 })

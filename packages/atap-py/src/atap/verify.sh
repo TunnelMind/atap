@@ -42,6 +42,21 @@ done
 RECEIPT_ARG=${RECEIPT_ARG:-.}
 RECEIPT_DIR=$(cd -- "$RECEIPT_ARG" 2>/dev/null && pwd -P) || err "receipt directory $RECEIPT_ARG not found"
 
+# A verify.sh inside the receipt was chosen by whoever made the receipt, so its
+# PASS proves nothing (ATAP-v0.2 §8.2): refuse before reading any receipt file.
+# A genuine copy refuses here; a forged one would not, which is why the trusted
+# copy must be the one run. Self is resolved through symlinks (realpath, or
+# python3 where realpath is missing), so a link into the receipt counts too.
+# Empty BASH_SOURCE (script piped into bash) has no path to check.
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  SELF=$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null \
+    || python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}" 2>/dev/null) \
+    || err "cannot resolve this verify.sh's own path"
+  case "$SELF" in
+    "${RECEIPT_DIR%/}"/*) err "this verify.sh is inside the receipt it is verifying ($SELF), so the receipt's maker chose its code; run a trusted copy instead: atap-witness verify $RECEIPT_ARG, or /path/to/trusted/verify.sh $RECEIPT_ARG (ATAP-v0.2 §8.2)" ;;
+  esac
+fi
+
 command -v jq      >/dev/null || err "jq is required"
 command -v openssl >/dev/null || err "openssl is required"
 command -v python3 >/dev/null || err "python3 is required"
