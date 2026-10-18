@@ -64,8 +64,9 @@ breaking the verifier.
 
 ```bash
 unzip ATAP-RCPT-018f3c4d-...zip -d receipt/
-cd receipt/
-./verify.sh
+atap-witness verify receipt
+# or, with the verify.sh from your own checkout or https://tunnelmind.ai/atap/verify.sh:
+/path/to/trusted/verify.sh receipt
 # ==> Verifying file integrity (manifest.files[])
 #   OK   ait.json
 #   OK   attestation_chain.json
@@ -76,6 +77,10 @@ cd receipt/
 #   OK   ATAP-AB-018f3c4d-...
 # ==> Receipt verifies (blocks=N)
 ```
+
+Never run the `verify.sh` inside the ZIP: it is chosen by whoever made the
+receipt ([`ATAP-v0.1.1.md`](./ATAP-v0.1.1.md) §3). Run your own trusted copy
+on the receipt directory, as above.
 
 Requirements: bash 4+, openssl 3.0+ (or 1.1.1 with `-rawin`), jq 1.6+, python3.
 

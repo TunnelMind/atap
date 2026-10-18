@@ -38,8 +38,11 @@ atap-witness receipt --out receipt
 atap-witness verify receipt
 ```
 
-The last command prints `"ok": true` and `"blocks": 1` and exits 0. The bundled verifier
-checks the same receipt: `./receipt/verify.sh receipt`.
+The last command prints `"ok": true` and `"blocks": 1` and exits 0. The trusted
+`verify.sh` from your checkout's root checks the same receipt:
+`/path/to/atap/verify.sh receipt`. The receipt's bundled `verify.sh` is for
+reference only; never run it on a receipt you did not make
+([`ATAP-v0.1.1.md`](../../ATAP-v0.1.1.md) §3).
 [`test/quickstart.test.mjs`](./test/quickstart.test.mjs) runs this block as
 written and times it.
 `atap-witness ait rotate` declares a fresh 365-day AIT in the same store; old receipts keep verifying.
@@ -340,7 +343,9 @@ The last command prints and exits 0:
 `profile_artifacts/witness_events.json` (every event the blocks cover; `verify`
 checks each event's hash chain against the blocks' `chain_head_hash`, see the
 profile's §9).
-The bundled verifier checks the same receipt: `./receipt/verify.sh receipt`.
+The trusted `verify.sh` from your checkout's root checks the same receipt:
+`/path/to/atap/verify.sh receipt`. The bundled copy is for reference only; never
+run it on a receipt you did not make.
 
 `tunnelmind:code_crew:v1` is the profile in
 [`profiles/profiles/tunnelmind-code-crew-v1/`](../../profiles/profiles/tunnelmind-code-crew-v1/).
