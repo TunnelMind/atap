@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CborTag, cborDecode, didKeyFromPublicKey } from '@tunnelmindai/atap'
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url))
+const REPO_VERIFY_SH = fileURLToPath(new URL('../../../verify.sh', import.meta.url))
 const PROFILE_DIR = fileURLToPath(new URL('../../../profiles/profiles/tunnelmind-code-crew-v1/', import.meta.url))
 const [EV] = JSON.parse(readFileSync(join(PROFILE_DIR, 'examples/witness-events.json'), 'utf8'))
 const EVENT = JSON.stringify({ event_type: EV.event_type, payload: EV.payload })
@@ -50,7 +51,9 @@ function didOf(pem) {
 async function receiptVerifies(cwd, out, ait) {
   await ok(cwd, ['receipt', '--out', out, ...(ait ? ['--ait', ait] : [])])
   assert.equal((await ok(cwd, ['verify', out])).ok, true)
-  const sh = spawnSync('bash', ['verify.sh'], { cwd: join(cwd, out), encoding: 'utf8' })
+  // The repo's verify.sh, from inside the receipt: the receipt's own copy
+  // refuses to verify the receipt it ships in (A102).
+  const sh = spawnSync('bash', [REPO_VERIFY_SH], { cwd: join(cwd, out), encoding: 'utf8' })
   assert.equal(sh.status, 0, sh.stdout + sh.stderr)
   return JSON.parse(readFileSync(join(cwd, out, 'manifest.json'), 'utf8'))
 }

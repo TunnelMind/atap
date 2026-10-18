@@ -108,6 +108,8 @@ v0.2 widens a required field's grammar, so it is a major pre-v1 change under v0.
 
 1. v0.1 §7.4 and §14.8 say `attestation_strength` becomes REQUIRED in v0.2. This draft requires it only for did:key witnesses, keeping the delta to one change. Make it required for every v0.2 Receipt and key entry?
 
+2. DRAFT note (no verifier or schema change is made here). Rule 3.4 leaves OAI-identified witnesses to v0.1 §7.4.1 and §8, and rule 3.1 requires a Receipt's `witness` (`manifest.json`) to equal the AIT `witness` (`ait.json`) only when either is a did:key. Nothing in v0.1 requires that equality for OAI witnesses, so a second trusted witness could sign Attestation Blocks and a Receipt under another witness's AIT and the receipt would still verify. Should v0.2 (or a v0.1 erratum) require the Receipt `witness` to equal the AIT `witness` for OAI witnesses too, or is cross-witness signing intended?
+
 ---
 
 ## Appendix A. References (additions)

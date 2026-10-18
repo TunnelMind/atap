@@ -42,6 +42,21 @@ done
 RECEIPT_ARG=${RECEIPT_ARG:-.}
 RECEIPT_DIR=$(cd -- "$RECEIPT_ARG" 2>/dev/null && pwd -P) || err "receipt directory $RECEIPT_ARG not found"
 
+# A verify.sh inside the receipt was chosen by whoever made the receipt, so its
+# PASS proves nothing (ATAP-v0.2 §8.2): refuse before reading any receipt file.
+# A genuine copy refuses here; a forged one would not, which is why the trusted
+# copy must be the one run. Self is resolved through symlinks (realpath, or
+# python3 where realpath is missing), so a link into the receipt counts too.
+# Empty BASH_SOURCE (script piped into bash) has no path to check.
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  SELF=$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null \
+    || python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}" 2>/dev/null) \
+    || err "cannot resolve this verify.sh's own path"
+  case "$SELF" in
+    "${RECEIPT_DIR%/}"/*) err "this verify.sh is inside the receipt it is verifying ($SELF), so the receipt's maker chose its code; run a trusted copy instead: atap-witness verify $RECEIPT_ARG, or /path/to/trusted/verify.sh $RECEIPT_ARG (ATAP-v0.2 §8.2)" ;;
+  esac
+fi
+
 command -v jq      >/dev/null || err "jq is required"
 command -v openssl >/dev/null || err "openssl is required"
 command -v python3 >/dev/null || err "python3 is required"
@@ -160,6 +175,16 @@ verify_sig() {
   openssl pkeyutl -verify -pubin -inkey "$pemfile" -rawin -in "$msgfile" -sigfile "$TMP/.sig" >/dev/null
 }
 
+# jq def: an RFC 3339 time as epoch seconds, so times compare as instants, not
+# strings ("+00:00" vs "Z" or fractional seconds cannot flip a verdict). A time
+# that does not parse is a jq error; every caller turns that into a failure.
+JQ_INSTANT='
+  def instant:
+    (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>[.][0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):(?<m>[0-9]{2}))$")
+      // error("not an RFC 3339 time")) |
+    (.d + "Z" | fromdateiso8601) + ("0" + (.f // "") | tonumber)
+      - (if .z == "Z" then 0 else (.s + "1" | tonumber) * ((.h | tonumber) * 3600 + (.m | tonumber) * 60) end);'
+
 # The OAI key entries for witness $1 in force at RFC 3339 time $2, as a JSON
 # array of at most one (ATAP §8.2): valid_from <= t < valid_until, and not
 # compromised unless t is before the notice's disclosed_at. Times compare as
@@ -168,12 +193,7 @@ verify_sig() {
 # at once is a failure too: taking the first would let file order pick the key.
 oai_keys_at() {
   local out n
-  out=$(jq -c --arg w "$1" --arg t "$2" '
-    def instant:
-      (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>[.][0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):(?<m>[0-9]{2}))$")
-        // error("not an RFC 3339 time")) |
-      (.d + "Z" | fromdateiso8601) + ("0" + (.f // "") | tonumber)
-        - (if .z == "Z" then 0 else (.s + "1" | tonumber) * ((.h | tonumber) * 3600 + (.m | tonumber) * 60) end);
+  out=$(jq -c --arg w "$1" --arg t "$2" "$JQ_INSTANT"'
     ($t | instant) as $at |
     [ .keys[] |
       select(.witness == $w and (.valid_from | instant) <= $at and $at < (.valid_until | instant)) |
@@ -212,10 +232,18 @@ lookup_did_key() {
     .keys[] | select(.witness == $w) |
     [(.public_key | sub("^0x"; "")), (.attestation_strength // "absent")] | @tsv
   ' "$RECEIPT_DIR/public_keys.json")
-  jq -e --arg w "$witness" --arg t "$t" '
+  # jq -e exits 0 if a notice voids the key, 1 if none does, and 5 on a time
+  # that does not parse: that must fail, not pass as "no notice".
+  local rc=0
+  jq -e --arg w "$witness" --arg t "$t" "$JQ_INSTANT"'
     any(.keys[]; .witness == $w and .status == "compromised"
-      and ((.compromise_notice and $t < .compromise_notice.disclosed_at) | not))
-  ' "$RECEIPT_DIR/public_keys.json" >/dev/null && first=""
+      and ((.compromise_notice and ($t | instant) < (.compromise_notice.disclosed_at | instant)) | not))
+  ' "$RECEIPT_DIR/public_keys.json" >/dev/null 2>&1 || rc=$?
+  case $rc in
+    0) first="" ;;
+    1) ;;
+    *) err "cannot compare the compromise notice for $witness at $t as RFC 3339 times" ;;
+  esac
   printf '%s\n' "$first"
 }
 
@@ -377,12 +405,13 @@ esac
 # Cross-check against the matching key entry, if the key declares a strength.
 if [[ "$WITNESS" =~ ^did:key: ]]; then
   # No validity window for a did:key's key (ATAP-v0.2 §3.1, as lookup_did_key).
-  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" '
+  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" "$JQ_INSTANT"'
     .keys[] |
     select(.witness == $w) |
-    select(.status != "compromised" or (.compromise_notice and $t < .compromise_notice.disclosed_at)) |
+    select(.status != "compromised" or (.compromise_notice and ($t | instant) < (.compromise_notice.disclosed_at | instant))) |
     .attestation_strength // empty
-  ' "$RECEIPT_DIR/public_keys.json" | head -1)
+  ' "$RECEIPT_DIR/public_keys.json" 2>/dev/null | head -1) \
+    || err "cannot compare the compromise notice for $WITNESS at $AIT_TS as RFC 3339 times"
 else
   KEY_STRENGTH=$(oai_keys_at "$WITNESS" "$AIT_TS" | jq -r '.[0].attestation_strength // empty')
 fi

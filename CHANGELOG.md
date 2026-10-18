@@ -6,6 +6,19 @@ All notable changes to ATAP are recorded here.
 
 ### Changed
 
+- **Docs (2026-10-18): verify a receipt with your own trusted verifier
+  (A101).** `README.md`, `packages/atap-cli/README.md` and
+  `plugins/claude-code/README.md` no longer say to run the `verify.sh` inside a
+  receipt; they run `atap-witness verify` or a trusted `verify.sh` on the
+  receipt directory, matching `ATAP-v0.1.1.md` §3.
+- **verify.sh (2026-10-18): refuses to run from inside the receipt it verifies
+  (A102).** If the script's own resolved path is inside the receipt directory, it
+  stops with "this verify.sh is inside the receipt it is verifying … run a trusted
+  copy instead" before reading any file. Receipts still carry a copy; run yours.
+- **verify.sh (2026-10-18): compromise notices compare as instants (A103).** The
+  did:key compromise-notice check compared RFC 3339 strings, so offsets like
+  `+01:00` could accept a voided key or reject a valid one; it now compares
+  instants, and a time it cannot parse fails closed.
 - **Library (2026-10-17): `generateReceipt` takes the receipt's period from
   its first and last block (R003).** It used to sign the caller's query window,
   so a window wider than the blocks gave a receipt the library's own

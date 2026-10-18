@@ -121,7 +121,7 @@ From the project, with the forms in
 atap-witness status            # profile, ait, events, blocks, last_receipt
 atap-witness receipt --out receipt
 atap-witness verify receipt
-./receipt/verify.sh receipt
+/path/to/atap/verify.sh receipt   # your checkout's trusted copy, not the receipt's
 ```
 
 ## Tests

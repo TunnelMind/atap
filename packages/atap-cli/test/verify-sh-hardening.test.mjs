@@ -216,11 +216,12 @@ test('control characters in ids and paths never reach the terminal', async () =>
   }
 })
 
-// A010: agent-crew's `crew atap verify/close` run the receipt's own copy as
-// `bash verify.sh .` with cwd = the receipt dir, and read only the exit code
-// (0 = PASS, anything else = FAIL). Pin exactly that invocation.
+// A010: agent-crew's `crew atap verify/close` run verify.sh as `bash verify.sh .`
+// with cwd = the receipt dir, and read only the exit code (0 = PASS, anything
+// else = FAIL). Since A102 that is the trusted copy (the receipt's own refuses
+// to run), so pin the invocation with the repo's copy.
 test("crew contract: `bash verify.sh .` inside the receipt, exit code is the verdict", async () => {
-  const crewRun = (dir, args = ['.']) => spawnSync('bash', ['verify.sh', ...args], { cwd: dir, encoding: 'utf8' })
+  const crewRun = (dir, args = ['.']) => spawnSync('bash', [REPO_VERIFY_SH, ...args], { cwd: dir, encoding: 'utf8' })
 
   const r = await receiptDir()
   const good = crewRun(r.dir)
@@ -256,4 +257,39 @@ test("crew contract: `bash verify.sh .` inside the receipt, exit code is the ver
     assert.equal(res.status, 0, res.stderr)
     assert.equal(existsSync(marker), false, existsSync(marker) && `ran receipt ${readFileSync(marker, 'utf8')}`)
   }
+})
+
+// A102: the receipt ships a verify.sh, but whoever made the receipt chose it.
+// A genuine copy refuses to verify a receipt it sits inside, before reading any
+// receipt file, and points at the trusted copy; the repo's copy still passes.
+test('a verify.sh inside the receipt it verifies refuses to run', async () => {
+  const r = await receiptDir()
+  const refuses = (res, what) => {
+    assert.notEqual(res.status, 0, `${what}: ran from inside the receipt\n${res.stdout}`)
+    assert.match(res.stderr, /FAIL: this verify\.sh is inside the receipt it is verifying/, what)
+    assert.match(res.stderr, /run a trusted copy instead: atap-witness verify .*\/path\/to\/trusted\/verify\.sh/, what)
+    assert.equal(res.stdout, '', `${what}: printed a check before refusing`)
+  }
+  refuses(spawnSync('bash', ['verify.sh', '.'], { cwd: r.dir, encoding: 'utf8' }), 'bash verify.sh .')
+  refuses(spawnSync('bash', ['verify.sh'], { cwd: r.dir, encoding: 'utf8' }), 'bash verify.sh (no arg)')
+  refuses(spawnSync('bash', [join(r.dir, 'verify.sh'), r.dir], { encoding: 'utf8' }), 'absolute path')
+  // Reached through a symlink from outside.
+  const link = join(mkdtempSync(join(tmpdir(), 'atap-link-')), 'verify.sh')
+  symlinkSync(join(r.dir, 'verify.sh'), link)
+  refuses(spawnSync('bash', [link, r.dir], { encoding: 'utf8' }), 'symlink into the receipt')
+  // Refused before any receipt file is read: a receipt with no manifest still
+  // gets the refusal, not "manifest.json not found".
+  const bare = mkdtempSync(join(tmpdir(), 'atap-bare-'))
+  writeFileSync(join(bare, 'verify.sh'), readFileSync(REPO_VERIFY_SH))
+  refuses(spawnSync('bash', ['verify.sh'], { cwd: bare, encoding: 'utf8' }), 'no manifest')
+  // Nested deeper in the receipt (a throwaway dir, so r stays as generated).
+  mkdirSync(join(bare, 'sub'))
+  writeFileSync(join(bare, 'sub', 'verify.sh'), readFileSync(REPO_VERIFY_SH))
+  refuses(spawnSync('bash', [join(bare, 'sub', 'verify.sh'), bare], { encoding: 'utf8' }), 'in a subdirectory')
+
+  // The trusted copy on the same receipt, by path and from inside it.
+  const good = verifySh(r.dir)
+  assert.equal(good.status, 0, good.stderr)
+  const inside = spawnSync('bash', [REPO_VERIFY_SH, '.'], { cwd: r.dir, encoding: 'utf8' })
+  assert.equal(inside.status, 0, inside.stderr)
 })
