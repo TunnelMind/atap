@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- No network at all. The inline script and style are allowed by their
      sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-e5g/EITqfUOV9eaM9ljzzzFGJKiql3HNzOupgGj4m2c='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-79JG5qWwha2BnMjok9eak3XVtwjqGI//Hi538ExhGSM='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ATAP receipt viewer</title>
 <style>
 body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
@@ -131,7 +131,7 @@ return { nodeCrypto, Buffer, pendingCount, resolvePending };
 })();
 __mods["atap/types"] = (function () {
 // ATAP v0.1 — TypeScript types
-// Mirrors the JSON Schemas at https://tunnelmind.ai/atap/schemas/v0.1/
+// Mirrors the JSON Schemas in schemas/v0.1/ (repo root)
 const ATTESTATION_STRENGTH_RANK = {
     'self-asserted': 0,
     software: 1,
