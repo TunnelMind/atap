@@ -775,7 +775,7 @@ function configKeyPath(dir: string, key: string): string {
   try {
     real = realpathSync(abs)
   } catch {
-    real = abs // missing: loadKey reports it
+    real = join(root, relative(dir, abs)) // missing: loadKey reports it; judged where it would be
   }
   if (escapes(root, relative(root, real))) {
     throw new Error(`.atap/config.json key ${key} resolves outside the store ${dir}; the key must be inside it (or pass --key)`)
