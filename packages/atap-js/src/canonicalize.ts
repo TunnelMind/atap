@@ -40,10 +40,8 @@ function encodeNumber(n: number): string {
   if (!Number.isFinite(n)) {
     throw new Error(`JCS: non-finite number ${n} is not encodable`)
   }
-  if (Number.isInteger(n)) {
-    return String(n)
-  }
-  // ECMA-262 / JCS shortest round-trip representation.
+  // ECMA-262 Number::toString: RFC 8785 §3.2.2.3 for integers and the
+  // shortest round-trip form alike.
   return String(n)
 }
 

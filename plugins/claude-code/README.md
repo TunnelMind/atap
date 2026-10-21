@@ -35,8 +35,10 @@ One script, `scripts/atap-hook.mjs`, runs on three hooks
 **`code_crew:change_committed`**, evidence `anchored`. A `git commit` (not
 `--dry-run`) that exits 0. The payload is `timestamp`, `repo` (`owner/repo`
 parsed from the `origin` remote URL) and `commit_sha` (`HEAD` after the
-commit). A failed commit, or a repo whose `origin` does not parse as
-`owner/repo` (a local path or `file://` remote), records nothing.
+commit). A failed commit records nothing. A repo whose `origin` does not
+parse as `owner/repo` (none, a local path, a `file://` remote) is named
+`local/<first 12 hex of its root commit>` instead: stable for the repo's
+life, with no path or name in it.
 
 **`code_crew:verify_run`**, evidence `asserted`. A command line with a
 segment (split on `&&`, `||`, `;`, `|` and newlines) that starts with a test
@@ -58,15 +60,11 @@ of stdout followed by stderr).
 
 **Attestation block** at `SessionEnd`, over the AIT's events not yet in a
 block (this session's, plus any an earlier session left). No pending events,
-no block. Its period summary is integers only:
-
-| Field | Value |
-|---|---|
-| `tasks_accepted` | `verify_run` events with exit code 0 |
-| `tasks_rework` | `verify_run` events with a non-zero exit code |
-| `merged_changes` | `change_committed` events |
-| `tokens` | `0` |
-| `overturns` | `{}` |
+no block. Its period summary is all zeros (`tasks_accepted`, `tasks_rework`,
+`merged_changes`, `tokens` = `0`; `overturns` = `{}`): the hook sees no QA
+verdicts, merges or tokens (a passing test run is not an accepted task; a
+commit is not a merge), so it reports nothing rather than a relabelled guess.
+The block still covers every commit and test-run event, which carry the facts.
 
 ## What it never records
 

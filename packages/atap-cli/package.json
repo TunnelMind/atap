@@ -1,7 +1,7 @@
 {
   "name": "@tunnelmindai/atap-cli",
   "version": "0.1.0",
-  "description": "atap-witness: a file-backed ATAP v0.1 witness driven by JSON on stdin and JSON on stdout, built on @tunnelmindai/atap.",
+  "description": "atap-witness: a file-backed ATAP v0.1/v0.2 witness driven by JSON on stdin and JSON on stdout, built on @tunnelmindai/atap.",
   "type": "module",
   "bin": {
     "atap-witness": "./dist/cli.js"

@@ -434,10 +434,10 @@ fi
 # key has no validity window (ATAP-v0.2 §3.1), so generated_at serves. An OAI
 # key's valid_until is often the AIT's expires_at, and a receipt of an expired
 # AIT is generated after it, so the key is the one in force at the last
-# block's period_end (generated_at only for a receipt with no blocks). Each
-# After step 5 so a §3.2 failure reports as such.
+# block's period_end (step 3 made sure there is one). After step 5 so a §3.2
+# failure reports as such.
 echo "==> Verifying manifest signature"
-if [[ "$WITNESS" =~ ^did:key: || -z "${LAST_END:-}" ]]; then
+if [[ "$WITNESS" =~ ^did:key: ]]; then
   MAN_TS=$(jq -r '.generated_at' "$RECEIPT_DIR/manifest.json")
 else
   MAN_TS=$LAST_END

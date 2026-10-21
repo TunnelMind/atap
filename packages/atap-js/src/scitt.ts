@@ -44,7 +44,7 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
   return Buffer.compare(a, b)
 }
 
-export function cborEncode(v: Cbor): Uint8Array {
+function cborEncode(v: Cbor): Uint8Array {
   if (typeof v === 'number') {
     if (!Number.isSafeInteger(v)) throw new Error(`CBOR: only integers are supported, got ${v}`)
     return v >= 0 ? head(0, v) : head(1, -1 - v)

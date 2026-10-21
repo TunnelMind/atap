@@ -1,4 +1,4 @@
-// @tunnelmindai/atap — reference TypeScript wrapper for ATAP v0.1.
+// @tunnelmindai/atap — reference TypeScript wrapper for ATAP v0.1/v0.2.
 // Standard: https://tunnelmind.ai/atap/standard
 
 export * from './types.js'
