@@ -212,3 +212,40 @@ test('skipReceiptSignature skips the receipt signature and nothing else', async 
     assert.match(verifyReceipt({ ait, chain: [block], receipt: claimed, keys, skipReceiptSignature: true }).reason, /unrecognized attestation_strength/)
   }
 })
+
+// 2026-10-21: the strength ceiling binds to the key of the witness that signed
+// the receipt, as verify.sh step 5. An OAI receipt may name another witness
+// than its AIT; reading the AIT witness's key let a self-asserted witness
+// claim silicon-root over a silicon-root AIT and pass here while verify.sh failed.
+import { ed25519Sign, canonicalizeBytes } from '../dist/index.js'
+test("the strength ceiling is the receipt witness's key, not the AIT witness's", async () => {
+  const storage = new InMemoryStorage()
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const svc = new WitnessService({ witnessOAI: WITNESS, privateKey, storage, attestationStrength: 'silicon-root' })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+  })
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const block = await svc.rollUp(ait.id, {})
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const pub = '0x' + toHex(new Uint8Array(der.subarray(der.length - 32)))
+  // One key under two OAI names: the AIT's witness is trusted to silicon-root, the other is not.
+  const OTHER = 'OAI-2026-0010003'
+  const entry = (witness, attestation_strength) => ({
+    witness, key_id: `k-${witness}`, algorithm: 'ed25519', public_key: pub, valid_from: ait.issued_at,
+    valid_until: ait.expires_at, status: 'active', attestation_strength, rotated_to: null, compromise_notice: null,
+  })
+  const keys = { keys: [entry(WITNESS, 'silicon-root'), entry(OTHER, 'self-asserted')], updated_at: receipt.generated_at }
+  assert.equal(verifyReceipt({ ait, chain: [block], receipt, keys }).ok, true)
+  const { witness_signature: _, ...m } = { ...receipt, witness: OTHER }
+  const asOther = { ...m, witness_signature: ed25519Sign(canonicalizeBytes(m), privateKey) }
+  const r = verifyReceipt({ ait, chain: [block], receipt: asOther, keys })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /attestation_strength=silicon-root exceeds key attestation_strength=self-asserted/)
+})

@@ -244,10 +244,10 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // verify.sh step 6. A did:key witness's key has no validity window (ATAP-v0.2
   // §3.1), so generated_at serves. An OAI key's valid_until is often the AIT's
   // expires_at, and a receipt of an expired AIT is generated after it, so the
-  // key is the one in force at the last block's period_end (generated_at only
-  // for a receipt with no blocks).
+  // key is the one in force at the last block's period_end (step 2 refused an
+  // empty chain).
   if (!skipReceiptSignature) {
-    const at = didRaw || chain.length === 0 ? receipt.generated_at : chain[chain.length - 1]!.period_end
+    const at = didRaw ? receipt.generated_at : chain[chain.length - 1]!.period_end
     const rcptKey = didRaw ? pickDidKeyKey(keys, receipt.witness, didRaw, at) : pickKey(keys, receipt.witness, at)
     if (!rcptKey) {
       return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${at}` }
@@ -307,9 +307,16 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
       "manifest.attestation_strength missing — treated as 'self-asserted' (ATAP §7.4.1). Required at v0.2.",
     )
   }
-  // Cross-check against the AIT-period key, if that key declares a strength.
-  // Step 1 looked it up already (pickKey for an OAI, pickDidKeyKey for a did:key).
-  const aitPeriodKey = aitKey
+  // Cross-check against the key the receipt's witness held at the AIT's issue
+  // time, as verify.sh step 5 (oai_keys_at "$WITNESS" "$AIT_TS"). For a did:key
+  // witness that is step 1's AIT key (receipt and AIT name the same witness).
+  // An OAI receipt may name another witness than its AIT (ATAP-v0.2 §3.4), and
+  // the ceiling binds to the key that signed the receipt's claim, not the
+  // AIT's: until 2026-10-21 this read the AIT witness's key, so a receipt
+  // signed by a self-asserted witness over a silicon-root AIT passed here and
+  // failed verify.sh.
+  const aitPeriodKey = didRaw || receipt.witness === ait.witness ? aitKey : pickKey(keys, receipt.witness, ait.issued_at)
+  if (typeof aitPeriodKey === 'string') return { ok: false, blocks: chain.length, reason: aitPeriodKey }
   if (aitPeriodKey?.attestation_strength) {
     const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength]
     const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]

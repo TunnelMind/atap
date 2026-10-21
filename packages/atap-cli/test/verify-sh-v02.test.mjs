@@ -626,3 +626,23 @@ for (const oai of [undefined, OAI]) {
     }
   })
 }
+
+// 2026-10-21: both verifiers hold the receipt's strength to the key of the
+// witness named by the manifest (verify.sh step 5); atap-js read the AIT
+// witness's key, so a receipt re-signed by a weaker witness passed one and
+// failed the other.
+test("a receipt re-signed by a weaker OAI witness fails the strength ceiling in both verifiers", async () => {
+  const { dir, witness, privateKey } = await didReceiptDir('OAI-2026-0010002')
+  const OTHER = 'OAI-2026-0010003'
+  const keys = readJson(dir, 'public_keys.json')
+  const k = keys.keys[0]
+  put(dir, 'public_keys.json', JSON.stringify({ ...keys, keys: [{ ...k, attestation_strength: 'silicon-root' }, { ...k, witness: OTHER, key_id: 'k2', attestation_strength: 'self-asserted' }] }))
+  const { witness_signature: _, ...m } = readJson(dir, 'manifest.json')
+  assert.equal(m.witness, witness)
+  const asOther = { ...m, witness: OTHER, attestation_strength: 'silicon-root' }
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...asOther, witness_signature: ed25519Sign(canonicalizeBytes(asOther), privateKey) }))
+  assertFails(verifySh(dir), /attestation_strength=silicon-root exceeds key\.attestation_strength=self-asserted/)
+  const js = cliVerify(dir)
+  assert.notEqual(js.status, 0)
+  assert.match(js.reason, /attestation_strength=silicon-root exceeds key attestation_strength=self-asserted/)
+})
