@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- No network at all. The inline script and style are allowed by their
      sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-e5g/EITqfUOV9eaM9ljzzzFGJKiql3HNzOupgGj4m2c='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ESZ0gkaVMgpG5Z5csNSk5MtvL69eKuhYq7O1G3C8Yrs='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ATAP receipt viewer</title>
 <style>
 body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
@@ -154,9 +154,10 @@ __mods["atap/canonicalize"] = (function () {
 // RFC 8785 JSON Canonicalization Scheme (JCS) — subset sufficient for ATAP v0.1.
 //
 // JCS specifies an unambiguous serialization of JSON. v0.1 artifacts use a constrained
-// subset of JSON (no NaN/Infinity, no extreme floats, no surrogate escapes) so this
-// implementation is short and auditable. For artifacts that hit JCS edge cases,
-// substitute a strict library.
+// subset of JSON (no NaN/Infinity, no extreme floats) so this implementation is
+// short and auditable; a lone surrogate is refused (test/vectors/jcs.json, shared
+// with receipt-verify and tollbooth). For other JCS edge cases substitute a strict
+// library.
 const ESC = {
     '"': '\\"',
     '\\': '\\\\',
@@ -168,14 +169,19 @@ const ESC = {
 };
 function encodeString(s) {
     let out = '"';
-    for (let i = 0; i < s.length; i++) {
-        const ch = s.charAt(i);
-        const code = s.charCodeAt(i);
+    for (const ch of s) {
+        const cp = ch.codePointAt(0);
+        // The iterator yields a valid pair as one code point > 0xFFFF, so a cp in
+        // this range is a lone surrogate. TextEncoder would map it to U+FFFD and
+        // two different strings would sign to the same bytes; refused, as
+        // receipt-verify's jcs.ts and verify.sh's python do, 2026-10-20.
+        if (cp >= 0xd800 && cp <= 0xdfff)
+            throw new Error('JCS: lone surrogate in string');
         if (ch in ESC) {
             out += ESC[ch];
         }
-        else if (code < 0x20) {
-            out += '\\u' + code.toString(16).padStart(4, '0');
+        else if (cp < 0x20) {
+            out += '\\u' + cp.toString(16).padStart(4, '0');
         }
         else {
             out += ch;
@@ -446,7 +452,7 @@ function verifyReceipt(opts) {
     return r.reason === undefined ? r : { ...r, reason: clean(r.reason) };
 }
 function verifyReceiptRaw(opts) {
-    const { receipt, ait, chain, keys } = opts;
+    const { receipt, ait, chain, keys, skipReceiptSignature } = opts;
     if (ait['@context'] !== ATAP_CONTEXT) {
         return { ok: false, blocks: 0, reason: `bad @context on AIT` };
     }
@@ -566,7 +572,7 @@ function verifyReceiptRaw(opts) {
     // expires_at, and a receipt of an expired AIT is generated after it, so the
     // key is the one in force at the last block's period_end (generated_at only
     // for a receipt with no blocks).
-    {
+    if (!skipReceiptSignature) {
         const at = didRaw || chain.length === 0 ? receipt.generated_at : chain[chain.length - 1].period_end;
         const rcptKey = didRaw ? pickDidKeyKey(keys, receipt.witness, didRaw, at) : pickKey(keys, receipt.witness, at);
         if (!rcptKey) {
@@ -649,6 +655,7 @@ function verifyReceiptRaw(opts) {
 }
 // tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
 const WITNESS_EVENTS = 'profile_artifacts/witness_events.json';
+// Exported for atap-cli, which had its own copy until 2026-10-20.
 function isObject(v) {
     return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -772,7 +779,7 @@ function manifestFilesProblem(receipt, read, present) {
     }
     return null;
 }
-return { pickDidKeyKey, verifyReceipt, WITNESS_EVENTS, checkWitnessEvents, normaliseReceiptPath, checkManifestFiles };
+return { pickDidKeyKey, clean, verifyReceipt, WITNESS_EVENTS, isObject, checkWitnessEvents, normaliseReceiptPath, checkManifestFiles };
 })();
 __mods["viewer/zip"] = (function () {
 // A small ZIP reader for one receipt. The ZIP is hostile input: every size,
