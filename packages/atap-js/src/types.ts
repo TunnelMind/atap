@@ -1,5 +1,5 @@
 // ATAP v0.1 — TypeScript types
-// Mirrors the JSON Schemas at https://tunnelmind.ai/atap/schemas/v0.1/
+// Mirrors the JSON Schemas in schemas/v0.1/ (repo root)
 
 export type Iso8601 = string
 export type HexHash = `0x${string}`
