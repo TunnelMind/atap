@@ -4,7 +4,7 @@ Reference TypeScript wrapper for **ATAP v0.1/v0.2** — the Agent Trust Attestat
 
 - **Standard:** https://tunnelmind.ai/atap/standard
 - **Verifier (bash):** https://tunnelmind.ai/atap/verify.sh
-- **JSON Schemas:** https://tunnelmind.ai/atap/schemas/v0.1/
+- **JSON Schemas:** [`schemas/v0.1/`](../../schemas/v0.1/)
 - **License:** Apache-2.0
 
 This package gives a witness service the helpers it needs to sign and chain
