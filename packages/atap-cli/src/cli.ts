@@ -714,13 +714,17 @@ async function init(v: Values): Promise<Record<string, string | boolean>> {
   // constraints (allowed_repos, models, ...) are the operator's to declare.
   // The core's maximum lifetime, so a drop-in outlives its first AIT for a
   // year; `ait rotate` declares the next one in the same store.
+  // One instant for expires_at and the library's issued_at: a clock that steps
+  // back between the two (WSL2 under load does) made a 365-day lifetime read
+  // as more and init fail (2026-10-21).
+  const now = new Date()
   const input: AitInput = {
     agentType: profile.split(':')[1] ?? profile,
     profile,
     operator: witness,
     capabilities: Object.keys(caps.capabilities),
     attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
-    expiresAt: new Date(Date.now() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
+    expiresAt: new Date(now.getTime() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
   }
 
   if (exists) for (const f of INIT_FILES) await rm(join(dir, f), { force: true })
@@ -732,7 +736,7 @@ async function init(v: Values): Promise<Record<string, string | boolean>> {
     await chmod(keyPath, 0o600)
     await writeFile(join(dir, '.gitignore'), 'witness.pem\n')
     const storage = new DirStorage(dir, profiles.coreGuards())
-    const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: 'self-asserted' })
+    const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: 'self-asserted', now: () => now })
     const ait = await withLock(dir, () => svc.declareAit(input))
     // key is relative to the dir, so the dir can move as a whole.
     // git_sync only with --git, so a plain init's config.json is unchanged.
