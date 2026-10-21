@@ -5,6 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { canonicalize } from '@tunnelmindai/atap'
 
@@ -12,11 +13,15 @@ const REPO_VERIFY_SH = fileURLToPath(new URL('../../../verify.sh', import.meta.u
 
 // Runs only verify.sh's canonicalize() function, not the jq pipeline around it
 // (jq may reformat numbers on its own).
-function pyCanon(text) {
-  const r = spawnSync('bash', ['-c', 'source <(sed -n "/^canonicalize()/,/^}/p" "$1"); canonicalize', 'canon', REPO_VERIFY_SH], {
+function pyRun(text) {
+  return spawnSync('bash', ['-c', 'source <(sed -n "/^canonicalize()/,/^}/p" "$1"); canonicalize', 'canon', REPO_VERIFY_SH], {
     input: text,
     encoding: 'utf8',
   })
+}
+
+function pyCanon(text) {
+  const r = pyRun(text)
   assert.equal(r.status, 0, r.stderr)
   return r.stdout
 }
@@ -50,5 +55,24 @@ for (const [text, expected] of VECTORS) {
   test(`canonicalize ${text}`, () => {
     assert.equal(canonicalize(JSON.parse(text)), expected)
     assert.equal(pyCanon(text), expected)
+  })
+}
+
+// The frozen JCS vectors shared with receipt-verify and tollbooth (the copy in
+// packages/atap-js/test/vectors/jcs.json): both canonicalizers agree on every
+// one, and both refuse a lone surrogate (python: UnicodeEncodeError, exit 1),
+// so `atap-witness verify` and verify.sh cannot split on such a receipt.
+const FROZEN = JSON.parse(readFileSync(new URL('../../atap-js/test/vectors/jcs.json', import.meta.url), 'utf8')).vectors
+
+for (const v of FROZEN) {
+  test(`frozen vector ${v.name}`, () => {
+    const text = JSON.stringify(v.input)
+    if (v.throws) {
+      assert.throws(() => canonicalize(v.input), /lone surrogate/)
+      assert.notEqual(pyRun(text).status, 0, 'verify.sh must refuse a lone surrogate')
+    } else {
+      assert.equal(canonicalize(v.input), v.canonical)
+      assert.equal(pyCanon(text), v.canonical)
+    }
   })
 }
