@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- No network at all. The inline script and style are allowed by their
      sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-oZG7sGk+xoKkFpkscjaOGprBEbXcz1XOCv4MXEpnzAc='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-TQ69B6kwMsHi0jKXOaMptYayZt6PwJ+zVnp1he8vQKE='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ATAP receipt viewer</title>
 <style>
 body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
@@ -640,7 +640,11 @@ function verifyReceiptRaw(opts) {
     const aitPeriodKey = didRaw || receipt.witness === ait.witness ? aitKey : pickKey(keys, receipt.witness, ait.issued_at);
     if (typeof aitPeriodKey === 'string')
         return { ok: false, blocks: chain.length, reason: aitPeriodKey };
-    if (aitPeriodKey?.attestation_strength) {
+    // No entry at all is a failure, not the "omits the field" warning below: a
+    // witness with no key at the AIT's issue time attests nothing about it.
+    if (!aitPeriodKey)
+        return { ok: false, blocks: chain.length, reason: `no key for receipt witness ${receipt.witness} at ${ait.issued_at}` };
+    if (aitPeriodKey.attestation_strength) {
         const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength];
         const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength];
         if (rcptRank > keyRank) {

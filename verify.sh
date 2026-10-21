@@ -413,7 +413,11 @@ if [[ "$WITNESS" =~ ^did:key: ]]; then
   ' "$RECEIPT_DIR/public_keys.json" 2>/dev/null | head -1) \
     || err "cannot compare the compromise notice for $WITNESS at $AIT_TS as RFC 3339 times"
 else
-  KEY_STRENGTH=$(oai_keys_at "$WITNESS" "$AIT_TS" | jq -r '.[0].attestation_strength // empty')
+  # No entry at all is a failure, not the "omits the field" WARN below: a
+  # witness with no key at the AIT's issue time attests nothing about it.
+  KEY_AT_AIT=$(oai_keys_at "$WITNESS" "$AIT_TS")
+  [ "$(jq length <<<"$KEY_AT_AIT")" -eq 1 ] || err "no key for receipt witness $WITNESS at $AIT_TS"
+  KEY_STRENGTH=$(jq -r '.[0].attestation_strength // empty' <<<"$KEY_AT_AIT")
 fi
 if [ -n "$KEY_STRENGTH" ]; then
   STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }

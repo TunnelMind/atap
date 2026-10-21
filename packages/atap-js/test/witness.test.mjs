@@ -249,3 +249,38 @@ test("the strength ceiling is the receipt witness's key, not the AIT witness's",
   assert.equal(r.ok, false)
   assert.match(r.reason, /attestation_strength=silicon-root exceeds key attestation_strength=self-asserted/)
 })
+
+// Review 2026-10-21 C1: no key for the receipt witness at the AIT's issue time
+// is a failure, not the "key omits attestation_strength" warning.
+test("a receipt witness with no key at the AIT's issued_at fails, warning or not", async () => {
+  const storage = new InMemoryStorage()
+  const { privateKey } = generateKeyPairSync('ed25519')
+  let t = Date.now()
+  const svc = new WitnessService({ witnessOAI: WITNESS, privateKey, storage, attestationStrength: 'silicon-root', now: () => new Date(t) })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(t + 30 * 86400_000).toISOString(),
+  })
+  t += 60_000
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const block = await svc.rollUp(ait.id, {})
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const pub = '0x' + toHex(new Uint8Array(der.subarray(der.length - 32)))
+  const OTHER = 'OAI-2026-0010003'
+  const entry = (witness, attestation_strength, valid_from) => ({
+    witness, key_id: `k-${witness}`, algorithm: 'ed25519', public_key: pub, valid_from,
+    valid_until: ait.expires_at, status: 'active', attestation_strength, rotated_to: null, compromise_notice: null,
+  })
+  const after = new Date(Date.parse(ait.issued_at) + 1).toISOString()
+  const keys = { keys: [entry(WITNESS, 'silicon-root', ait.issued_at), entry(OTHER, 'self-asserted', after)], updated_at: receipt.generated_at }
+  const { witness_signature: _, ...m } = { ...receipt, witness: OTHER }
+  const asOther = { ...m, witness_signature: ed25519Sign(canonicalizeBytes(m), privateKey) }
+  const r = verifyReceipt({ ait, chain: [block], receipt: asOther, keys })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, new RegExp(`no key for receipt witness ${OTHER} at ${ait.issued_at}`))
+})

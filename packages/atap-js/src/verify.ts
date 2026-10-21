@@ -317,7 +317,10 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // failed verify.sh.
   const aitPeriodKey = didRaw || receipt.witness === ait.witness ? aitKey : pickKey(keys, receipt.witness, ait.issued_at)
   if (typeof aitPeriodKey === 'string') return { ok: false, blocks: chain.length, reason: aitPeriodKey }
-  if (aitPeriodKey?.attestation_strength) {
+  // No entry at all is a failure, not the "omits the field" warning below: a
+  // witness with no key at the AIT's issue time attests nothing about it.
+  if (!aitPeriodKey) return { ok: false, blocks: chain.length, reason: `no key for receipt witness ${receipt.witness} at ${ait.issued_at}` }
+  if (aitPeriodKey.attestation_strength) {
     const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength]
     const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]
     if (rcptRank > keyRank) {

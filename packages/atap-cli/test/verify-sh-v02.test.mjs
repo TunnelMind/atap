@@ -37,11 +37,12 @@ function rawPub(privateKey) {
 // OAI-witnessed one when `oai` is given. With `afterExpiry` the AIT lives one
 // day, three days ago, and the receipt is generated two days after its
 // expires_at, under a key entry whose valid_until is that expires_at.
-async function didReceiptDir(oai, { afterExpiry = false } = {}) {
+// With `late` the first event is witnessed a minute after the AIT is issued.
+async function didReceiptDir(oai, { afterExpiry = false, late = false } = {}) {
   const { privateKey } = generateKeyPairSync('ed25519')
   const witness = oai ?? didKeyFromPublicKey(rawPub(privateKey))
   let t = Date.now() - 3 * 86400_000
-  const clock = afterExpiry ? { now: () => new Date(t) } : {}
+  const clock = afterExpiry || late ? { now: () => new Date(t) } : {}
   const svc = new WitnessService({ witnessOAI: witness, privateKey, storage: new InMemoryStorage(), ...clock })
   const ait = await svc.declareAit({
     agentType: 'crew-ops',
@@ -51,6 +52,7 @@ async function didReceiptDir(oai, { afterExpiry = false } = {}) {
     attestationPolicy: POLICY,
     expiresAt: new Date(afterExpiry ? t + 86400_000 : Date.now() + 30 * 86400_000).toISOString(),
   })
+  if (late) t += 60_000
   await svc.witness(ait.id, 'crew_ops:ratify', { n: 1 })
   const block = await svc.rollUp(ait.id, { ratifications: 1 })
   t += 2 * 86400_000
@@ -645,4 +647,23 @@ test("a receipt re-signed by a weaker OAI witness fails the strength ceiling in 
   const js = cliVerify(dir)
   assert.notEqual(js.status, 0)
   assert.match(js.reason, /attestation_strength=silicon-root exceeds key attestation_strength=self-asserted/)
+})
+
+// Review 2026-10-21 C1: with no key for the manifest's witness at the AIT's
+// issued_at both verifiers fell into the "key omits the field" warning and
+// passed the inflated claim. Now a failure in both.
+test("a weaker OAI witness whose key starts after the AIT's issue fails in both verifiers", async () => {
+  const { dir, ait, privateKey } = await didReceiptDir('OAI-2026-0010002', { late: true })
+  const OTHER = 'OAI-2026-0010003'
+  const keys = readJson(dir, 'public_keys.json')
+  const k = keys.keys[0]
+  const after = new Date(Date.parse(ait.issued_at) + 1).toISOString()
+  put(dir, 'public_keys.json', JSON.stringify({ ...keys, keys: [{ ...k, attestation_strength: 'silicon-root' }, { ...k, witness: OTHER, key_id: 'k2', attestation_strength: 'self-asserted', valid_from: after }] }))
+  const { witness_signature: _, ...m } = readJson(dir, 'manifest.json')
+  const asOther = { ...m, witness: OTHER, attestation_strength: 'silicon-root' }
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...asOther, witness_signature: ed25519Sign(canonicalizeBytes(asOther), privateKey) }))
+  assertFails(verifySh(dir), /no key for receipt witness OAI-2026-0010003 at/)
+  const js = cliVerify(dir)
+  assert.notEqual(js.status, 0)
+  assert.match(js.reason, /no key for receipt witness OAI-2026-0010003 at/)
 })
