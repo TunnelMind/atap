@@ -293,7 +293,8 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   const warnings: string[] = []
   let effectiveStrength: AttestationStrength = 'self-asserted'
   if (receipt.attestation_strength) {
-    if (!(receipt.attestation_strength in ATTESTATION_STRENGTH_RANK)) {
+    // Object.hasOwn, not `in`: a prototype name ("constructor", "__proto__") is not a strength.
+    if (!Object.hasOwn(ATTESTATION_STRENGTH_RANK, receipt.attestation_strength)) {
       return {
         ok: false,
         blocks: chain.length,

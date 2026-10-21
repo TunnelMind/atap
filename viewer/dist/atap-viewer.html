@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- No network at all. The inline script and style are allowed by their
      sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ESZ0gkaVMgpG5Z5csNSk5MtvL69eKuhYq7O1G3C8Yrs='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-E+og+VoBqwniReeqT579VKZq0H1sfds7wOJGeyGS7q0='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ATAP receipt viewer</title>
 <style>
 body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
@@ -617,7 +617,8 @@ function verifyReceiptRaw(opts) {
     const warnings = [];
     let effectiveStrength = 'self-asserted';
     if (receipt.attestation_strength) {
-        if (!(receipt.attestation_strength in ATTESTATION_STRENGTH_RANK)) {
+        // Object.hasOwn, not `in`: a prototype name ("constructor", "__proto__") is not a strength.
+        if (!Object.hasOwn(ATTESTATION_STRENGTH_RANK, receipt.attestation_strength)) {
             return {
                 ok: false,
                 blocks: chain.length,

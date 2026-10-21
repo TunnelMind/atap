@@ -206,4 +206,9 @@ test('skipReceiptSignature skips the receipt signature and nothing else', async 
   assert.equal(verifyReceipt({ ait, chain: [block], receipt: unsigned, keys, skipReceiptSignature: true }).ok, true)
   const misdescribed = { ...unsigned, block_count: 2 }
   assert.match(verifyReceipt({ ait, chain: [block], receipt: misdescribed, keys, skipReceiptSignature: true }).reason, /block_count mismatch/)
+  // Review 2026-10-20 C1: a prototype property name is not a strength (`in` walked the chain).
+  for (const bogus of ['constructor', '__proto__', 'toString']) {
+    const claimed = { ...unsigned, attestation_strength: bogus }
+    assert.match(verifyReceipt({ ait, chain: [block], receipt: claimed, keys, skipReceiptSignature: true }).reason, /unrecognized attestation_strength/)
+  }
 })
