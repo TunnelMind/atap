@@ -466,40 +466,24 @@ async function verifyStore(dir: string, v: Values): Promise<StoreResult> {
   if (chain.length === 0) return done({ ok: false, reason: `no blocks for ${ait.id}` })
 
   // Only the fields verifyReceipt reads; the rest of a Receipt describes files
-  // a store does not have.
+  // a store does not have. There is no key to sign with, so the signature
+  // check is skipped and the library's other checks (AIT, blocks, chain head,
+  // period and counts, strength ceiling) run as for a receipt — one key
+  // lookup, the library's (this had its own until 2026-10-20).
+  const last = chain.at(-1)!
   const rcpt = {
     ait: ait.id,
     witness,
-    chain_head_hash: chain.at(-1)!.self_hash,
+    chain_head_hash: last.self_hash,
     attestation_strength: strength,
-    generated_at: new Date().toISOString(),
-    // Well-formed but never valid: there is no key to sign with (see below).
-    witness_signature: `ed25519:0x${'00'.repeat(64)}`,
+    period_start: chain[0]!.period_start,
+    period_end: last.period_end,
+    block_count: chain.length,
+    event_count: chain.reduce((n, b) => n + b.event_count, 0),
+    first_block: chain[0]!.id,
+    last_block: last.id,
   } as Receipt
-  let result = verifyReceipt({ receipt: rcpt, ait, chain, keys })
-  // verifyReceipt ends by checking the receipt's own signature, which needs
-  // the private key; this stand-in's zero signature must fail it. That check
-  // runs after the AIT, every block and the chain head have passed, so this
-  // one reason means the store passed those. The strength checks verifyReceipt
-  // would run after it are run here instead: a known strength, ranked no
-  // higher than the key in force at ait.issued_at (verifyReceipt's aitKey;
-  // a did:key store has one entry, 'self-asserted' on both sides).
-  // If the library ever words the reason differently, this fails closed.
-  if (result.reason === 'receipt signature invalid') {
-    const at = ait.issued_at
-    const aitKey = keys.keys.find(k =>
-      k.witness === witness &&
-      (isDidKey(witness) || (k.valid_from <= at && k.valid_until > at)) &&
-      (k.status !== 'compromised' || (k.compromise_notice && at < k.compromise_notice.disclosed_at)))
-    if (strength && !Object.hasOwn(ATTESTATION_STRENGTH_RANK, strength)) {
-      result = { ok: false, blocks: chain.length, reason: `unrecognized attestation_strength '${strength}'` }
-    } else if (strength && aitKey?.attestation_strength &&
-      ATTESTATION_STRENGTH_RANK[strength] > ATTESTATION_STRENGTH_RANK[aitKey.attestation_strength]) {
-      result = { ok: false, blocks: chain.length, reason: `attestation_strength=${strength} exceeds key attestation_strength=${aitKey.attestation_strength}` }
-    } else {
-      result = { ok: true, blocks: chain.length, attestation_strength: strength ?? 'self-asserted' }
-    }
-  }
+  const result = verifyReceipt({ receipt: rcpt, ait, chain, keys, skipReceiptSignature: true })
   if (!result.ok) return done(result)
   const reason = checkWitnessEvents(covered, chain, ait, keys)
   return done(reason ? { ok: false, reason } : result)

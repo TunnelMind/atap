@@ -168,3 +168,42 @@ test('a receipt for a window wider than its blocks takes the period from the blo
   const r = verifyReceipt({ ait, chain: [b1, b2], receipt, keys })
   assert.equal(r.ok, true, r.reason)
 })
+
+// `atap-witness verify --store` has a chain but no signed receipt:
+// skipReceiptSignature skips the signature check and nothing else.
+test('skipReceiptSignature skips the receipt signature and nothing else', async () => {
+  const storage = new InMemoryStorage()
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const svc = new WitnessService({ witnessOAI: WITNESS, privateKey, storage })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+  })
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const block = await svc.rollUp(ait.id, {})
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const keys = {
+    keys: [{
+      witness: WITNESS,
+      key_id: 'k1',
+      algorithm: 'ed25519',
+      public_key: '0x' + toHex(new Uint8Array(der.subarray(der.length - 32))),
+      valid_from: ait.issued_at,
+      valid_until: ait.expires_at,
+      status: 'active',
+      rotated_to: null,
+      compromise_notice: null,
+    }],
+    updated_at: receipt.generated_at,
+  }
+  const unsigned = { ...receipt, witness_signature: `ed25519:0x${'00'.repeat(64)}` }
+  assert.equal(verifyReceipt({ ait, chain: [block], receipt: unsigned, keys }).reason, 'receipt signature invalid')
+  assert.equal(verifyReceipt({ ait, chain: [block], receipt: unsigned, keys, skipReceiptSignature: true }).ok, true)
+  const misdescribed = { ...unsigned, block_count: 2 }
+  assert.match(verifyReceipt({ ait, chain: [block], receipt: misdescribed, keys, skipReceiptSignature: true }).reason, /block_count mismatch/)
+})

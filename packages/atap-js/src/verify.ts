@@ -22,6 +22,13 @@ export interface VerifyOptions {
   ait: AIT
   chain: AttestationBlock[]
   keys: KeysDocument
+  /**
+   * Skip the receipt signature check (verify.sh step 6) and run everything
+   * else. For `atap-witness verify --store`, which has a chain but no signed
+   * receipt (since 2026-10-20, replacing its own key lookup). Never for a
+   * receipt someone handed you.
+   */
+  skipReceiptSignature?: boolean
 }
 
 export interface VerifyResult {
@@ -112,7 +119,7 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
 }
 
 function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
-  const { receipt, ait, chain, keys } = opts
+  const { receipt, ait, chain, keys, skipReceiptSignature } = opts
 
   if (ait['@context'] !== ATAP_CONTEXT) {
     return { ok: false, blocks: 0, reason: `bad @context on AIT` }
@@ -239,7 +246,7 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // expires_at, and a receipt of an expired AIT is generated after it, so the
   // key is the one in force at the last block's period_end (generated_at only
   // for a receipt with no blocks).
-  {
+  if (!skipReceiptSignature) {
     const at = didRaw || chain.length === 0 ? receipt.generated_at : chain[chain.length - 1]!.period_end
     const rcptKey = didRaw ? pickDidKeyKey(keys, receipt.witness, didRaw, at) : pickKey(keys, receipt.witness, at)
     if (!rcptKey) {
