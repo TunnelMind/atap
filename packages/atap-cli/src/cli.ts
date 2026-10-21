@@ -8,7 +8,7 @@
 // Before signing, event payloads and block period_summaries are validated
 // against the AIT's profile schemas; a refused call writes nothing.
 
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
+import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync, lstatSync, readFileSync } from 'node:fs'
@@ -22,8 +22,11 @@ import {
   WitnessService,
   cborDecode,
   checkManifestFiles,
+  clean,
   normaliseReceiptPath,
   checkWitnessEvents,
+  isObject,
+  sha256,
   didKeyFromPublicKey,
   isDidKey,
   publicKeyFromDidKey,
@@ -130,10 +133,6 @@ async function stdinJson(allowEmpty: boolean): Promise<unknown> {
   }
 }
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
 function json(v: unknown): string {
   return JSON.stringify(v, null, 2) + '\n'
 }
@@ -173,10 +172,6 @@ function parseStrength(s: string | undefined): AttestationStrength {
 function requireAit(v: Values): AIT_ID {
   if (!v.ait) throw new Error('--ait <id> is required')
   return v.ait as AIT_ID
-}
-
-function sha256(bytes: Uint8Array): HexHash {
-  return `0x${createHash('sha256').update(bytes).digest('hex')}`
 }
 
 // summary.json: integers are summed key-wise, nested objects merge
@@ -375,8 +370,7 @@ async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   for (const f of receipt.files ?? []) {
     const rel = typeof f.path === 'string' ? normaliseReceiptPath(f.path) : null
     if (rel && underSymlink(root, rel)) {
-      // Control characters stripped, as the library's reasons are.
-      return { ok: false, blocks: 0, reason: `${f.path.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')} is or is under a symlink` }
+      return { ok: false, blocks: 0, reason: clean(`${f.path} is or is under a symlink`) }
     }
   }
   const bad = checkManifestFiles(receipt, rel => {

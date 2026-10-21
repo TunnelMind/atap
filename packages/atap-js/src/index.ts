@@ -28,6 +28,8 @@ export {
   checkWitnessEvents,
   checkManifestFiles,
   normaliseReceiptPath,
+  clean,
+  isObject,
   WITNESS_EVENTS,
   type VerifyOptions,
   type VerifyResult,

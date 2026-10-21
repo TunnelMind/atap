@@ -99,9 +99,10 @@ export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8A
 // Reasons echo ids and paths from the receipt, which is attacker-controlled:
 // control characters (C0 incl. ESC, DEL, C1) are stripped so a reason printed
 // to a terminal cannot drive it or forge extra lines (as verify.sh's clean).
-function clean(reason: string): string
-function clean(reason: string | null): string | null
-function clean(reason: string | null): string | null {
+// Exported for atap-cli, which had its own copy until 2026-10-20.
+export function clean(reason: string): string
+export function clean(reason: string | null): string | null
+export function clean(reason: string | null): string | null {
   return reason === null ? null : reason.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
 }
 
@@ -328,7 +329,8 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
 // tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
 export const WITNESS_EVENTS = 'profile_artifacts/witness_events.json'
 
-function isObject(v: unknown): v is Record<string, unknown> {
+// Exported for atap-cli, which had its own copy until 2026-10-20.
+export function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
