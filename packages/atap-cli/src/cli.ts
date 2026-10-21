@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// atap-witness: a file-backed ATAP v0.1 witness. Each command reads JSON on
+// atap-witness: a file-backed ATAP v0.1/v0.2 witness. Each command reads JSON on
 // stdin and writes JSON on stdout, so any language can drive it. Errors go
 // to stderr as one line of {"error": "..."} with a non-zero exit.
 //
@@ -11,7 +11,7 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { existsSync, lstatSync, readFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
@@ -759,6 +759,26 @@ async function findAtap(from = process.cwd()): Promise<{ dir: string; config: Re
   }
 }
 
+// The signing key config.json names, which must live inside the store. The
+// config can be committed, so a cloned repo could otherwise point `key` (or a
+// committed symlink at it) to any Ed25519 PEM on this machine, e.g. another
+// project's witness.pem, and the hook would sign events as that witness
+// (2026-10-21). init always writes the key into the store; --key is explicit.
+function configKeyPath(dir: string, key: string): string {
+  const abs = resolve(dir, key)
+  const root = realpathSync(dir)
+  let real: string
+  try {
+    real = realpathSync(abs)
+  } catch {
+    real = abs // missing: loadKey reports it
+  }
+  if (escapes(root, relative(root, real))) {
+    throw new Error(`.atap/config.json key ${key} resolves outside the store ${dir}; the key must be inside it (or pass --key)`)
+  }
+  return abs
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values: v, positionals: pos } = parseArgs({
     args: argv,
@@ -864,7 +884,7 @@ async function main(argv: string[]): Promise<number> {
   const explicitWitness = v['witness-oai'] ?? process.env.ATAP_WITNESS_OAI
   const str = (x: unknown): string | undefined => (typeof x === 'string' ? x : undefined)
   const atapKey = str(atap?.config.key)
-  if (atap && atapKey) v.key ??= resolve(atap.dir, atapKey)
+  if (atap && atapKey && v.key === undefined) v.key = configKeyPath(atap.dir, atapKey)
   if (atap && cmd !== 'scitt') {
     v.dir ??= atap.dir
     v['witness-oai'] ??= process.env.ATAP_WITNESS_OAI ?? str(atap.config.witness_oai)
