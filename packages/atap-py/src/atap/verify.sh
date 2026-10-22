@@ -14,6 +14,18 @@
 #   receipt chose it. Without --keys an OAI receipt still verifies, with a
 #   WARNING. A did:key witness's key is its identifier, so --keys never applies.
 #
+# Dialect: every signature is `ed25519:0x<hex>` over JCS (RFC 8785) bytes (AIT,
+#   manifest) or over the raw 32-byte self_hash digest (blocks, events; §7.7).
+#   A string holding a lone UTF-16 surrogate is refused, checked in python
+#   before any jq read (jq maps a lone low surrogate to U+FFFD), so no two
+#   JSON texts can verify as one byte string.
+# Ceiling: manifest.attestation_strength must be one of the four tiers
+#   (missing reads as self-asserted, with a WARN) and at most the strength the
+#   receipt witness's key declares at the AIT's issue time; no key for that
+#   witness then, or a key strength that is not a tier, fails.
+# Fails closed: the first failed check prints `FAIL: <reason>` and exits 1;
+#   exit 0 means every check passed (WARN lines go to stderr).
+#
 # Requirements: bash 4+, jq 1.6+, openssl 3.0+ (or 1.1.1 with -rawin), python3.
 # python3 is used only for RFC 8785 (JSON Canonicalization Scheme) canonicalization
 # and for the base58btc decode of did:key witnesses (ATAP-v0.2 §3).
@@ -247,24 +259,6 @@ lookup_did_key() {
   printf '%s\n' "$first"
 }
 
-##############################################################################
-# 0. Which keys an OAI witness is checked against
-##############################################################################
-AIT_WIT=$(jq -r '.witness'     "$RECEIPT_DIR/ait.json")
-WITNESS=$(jq -r '.witness' "$RECEIPT_DIR/manifest.json")
-if [[ ! "$AIT_WIT" =~ ^did:key: || ! "$WITNESS" =~ ^did:key: ]]; then
-  ok "keys file sha256=$(openssl dgst -sha256 -r "$KEYS_FILE" | cut -d' ' -f1) (from $KEYS_SRC)"
-  if [ -z "$KEYS_ARG" ]; then
-    cat >&2 <<'WARN'
-WARNING: this receipt has an OAI witness and no --keys was given, so its
-WARNING: signatures were checked against the public_keys.json inside the
-WARNING: receipt itself. Whoever made the receipt chose those keys: a pass
-WARNING: proves the receipt is self-consistent, NOT who signed it. Re-run with
-WARNING: --keys FILE_OR_URL naming the witness keys you trust.
-WARN
-  fi
-fi
-
 # jq turns a lone low-surrogate escape ("\udc00") into U+FFFD before the
 # canonicalizer sees it, so a manifest edited from "�" to "\udc00" would
 # still verify here while atap-js refuses it: two verifiers, two verdicts.
@@ -294,6 +288,24 @@ for f in "$RECEIPT_DIR/manifest.json" "$RECEIPT_DIR/ait.json" "$RECEIPT_DIR/atte
   [ -f "$f" ] || continue
   ! has_lone_surrogate "$f" || err "${f#"$RECEIPT_DIR"/} holds a lone UTF-16 surrogate"
 done
+
+##############################################################################
+# 0. Which keys an OAI witness is checked against
+##############################################################################
+AIT_WIT=$(jq -r '.witness'     "$RECEIPT_DIR/ait.json")
+WITNESS=$(jq -r '.witness' "$RECEIPT_DIR/manifest.json")
+if [[ ! "$AIT_WIT" =~ ^did:key: || ! "$WITNESS" =~ ^did:key: ]]; then
+  ok "keys file sha256=$(openssl dgst -sha256 -r "$KEYS_FILE" | cut -d' ' -f1) (from $KEYS_SRC)"
+  if [ -z "$KEYS_ARG" ]; then
+    cat >&2 <<'WARN'
+WARNING: this receipt has an OAI witness and no --keys was given, so its
+WARNING: signatures were checked against the public_keys.json inside the
+WARNING: receipt itself. Whoever made the receipt chose those keys: a pass
+WARNING: proves the receipt is self-consistent, NOT who signed it. Re-run with
+WARNING: --keys FILE_OR_URL naming the witness keys you trust.
+WARN
+  fi
+fi
 
 ##############################################################################
 # 1. File integrity
