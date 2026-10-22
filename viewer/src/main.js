@@ -39,9 +39,12 @@ const CODE_CREW_PROFILE = 'tunnelmind:code_crew:v1'
 // warning, word for word; a did:key is its own key and needs none.
 const OWN_KEYS_WARNING = "OAI witness checked against the receipt's own public_keys.json: proves self-consistency, not who signed; pass --keys"
 
+// Strict UTF-8, as the CLI's readJsonFile: a lossy decode would let raw
+// invalid bytes stand in for the U+FFFD text that was signed. A leading BOM
+// is still dropped, as the page always did (the CLI refuses one).
 function readJson(files, name) {
   try {
-    return JSON.parse(new TextDecoder().decode(files.get(name)))
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(files.get(name)))
   } catch {
     throw new Error(`cannot read ${name} in the receipt`)
   }

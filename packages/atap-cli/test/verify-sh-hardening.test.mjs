@@ -402,3 +402,23 @@ test('a manifest too deep for the surrogate check fails it, not passes it', asyn
     assertFails(verifySh(dir), /manifest\.json is nested too deeply to check for a lone UTF-16 surrogate/)
   }
 })
+
+// A manifest signed with "a���b", re-written with the raw bytes
+// ED B0 80 (one invalid sequence, three U+FFFD under a lossy decode): the CLI
+// read it as the signed text and passed it. Every verifier now reads JSON as
+// strict UTF-8 and refuses it.
+test('invalid UTF-8 standing in for a signed U+FFFD fails verify.sh and the CLI', async () => {
+  const r = await receiptDir()
+  editManifest(r, m => ({ ...m, note: 'a���b' }))
+  assert.equal(cliVerify(r.dir).ok, true, 'the honest U+FFFD manifest verifies')
+  const path = join(r.dir, 'manifest.json')
+  const bytes = readFileSync(path)
+  const needle = Buffer.from('a���b')
+  const i = bytes.indexOf(needle)
+  assert.ok(i > 0)
+  writeFileSync(path, Buffer.concat([bytes.subarray(0, i + 1), Buffer.from([0xed, 0xb0, 0x80]), bytes.subarray(i + needle.length - 1)]))
+  assertFails(verifySh(r.dir), /manifest\.json is not valid UTF-8/)
+  const cli = spawnSync(process.execPath, [CLI, 'verify', r.dir], { encoding: 'utf8', env: { PATH: process.env.PATH } })
+  assert.notEqual(cli.status, 0)
+  assert.match(cli.stderr, /cannot read manifest\.json/)
+})

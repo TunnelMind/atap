@@ -238,6 +238,28 @@ test('a null manifest or a null files[] entry fails with the CLI\'s reason', { s
   await sameReasonAsCli(dir, /manifest\.json is not an object/)
 })
 
+// Signed "a���b", re-written with the raw bytes ED B0 80 (three
+// U+FFFD under a lossy decode): the page read it as the signed text and
+// passed it. It now decodes strict UTF-8 and refuses it, as the CLI does.
+test('invalid UTF-8 standing in for a signed U+FFFD is refused', { skip: skipFresh }, async () => {
+  const { canonicalizeBytes } = await import(ATAP_JS)
+  const dir = join(fresh.dir, 'lossy')
+  cpSync(fresh.out, dir, { recursive: true })
+  const { witness_signature: _, ...rcpt } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
+  rcpt.note = 'a���b'
+  const sig = sign(null, canonicalizeBytes(rcpt), fresh.privateKey).toString('hex')
+  const honest = Buffer.from(JSON.stringify({ ...rcpt, witness_signature: `ed25519:0x${sig}` }))
+  writeFileSync(join(dir, 'manifest.json'), honest)
+  assert.equal((await viewer.verifyZip(zipDir(dir))).result.ok, true, 'the honest U+FFFD manifest verifies')
+  const needle = Buffer.from('a���b')
+  const i = honest.indexOf(needle)
+  writeFileSync(join(dir, 'manifest.json'), Buffer.concat([honest.subarray(0, i + 1), Buffer.from([0xed, 0xb0, 0x80]), honest.subarray(i + needle.length - 1)]))
+  const v = await viewer.verifyZip(zipDir(dir))
+  assert.equal(v.status, 'done')
+  assert.equal(v.result.ok, false)
+  assert.match(v.result.reason, /cannot read manifest\.json/)
+})
+
 test('hostile ZIP: a ../ entry is refused', async () => {
   const v = await viewer.verifyZip(makeZip([['manifest.json', Buffer.from('{}')], ['../evil.json', Buffer.from('{}')]]))
   assert.equal(v.status, 'error')

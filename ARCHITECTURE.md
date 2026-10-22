@@ -41,9 +41,13 @@ where untrusted input is checked. The spec is `ATAP-v0.1.md` (v0.2 draft:
   and the verdict carries a warning: that proves self-consistency, not who
   signed. A did:key witness is its own key.
 - **Canonical bytes.** Signers and verifiers share `canonicalize.ts`'s bytes,
-  pinned by `packages/atap-js/test/vectors/jcs.json` (vendored verbatim by
-  receipt-verify and tollbooth). A lone UTF-16 surrogate is refused everywhere,
-  so two texts can never verify as one byte string.
+  pinned by `packages/atap-js/test/vectors/jcs.json`, a verbatim copy of
+  receipt-verify's file (the origin: change it there first; tollbooth and
+  sdk-python carry the same copy). A lone UTF-16 surrogate is refused
+  everywhere, so no two different string values sign as one byte string
+  (JCS itself maps many JSON texts of one value to one). The CLI, the viewer
+  and verify.sh read every receipt JSON file as strict UTF-8, so raw invalid
+  bytes cannot stand in for a signed U+FFFD.
 - **Strength ceiling.** `attestation_strength` must be one of the four tiers and
   at most what the receipt witness's key declares at the AIT's issue time.
 - **Config.** A committed `.atap/config.json` can only name a key inside the

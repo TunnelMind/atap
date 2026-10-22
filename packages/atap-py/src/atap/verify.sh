@@ -18,7 +18,8 @@
 #   manifest) or over the raw 32-byte self_hash digest (blocks, events; §7.7).
 #   A string holding a lone UTF-16 surrogate is refused, checked in python
 #   before any jq read (jq maps a lone low surrogate to U+FFFD), so no two
-#   JSON texts can verify as one byte string.
+#   different string values sign as one byte string (JCS itself maps many
+#   JSON texts of one value to one).
 # Ceiling: manifest.attestation_strength must be one of the four tiers
 #   (missing reads as self-asserted, with a WARN) and at most the strength the
 #   receipt witness's key declares at the AIT's issue time; no key for that
@@ -293,11 +294,13 @@ lookup_did_key() {
 # canonicalizer sees it, so a manifest edited from "�" to "\udc00" would
 # still verify here while atap-js refuses it: two verifiers, two verdicts.
 # python's json keeps the surrogate, so every JSON input is checked with it
-# first. A file python cannot parse is left for the step that reads it.
-# Exit 0: no lone surrogate (or not JSON); 3: one found; 4: nested too deeply
-# to walk. Anything else (a traceback exits 1) is a check that did not run,
-# and fails: an uncaught RecursionError used to read as "no surrogate".
-lone_surrogate_check() {
+# first. The bytes must be strict UTF-8 too, as atap-cli and the viewer read
+# them: jq decodes invalid bytes lossily, so raw "ED B0 80" could stand in for
+# a signed U+FFFD. A file python cannot parse as JSON is left for the step
+# that reads it. Exit 0: clean (or not JSON); 3: a lone surrogate; 4: nested
+# too deeply to walk; 5: not UTF-8. Anything else is a check that did not run
+# (a traceback exits 1), and fails rather than reading as clean.
+json_text_check() {
   python3 -I -c '
 import json, sys
 def walk(o):
@@ -309,11 +312,13 @@ def walk(o):
         return any(walk(x) for x in o)
     return False
 try:
-    with open(sys.argv[1], encoding="utf-8", errors="replace") as f:
+    with open(sys.argv[1], encoding="utf-8") as f:
         doc = json.load(f)
     found = walk(doc)
 except RecursionError:
     sys.exit(4)
+except UnicodeDecodeError:
+    sys.exit(5)
 except ValueError:
     sys.exit(0)
 sys.exit(3 if found else 0)
@@ -322,11 +327,12 @@ sys.exit(3 if found else 0)
 for f in "$RECEIPT_DIR/manifest.json" "$RECEIPT_DIR/ait.json" "$RECEIPT_DIR/attestation_chain.json" \
          "$KEYS_FILE" "$RECEIPT_DIR/profile_artifacts/witness_events.json"; do
   [ -f "$f" ] || continue
-  rc=0; lone_surrogate_check "$f" || rc=$?
+  rc=0; json_text_check "$f" || rc=$?
   case $rc in
     0) ;;
     3) err "${f#"$RECEIPT_DIR"/} holds a lone UTF-16 surrogate" ;;
     4) err "${f#"$RECEIPT_DIR"/} is nested too deeply to check for a lone UTF-16 surrogate" ;;
+    5) err "${f#"$RECEIPT_DIR"/} is not valid UTF-8" ;;
     *) err "cannot check ${f#"$RECEIPT_DIR"/} for a lone UTF-16 surrogate" ;;
   esac
 done

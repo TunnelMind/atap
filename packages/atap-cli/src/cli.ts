@@ -323,9 +323,17 @@ async function receipt(svc: WitnessService, storage: DirStorage, v: Values, key:
   return rcpt
 }
 
+// Strict UTF-8 (RFC 8259 §8.1). A lossy decode maps invalid bytes to U+FFFD,
+// so a manifest whose signed "a���b" is re-written with the raw
+// bytes "a ED B0 80 b" would verify as the text that was signed, a second
+// spelling of one signed string (verify.sh refuses it). ignoreBOM keeps a
+// leading BOM in the text, as readFile(…, 'utf8') did, so JSON.parse still
+// refuses one.
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
 async function readJsonFile<T>(dir: string, name: string): Promise<T> {
   try {
-    return JSON.parse(await readFile(join(dir, name), 'utf8')) as T
+    return JSON.parse(STRICT_UTF8.decode(await readFile(join(dir, name)))) as T
   } catch {
     throw new Error(`cannot read ${name} in ${dir}`)
   }
@@ -407,7 +415,7 @@ async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   let keys: KeysDocument
   if (oai && keysFile) {
     try {
-      keys = JSON.parse(await readFile(keysFile, 'utf8')) as KeysDocument
+      keys = JSON.parse(STRICT_UTF8.decode(await readFile(keysFile))) as KeysDocument
     } catch {
       throw new Error(`cannot read --keys ${keysFile}`)
     }
