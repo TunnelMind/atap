@@ -331,3 +331,24 @@ test('a compromise notice compares as an instant, not a string', async () => {
   assert.match(garbled.reason, /cannot compare the compromise notice/)
 })
 
+// verifyReceipt takes parsed JSON straight from a receipt: a wrong shape is a
+// verdict ({ok:false}), never a TypeError out of the verifier.
+test('malformed receipt, AIT, keys or block shapes are a verdict, not a throw', async () => {
+  const c = await didChain()
+  const cases = [
+    [{ receipt: null }, /receipt or AIT is not an object/],
+    [{ ait: [] }, /receipt or AIT is not an object/],
+    [{ keys: null }, /keys document has no keys array/],
+    [{ keys: { keys: 'k' } }, /keys document has no keys array/],
+    [{ chain: [null] }, /block 0 is not an object/],
+    [{ ait: { ...c.ait, witness_signature: 7 } }, /AIT signature invalid/],
+  ]
+  for (const [patch, reason] of cases) {
+    const r = verifyReceipt({ ...c, ...patch })
+    assert.equal(r.ok, false, JSON.stringify(patch))
+    assert.match(r.reason, reason)
+  }
+  // A null entry in keys[] is skipped, as verify.sh's jq select skips it.
+  const r = verifyReceipt({ ...c, keys: { ...c.keys, keys: [null, ...c.keys.keys] } })
+  assert.equal(r.ok, true, r.reason)
+})

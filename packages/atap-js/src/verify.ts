@@ -58,7 +58,7 @@ function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | st
   if (Number.isNaN(t)) return `${at} is not an RFC 3339 time`
   const hits: PublicKey[] = []
   for (const k of doc.keys) {
-    if (k.witness !== witness) continue
+    if (!isObject(k) || k.witness !== witness) continue
     const from = instant(k.valid_from)
     const until = instant(k.valid_until)
     if (Number.isNaN(from) || Number.isNaN(until)) return `key ${k.key_id} validity is not an RFC 3339 time`
@@ -94,7 +94,7 @@ function didKeyEntryProblem(k: PublicKey, didRaw: Uint8Array): string | null {
 // on any of them in force at `at` voids the key. Returns the entry, null for
 // no usable entry, or the reason an entry is refused.
 export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8Array, at: string): PublicKey | string | null {
-  const entries = doc.keys.filter(k => k.witness === witness)
+  const entries = doc.keys.filter(k => isObject(k) && k.witness === witness)
   for (const k of entries) {
     const problem = didKeyEntryProblem(k, didRaw)
     if (problem) return problem
@@ -130,6 +130,10 @@ export function verifyReceipt(opts: VerifyOptions): VerifyResult {
 function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   const { receipt, ait, chain, keys, skipReceiptSignature } = opts
 
+  // Shapes first: every later line reads fields off these, and a malformed
+  // input is a verdict, not a TypeError (the CLI and viewer pass parsed JSON through).
+  if (!isObject(receipt) || !isObject(ait)) return { ok: false, blocks: 0, reason: 'receipt or AIT is not an object' }
+  if (!isObject(keys) || !Array.isArray(keys.keys)) return { ok: false, blocks: 0, reason: 'keys document has no keys array' }
   if (ait['@context'] !== ATAP_CONTEXT) {
     return { ok: false, blocks: 0, reason: `bad @context on AIT` }
   }
@@ -196,7 +200,8 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
     return { ok: false, blocks: 0, reason: 'attestation chain is not a non-empty array' }
   }
   let prev: HexHash = GENESIS_HASH
-  for (const block of chain) {
+  for (const [i, block] of chain.entries()) {
+    if (!isObject(block)) return { ok: false, blocks: 0, reason: `block ${i} is not an object` }
     // ATAP-v0.2 §3.3: every block under a did:key-identified AIT declares 0.2.
     if (didIdentified && block.ab_version !== '0.2') {
       return { ok: false, blocks: 0, reason: `block ${block.id} declares ab_version '${block.ab_version}' under a v0.2 AIT (ATAP-v0.2 §3.3)` }
@@ -445,7 +450,12 @@ export function checkManifestFiles(receipt: Receipt, read: (rel: string) => Uint
 
 function manifestFilesProblem(receipt: Receipt, read: (rel: string) => Uint8Array | undefined, present?: Iterable<string>): string | null {
   const listed = new Map<string, string | null>()
-  for (const f of receipt.files ?? []) {
+  if (!isObject(receipt) || (receipt.files !== undefined && !Array.isArray(receipt.files))) return 'manifest.files is not an array'
+  for (const [i, f] of (receipt.files ?? []).entries()) {
+    // A verdict, not a TypeError: the manifest is parsed from untrusted JSON.
+    if (!isObject(f) || typeof f.path !== 'string' || (f.sha256 !== null && typeof f.sha256 !== 'string')) {
+      return `manifest.files[${i}] is not {path, sha256}`
+    }
     const rel = normaliseReceiptPath(f.path)
     if (rel === null || hasDotDot(f.path)) return `${f.path} escapes the receipt directory`
     listed.set(rel, f.sha256)

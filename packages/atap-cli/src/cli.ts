@@ -367,7 +367,8 @@ async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   const present = await receiptEntries(root)
   // readFileSync follows symlinks, so a listed link (or a path under a linked
   // directory) would hash a file outside the receipt. Refused, as verify.sh does.
-  for (const f of receipt.files ?? []) {
+  // A non-array files[] is left for checkManifestFiles to report as a verdict.
+  for (const f of Array.isArray(receipt.files) ? receipt.files : []) {
     const rel = typeof f.path === 'string' ? normaliseReceiptPath(f.path) : null
     if (rel && underSymlink(root, rel)) {
       return { ok: false, blocks: 0, reason: clean(`${f.path} is or is under a symlink`) }
