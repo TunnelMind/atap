@@ -19,12 +19,13 @@ function toHex(b: Uint8Array): string {
 function fromHex(hex: string): Uint8Array {
   const s = hex.startsWith('0x') ? hex.slice(2) : hex
   if (s.length % 2 !== 0) throw new Error('fromHex: odd-length hex')
+  // A character test, not parseInt's NaN: parseInt reads a prefix, so "+f",
+  // " f" and "fz" would all decode to 0x0f and "-1" to 0xff, giving one
+  // signature many spellings, and verify.sh (whose xxd skips non-hex
+  // characters, leaving too few bytes) would fail what this passed.
+  if (!/^[0-9a-fA-F]*$/.test(s)) throw new Error('fromHex: bad hex character')
   const out = new Uint8Array(s.length / 2)
-  for (let i = 0; i < out.length; i++) {
-    const byte = parseInt(s.substr(i * 2, 2), 16)
-    if (Number.isNaN(byte)) throw new Error('fromHex: bad hex character')
-    out[i] = byte
-  }
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(s.substr(i * 2, 2), 16)
   return out
 }
 
@@ -77,13 +78,26 @@ export function ed25519Sign(message: Uint8Array, privateKey: KeyObject): Ed25519
   return ('ed25519:0x' + toHex(new Uint8Array(sig))) as Ed25519Sig
 }
 
+// False for a signature that is not a string, not hex after the optional
+// `ed25519:0x` prefix, or not 64 bytes: a receipt's signature field is
+// attacker-controlled, and a verifier must give a verdict, not a TypeError.
+// verify.sh strips the same optional prefix and fails any such string in
+// `openssl pkeyutl -verify`. The schemas' stricter `^ed25519:0x[0-9a-f]{128}$`
+// is not enforced here; verify.sh enforces its hex part on the AIT only.
 export function ed25519Verify(
   message: Uint8Array,
   signature: Ed25519Sig,
   publicKey: KeyObject,
 ): boolean {
-  const sigHex = signature.replace(/^ed25519:0x/, '')
-  return nodeVerify(null, Buffer.from(message), publicKey, fromHex(sigHex))
+  if (typeof signature !== 'string') return false
+  let sig: Uint8Array
+  try {
+    sig = fromHex(signature.replace(/^ed25519:0x/, ''))
+  } catch {
+    return false
+  }
+  if (sig.length !== 64) return false
+  return nodeVerify(null, Buffer.from(message), publicKey, sig)
 }
 
 export { toHex, fromHex }
