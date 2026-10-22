@@ -12,6 +12,20 @@
 //
 // The verifier is intentionally dependency-free — only WebCrypto + base64 +
 // JSON. Run anywhere Node ≥18, Cloudflare Workers, Deno, Bun.
+//
+// Dialect: a compact JWS (`header.payload.signature`, base64url) with alg
+// EdDSA; the Ed25519 signature covers the ASCII `header.payload` exactly as
+// received, so no JSON canonicalization is involved and the lone-surrogate
+// rule of the JCS verifiers does not arise (a payload that is not valid UTF-8
+// decodes lossily into `claims`, but the bytes signed are the bytes received).
+// Trust: the keys the caller passes in opts.keys; without them, the bundle at
+// ATAP_KEYS_URL fetched over HTTPS (TLS + that server are then the trust
+// root). The token is untrusted: every field is checked before use and a
+// malformed token or key is an error in the result, never a throw.
+// Ceiling (spec §9.1): a tunnelmind-attestation-strength-tier claim must be
+// one of the four tiers and at most the signing key's declared strength; a
+// key strength that is not a tier fails. A key with no strength is no ceiling.
+// Submodules: atap-receipt is surfaced, not verified (a warning says so).
 
 const subtle = globalThis.crypto.subtle;
 
