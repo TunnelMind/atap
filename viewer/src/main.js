@@ -3,7 +3,15 @@
 // verifyFiles runs the same steps as `atap-witness verify DIR` (packages/
 // atap-cli/src/cli.ts: verify) in the same order. The rules themselves
 // (checkManifestFiles, verifyReceipt, checkWitnessEvents) live in atap-js and
-// are bundled, so the page and the CLI share one implementation.
+// are bundled, so the page and the CLI share one implementation: the same
+// dialect (ATAP v0.1/v0.2 ed25519 over JCS bytes), the same lone-surrogate
+// refusal and the same attestation_strength ceiling (see atap-js verify.ts).
+// Trust: the ZIP is hostile (zip.js bounds it, render.js never parses its
+// strings as HTML). The page has no --keys, so an OAI witness is checked
+// against the receipt's own public_keys.json and the verdict carries the
+// CLI's warning that this proves self-consistency only; a did:key is its own
+// key. Fails closed: anything that throws becomes {ok:false, reason}, and no
+// Ed25519 in WebCrypto means no verdict at all. No network (CSP connect-src 'none').
 
 import { checkManifestFiles, checkWitnessEvents, fromHex, isDidKey, verifyReceipt, WITNESS_EVENTS } from '@atap'
 import { pendingCount, resolvePending } from './shim.js'
