@@ -11,9 +11,11 @@
 // stripped of control characters before it is echoed in a reason.
 // Ceiling: attestation_strength must be one of the four tiers and at most the
 // strength of the receipt witness's key at the AIT's issue time.
-// Fails closed: every mismatch is {ok:false, reason}; malformed shapes are a
-// verdict, never a throw. Callers: atap-cli `verify` (a receipt, or a store
-// with skipReceiptSignature), the browser viewer.
+// Fails closed: every mismatch is {ok:false, reason}; malformed shapes and
+// key material are a verdict, not a throw. The one throw left is a
+// RangeError from canonicalize recursing through a document nested
+// thousands deep, which still never passes. Callers: atap-cli `verify` (a
+// receipt, or a store with skipReceiptSignature), the browser viewer.
 
 import {
   AIT,
@@ -163,6 +165,19 @@ export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8A
   return entries[0] ?? null
 }
 
+// The key an Ed25519 did:key encodes, or null. isDidKey is a shape test only:
+// a string of that shape can still decode to another multicodec, on which
+// publicKeyFromDidKey throws; that is a verdict, as verify.sh's didkey_to_hex
+// fails it.
+function didKeyRaw(id: string): Uint8Array | null {
+  if (!isDidKey(id)) return null
+  try {
+    return publicKeyFromDidKey(id)
+  } catch {
+    return null
+  }
+}
+
 // Reasons echo ids and paths from the receipt, which is attacker-controlled:
 // control characters (C0 incl. ESC, DEL, C1) are stripped so a reason printed
 // to a terminal cannot drive it or forge extra lines (as verify.sh's clean).
@@ -210,14 +225,15 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
     if (typeof id !== 'string') return { ok: false, blocks: 0, reason: `AIT ${field} is not a string` }
     if (!id.startsWith('did:')) continue
     didIdentified = true
-    if (!isDidKey(id)) {
+    const raw = didKeyRaw(id)
+    if (!raw) {
       return { ok: false, blocks: 0, reason: `AIT ${field} ${id} is not an Ed25519 did:key (ATAP-v0.2 §3)` }
     }
     // §3.3: a did:key-identified AIT must declare 0.2.
     if (ait.ait_version !== '0.2') {
       return { ok: false, blocks: 0, reason: `AIT with did:key ${field} declares ait_version '${ait.ait_version}', want '0.2' (ATAP-v0.2 §3.3)` }
     }
-    if (field === 'witness') didRaw = publicKeyFromDidKey(id) // §3.5: only the witness binds a key
+    if (field === 'witness') didRaw = raw // §3.5: only the witness binds a key
   }
 
   // ATAP-v0.2 §3.1: for a did:key witness the receipt and AIT name the same
@@ -464,6 +480,9 @@ export function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlo
 
 function witnessEventsProblem(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
   if (!Array.isArray(events)) return `${WITNESS_EVENTS} is not an array`
+  // A did:key witness signs every event with the key it encodes.
+  const didRaw = isDidKey(ait.witness) ? didKeyRaw(ait.witness) : null
+  if (isDidKey(ait.witness) && !didRaw) return `AIT witness ${ait.witness} is not an Ed25519 did:key (ATAP-v0.2 §3)`
   let prev: string = GENESIS_HASH
   for (const [i, e] of events.entries()) {
     if (!isObject(e)) return `event ${i} is not an object`
@@ -471,8 +490,8 @@ function witnessEventsProblem(events: WitnessEvent[], chain: AttestationBlock[],
     if (e.ait !== ait.id) return `event ${i} (${e.id}) is not under ${ait.id}`
     if (sha256(canonicalizeBytes(unsigned)) !== self_hash) return `event ${i} (${e.id}) self_hash mismatch`
     if (e.prev_event_hash !== prev) return `event ${i} (${e.id}) prev_event_hash breaks the chain`
-    if (isDidKey(ait.witness)) {
-      const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at)
+    if (didRaw) {
+      const key = pickDidKeyKey(keys, ait.witness, didRaw, e.witnessed_at)
       if (!key) return `no key for ${ait.witness} at ${e.witnessed_at}`
       if (typeof key === 'string') return key
       const pub = keyObjectOf(key)

@@ -437,3 +437,25 @@ test('a malformed key public_key is a verdict, not a throw, for OAI and did:key'
     }
   }
 })
+
+// isDidKey is a shape test: "did:key:z6Mk" + 44 base58 characters can still
+// decode to another multicodec, on which publicKeyFromDidKey throws. As the
+// AIT's witness or operator that is a verdict, as verify.sh's didkey_to_hex
+// fails it, not an exception out of verifyReceipt or checkWitnessEvents.
+test('a did:key of the right shape that does not decode is a verdict, not a throw', async () => {
+  const c = await didChain()
+  let bad = null
+  for (const ch of B58) {
+    const s = 'did:key:z6Mk' + ch + c.ait.witness.slice(13)
+    if (!isDidKey(s)) continue
+    try { publicKeyFromDidKey(s) } catch { bad = s; break }
+  }
+  assert.ok(bad, 'found a shape-valid did:key that does not decode')
+  for (const field of ['witness', 'operator']) {
+    const r = verifyReceipt({ ...c, ait: { ...c.ait, [field]: bad } })
+    assert.equal(r.ok, false, field)
+    assert.match(r.reason, new RegExp(`AIT ${field} .* is not an Ed25519 did:key`))
+  }
+  const { checkWitnessEvents } = await import('../dist/index.js')
+  assert.match(checkWitnessEvents([], c.chain, { ...c.ait, witness: bad }, c.keys), /is not an Ed25519 did:key/)
+})
