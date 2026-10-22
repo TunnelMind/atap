@@ -359,11 +359,20 @@ test('malformed receipt, AIT, keys or block shapes are a verdict, not a throw', 
 test('a key attestation_strength that is not a tier fails the ceiling', async () => {
   const { privateKey } = generateKeyPairSync('ed25519')
   const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
-  for (const bad of ['silicon_root', 'constructor']) {
+  // ['self-asserted'] and 0 are the typed half: hasOwn coerced the array to
+  // its one string, and 0 read as "omitted"; verify.sh fails both.
+  for (const bad of ['silicon_root', 'constructor', ['self-asserted'], 0, true, {}]) {
     const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: bad }] }
     const r = verifyReceipt({ ...c, keys })
-    assert.equal(r.ok, false, bad)
+    assert.equal(r.ok, false, JSON.stringify(bad))
     assert.match(r.reason, /unrecognized attestation_strength/)
+  }
+  // Omitted is undefined, null, false or "" (verify.sh's `// empty` and -n):
+  // the receipt passes with the not-key-attested warning.
+  for (const omitted of [undefined, null, false, '']) {
+    const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: omitted }] }
+    const r = verifyReceipt({ ...c, keys })
+    assert.equal(r.ok, true, `${JSON.stringify(omitted)}: ${r.reason}`)
   }
 })
 

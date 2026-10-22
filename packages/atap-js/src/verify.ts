@@ -365,18 +365,23 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // No entry at all is a failure, not the "omits the field" warning below: a
   // witness with no key at the AIT's issue time attests nothing about it.
   if (!aitPeriodKey) return { ok: false, blocks: chain.length, reason: `no key for receipt witness ${receipt.witness} at ${ait.issued_at}` }
-  if (aitPeriodKey.attestation_strength) {
-    // A key strength that is not a tier fails, as verify.sh's rank -1 does: a
-    // typo in a trusted bundle ("silicon_root") gave an undefined rank here,
-    // and `rank > undefined` is false, so any claim passed the ceiling.
-    if (!Object.hasOwn(ATTESTATION_STRENGTH_RANK, aitPeriodKey.attestation_strength)) {
+  // A key that omits its strength is undefined, null, false or "", as
+  // verify.sh's jq `// empty` plus its `-n` test; anything else must be a
+  // tier string, as verify.sh's rank -1 fails everything else. Typed, not
+  // truthy: Object.hasOwn coerces ["self-asserted"] to its string, so an
+  // array would pass as that tier, and 0 would read as missing.
+  const keyStrength: unknown = aitPeriodKey.attestation_strength
+  if (keyStrength !== undefined && keyStrength !== null && keyStrength !== false && keyStrength !== '') {
+    // A typo in a trusted bundle ("silicon_root") has no rank, and
+    // `rank > undefined` is false, so without this any claim would pass.
+    if (typeof keyStrength !== 'string' || !Object.hasOwn(ATTESTATION_STRENGTH_RANK, keyStrength)) {
       return {
         ok: false,
         blocks: chain.length,
-        reason: `key ${aitPeriodKey.key_id} has unrecognized attestation_strength '${aitPeriodKey.attestation_strength}'`,
+        reason: `key ${aitPeriodKey.key_id} has unrecognized attestation_strength '${typeof keyStrength === 'string' ? keyStrength : JSON.stringify(keyStrength)}'`,
       }
     }
-    const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength]
+    const keyRank = ATTESTATION_STRENGTH_RANK[keyStrength as AttestationStrength]
     const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]
     if (rcptRank > keyRank) {
       return {
