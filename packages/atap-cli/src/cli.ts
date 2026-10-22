@@ -376,13 +376,17 @@ async function receiptEntries(root: string, sub = ''): Promise<string[]> {
 // A did:key is its own key, so its receipts always use the bundled entries.
 async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   const receipt = await readJsonFile<Receipt>(dir, 'manifest.json')
+  // Parsed from the receipt, so any JSON value: every read below assumes an
+  // object, and a wrong shape must be a verdict, not a TypeError crash.
+  if (!isObject(receipt)) return { ok: false, blocks: 0, reason: 'manifest.json is not an object' }
   const root = resolve(dir)
   const present = await receiptEntries(root)
   // readFileSync follows symlinks, so a listed link (or a path under a linked
   // directory) would hash a file outside the receipt. Refused, as verify.sh does.
-  // A non-array files[] is left for checkManifestFiles to report as a verdict.
+  // A non-array files[] or a malformed entry is left for checkManifestFiles
+  // to report as a verdict.
   for (const f of Array.isArray(receipt.files) ? receipt.files : []) {
-    const rel = typeof f.path === 'string' ? normaliseReceiptPath(f.path) : null
+    const rel = isObject(f) && typeof f.path === 'string' ? normaliseReceiptPath(f.path) : null
     if (rel && underSymlink(root, rel)) {
       return { ok: false, blocks: 0, reason: clean(`${f.path} is or is under a symlink`) }
     }
@@ -397,7 +401,9 @@ async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   if (bad) return { ok: false, blocks: 0, reason: bad }
   const ait = await readJsonFile<AIT>(dir, 'ait.json')
   const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
-  const oai = !isDidKey(ait.witness) || !isDidKey(receipt.witness)
+  // ait may be any JSON value, which verifyReceipt turns into its verdict;
+  // `?.` keeps this line from crashing on it first.
+  const oai = !isDidKey(ait?.witness) || !isDidKey(receipt.witness)
   let keys: KeysDocument
   if (oai && keysFile) {
     try {

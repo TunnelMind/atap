@@ -228,6 +228,16 @@ test('code_crew events dropped from files[] are still checked, present or delete
   assert.match(v.result.reason, /witness_events\.json/)
 })
 
+// A null manifest or a null files[] entry gets the CLI's verdict word for
+// word, not a TypeError message as the reason.
+test('a null manifest or a null files[] entry fails with the CLI\'s reason', { skip: skipFresh }, async () => {
+  await sameReasonAsCli(await resigned('nullentry', files => [null, ...files]), /manifest\.files\[0\] is not \{path, sha256\}/)
+  const dir = join(fresh.dir, 'nullmanifest')
+  cpSync(fresh.out, dir, { recursive: true })
+  writeFileSync(join(dir, 'manifest.json'), 'null')
+  await sameReasonAsCli(dir, /manifest\.json is not an object/)
+})
+
 test('hostile ZIP: a ../ entry is refused', async () => {
   const v = await viewer.verifyZip(makeZip([['manifest.json', Buffer.from('{}')], ['../evil.json', Buffer.from('{}')]]))
   assert.equal(v.status, 'error')

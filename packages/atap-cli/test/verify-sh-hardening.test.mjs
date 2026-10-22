@@ -327,3 +327,26 @@ test('a malformed key public_key fails verify.sh, the library and the CLI alike'
     assert.match(cli.reason, /key k1 public_key is not 32-byte hex/)
   }
 })
+
+// The CLI read fields off the parsed manifest and AIT before the library saw
+// them, so each of these crashed with a TypeError; verify.sh fails each, and
+// the CLI now gives a verdict with a reason.
+test('a null manifest, a null files[] entry or a null AIT is a CLI verdict, not a crash', async () => {
+  const nullManifest = await receiptDir()
+  writeFileSync(join(nullManifest.dir, 'manifest.json'), 'null')
+  const nullEntry = await receiptDir()
+  editManifest(nullEntry, m => ({ ...m, files: [null, ...m.files] }))
+  const nullAit = await receiptDir()
+  writeFileSync(join(nullAit.dir, 'ait.json'), 'null')
+  editManifest(nullAit, m => ({ ...m, files: m.files.map(f => (f.path === 'ait.json' ? { ...f, sha256: sha256(Buffer.from('null')) } : f)) }))
+  for (const [{ dir }, reason] of [
+    [nullManifest, /^manifest\.json is not an object$/],
+    [nullEntry, /^manifest\.files\[0\] is not \{path, sha256\}$/],
+    [nullAit, /^receipt or AIT is not an object$/],
+  ]) {
+    const cli = cliVerify(dir)
+    assert.equal(cli.ok, false)
+    assert.match(cli.reason, reason)
+    assert.notEqual(verifySh(dir).status, 0)
+  }
+})

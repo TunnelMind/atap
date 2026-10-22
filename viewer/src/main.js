@@ -13,7 +13,7 @@
 // key. Fails closed: anything that throws becomes {ok:false, reason}, and no
 // Ed25519 in WebCrypto means no verdict at all. No network (CSP connect-src 'none').
 
-import { checkManifestFiles, checkWitnessEvents, fromHex, isDidKey, verifyReceipt, WITNESS_EVENTS } from '@atap'
+import { checkManifestFiles, checkWitnessEvents, fromHex, isDidKey, isObject, verifyReceipt, WITNESS_EVENTS } from '@atap'
 import { pendingCount, resolvePending } from './shim.js'
 import { MAX_ZIP_BYTES, readZip } from './zip.js'
 import { render } from './render.js'
@@ -52,6 +52,10 @@ function readJson(files, name) {
 async function verifyFiles(files) {
   const fail = reason => ({ result: { ok: false, blocks: 0, reason } })
   const receipt = readJson(files, 'manifest.json')
+  // Any JSON value: a wrong shape gets the CLI's verdict, not a TypeError
+  // message as the reason. A malformed files[] is checkManifestFiles's verdict.
+  if (!isObject(receipt)) return fail('manifest.json is not an object')
+  const listed = Array.isArray(receipt.files) ? receipt.files : []
   // Every entry must be listed in files[], as in the CLI's receiptEntries (scitt/
   // is the CLI's own sidecar, never listed).
   const present = [...files.keys()].filter(k => !k.startsWith('scitt/'))
@@ -59,7 +63,7 @@ async function verifyFiles(files) {
   // profile requires them, as the CLI's verify(): dropping them from files[]
   // must not skip the check. Absent but required, readJson throws and the
   // reason says so (the CLI crashes there).
-  const hasEvents = files.has(WITNESS_EVENTS) || receipt.files?.some(f => f.path === WITNESS_EVENTS)
+  const hasEvents = files.has(WITNESS_EVENTS) || listed.some(f => isObject(f) && f.path === WITNESS_EVENTS)
   let ait
   let events = []
   // Everything that hashes or verifies runs inside a pass, manifest files
@@ -88,7 +92,7 @@ async function verifyFiles(files) {
   // ponytail: every pass reruns from the top, O(n²) in blocks+events; fine
   // under the 10 MiB entry cap, batch-precompute if receipts grow past that.
   const chain = readJsonOr(files, 'attestation_chain.json')
-  const n = (receipt.files?.length ?? 0) + (Array.isArray(chain) ? chain.length : 0) + (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0)
+  const n = listed.length +(Array.isArray(chain) ? chain.length : 0) + (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0)
   for (let pass = 0; pass <= 4 * n + 8; pass++) {
     const result = run()
     if (pendingCount() === 0) return { result, receipt, ait, events }
