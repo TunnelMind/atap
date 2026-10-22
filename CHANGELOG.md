@@ -4,6 +4,44 @@ All notable changes to ATAP are recorded here.
 
 ## Unreleased
 
+### Security
+
+Verdict changes from the 2026-10-21/22 review. No receipt the witness writes
+changes verdict; each line names the inputs that do.
+
+- **Both verifiers: a lone UTF-16 surrogate escape fails.** `verify.sh` let
+  jq turn `"\udc00"` into U+FFFD, so a manifest signed with `"�"` and edited
+  to `"\udc00"` passed it while atap-js refused it. A python pre-check now
+  refuses it in every JSON input, and atap-js reports its JCS refusal as the
+  verdict. A document nested too deeply for that check fails rather than
+  passing it.
+- **Both verifiers: one spelling set per signature and key.** atap-js's
+  `fromHex` half-read `"+f"`, `" f"` and `"fz"` as `0x0f`, so a re-spelled
+  signature verified. It now refuses non-hex, and `ed25519Verify` answers
+  false, never throws. `verify.sh` read a signature with a trailing newline or
+  inner space, and a `public_key` with a trailing newline, as the clean value;
+  it now checks both inside jq. A malformed `public_key` is a verdict
+  ("key <id> public_key is not 32-byte hex") in both.
+- **Both verifiers: the strength ceiling is type-checked.** A key strength
+  that is not one of the four tiers (`"silicon_root"`, `"constructor"`,
+  `["self-asserted"]`, `0`), or a receipt strength of `""`, `0`, an object or
+  `"MISSING"`, fails. A strength with a trailing newline fails `verify.sh` as
+  it fails atap-js. Missing stays absent, null or false (and `""` for a key).
+- **Both verifiers: one RFC 3339 grammar for key times.** Key validity and
+  compromise notices, OAI and did:key, compare as instants. A did:key notice
+  was a string compare in atap-js. A leap second, `24:00`, an offset past
+  `23:59` or a day the month lacks now fails both. A sub-millisecond
+  `disclosed_at` is compared exactly.
+- **atap-cli and the viewer: malformed shapes are verdicts.** A `null`
+  manifest, AIT or `files[]` entry, or a non-array `files`, gives a reason
+  instead of a TypeError crash. Every receipt JSON file (and `--keys`) is read
+  as strict UTF-8 in the CLI, the viewer and `verify.sh`, so raw invalid bytes
+  cannot stand in for a signed U+FFFD.
+- **eat-js (unpublished): four-tier ceiling, and no throws.** An unknown
+  strength ranked 0 and passed. It now fails. A malformed key, a `null`
+  header or payload, bad signature characters or a non-string token is an
+  error in the result, not a rejected promise.
+
 ### Changed
 
 - **Docs (2026-10-18): verify a receipt with your own trusted verifier
