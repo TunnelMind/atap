@@ -131,19 +131,30 @@ async function fetchAtapKeys(): Promise<VerifierKey[]> {
 export async function verifyJwt(token: string, opts: VerifierOptions = {}): Promise<VerifyResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
+  // Typed callers aside, the token is whatever arrived: not a string is an error.
+  if (typeof token !== 'string') return { valid: false, errors: ['malformed JWT: not a string'], warnings };
   const parts = token.split('.');
   if (parts.length !== 3) {
     return { valid: false, errors: ['malformed JWT: expected 3 parts'], warnings };
   }
   let header: Record<string, unknown> = {};
   let claims: Record<string, unknown> = {};
+  let sig: Uint8Array<ArrayBuffer>;
   try {
     header = JSON.parse(bytesToString(b64uToBytes(parts[0]!)));
     claims = JSON.parse(bytesToString(b64uToBytes(parts[1]!)));
+    // atob throws on a character outside base64url ("!!!").
+    sig = b64uToBytes(parts[2]!);
   } catch (e) {
     return { valid: false, errors: [`JWT parse: ${(e as Error).message}`], warnings };
   }
-  const sig = b64uToBytes(parts[2]!);
+  // RFC 7515 §4 / RFC 7519 §7.2: the header and the claims set are JSON
+  // objects. `null` would throw on the first field read below, and an array
+  // or a scalar is not a claims set.
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isObj(header) || !isObj(claims)) {
+    return { valid: false, errors: ['malformed JWT: header or payload is not a JSON object'], warnings };
+  }
 
   // Algorithm check
   const alg = header['alg'];

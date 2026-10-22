@@ -72,8 +72,17 @@ test('a claim or key strength that is not one of the four tiers fails', async ()
 
 test('malformed tokens and keys are errors in the result, never a throw', async () => {
   const good = jwt(claims())
-  const cases = ['', 'a.b', 'a.b.c.d', '!!!.???.***', `${good.split('.')[0]}.e30.AAAA`]
-  for (const t of cases) assert.equal((await verifyJwt(t, { keys: [key()] })).valid, false, t)
+  const [h, p, s] = good.split('.')
+  const nul = b64u('null')
+  // A JSON `null` header or payload and bad signature characters each threw;
+  // an array payload is not a claims set.
+  const cases = ['', 'a.b', 'a.b.c.d', '!!!.???.***', `${h}.e30.AAAA`, `${nul}.${p}.${s}`, `${h}.${nul}.${s}`, `${h}.${b64u('[]')}.${s}`, `${h}.${p}.!!!`]
+  for (const t of cases) {
+    const r = await verifyJwt(t, { keys: [key()] })
+    assert.equal(r.valid, false, t)
+    assert.ok(r.errors.length > 0, t)
+  }
+  for (const t of [null, 7, {}]) assert.equal((await verifyJwt(t, { keys: [key()] })).valid, false, String(t))
   for (const public_key of ['AAAA', '0x' + '00'.repeat(31), '']) {
     const r = await verifyJwt(good, { keys: [{ ...key(), public_key }] })
     assert.equal(r.valid, false, public_key)
