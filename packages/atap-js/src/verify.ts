@@ -321,16 +321,20 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // 3. Attestation strength (ATAP §7.4.1 — optional in v0.1.x, required at v0.2)
   const warnings: string[] = []
   let effectiveStrength: AttestationStrength = 'self-asserted'
-  if (receipt.attestation_strength) {
+  // Missing is undefined, null or false, as verify.sh's jq `// "MISSING"`;
+  // anything else ("", 0, an object) must be a tier, or "" would pass here
+  // as missing while verify.sh refuses it.
+  const claimed: unknown = receipt.attestation_strength
+  if (claimed !== undefined && claimed !== null && claimed !== false) {
     // Object.hasOwn, not `in`: a prototype name ("constructor", "__proto__") is not a strength.
-    if (!Object.hasOwn(ATTESTATION_STRENGTH_RANK, receipt.attestation_strength)) {
+    if (typeof claimed !== 'string' || !Object.hasOwn(ATTESTATION_STRENGTH_RANK, claimed)) {
       return {
         ok: false,
         blocks: chain.length,
         reason: `unrecognized attestation_strength '${receipt.attestation_strength}'`,
       }
     }
-    effectiveStrength = receipt.attestation_strength
+    effectiveStrength = claimed as AttestationStrength
   } else {
     warnings.push(
       "manifest.attestation_strength missing — treated as 'self-asserted' (ATAP §7.4.1). Required at v0.2.",
@@ -349,6 +353,16 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // witness with no key at the AIT's issue time attests nothing about it.
   if (!aitPeriodKey) return { ok: false, blocks: chain.length, reason: `no key for receipt witness ${receipt.witness} at ${ait.issued_at}` }
   if (aitPeriodKey.attestation_strength) {
+    // A key strength that is not a tier fails, as verify.sh's rank -1 does: a
+    // typo in a trusted bundle ("silicon_root") gave an undefined rank here,
+    // and `rank > undefined` is false, so any claim passed the ceiling.
+    if (!Object.hasOwn(ATTESTATION_STRENGTH_RANK, aitPeriodKey.attestation_strength)) {
+      return {
+        ok: false,
+        blocks: chain.length,
+        reason: `key ${aitPeriodKey.key_id} has unrecognized attestation_strength '${aitPeriodKey.attestation_strength}'`,
+      }
+    }
     const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength]
     const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]
     if (rcptRank > keyRank) {

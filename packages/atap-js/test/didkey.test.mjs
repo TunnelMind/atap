@@ -352,3 +352,34 @@ test('malformed receipt, AIT, keys or block shapes are a verdict, not a throw', 
   const r = verifyReceipt({ ...c, keys: { ...c.keys, keys: [null, ...c.keys.keys] } })
   assert.equal(r.ok, true, r.reason)
 })
+
+// verify.sh ranks an unknown key strength -1, so every claim exceeds it; here
+// an unknown key strength had an undefined rank and `rank > undefined` is
+// false, so a typo in a trusted bundle let any claim through the ceiling.
+test('a key attestation_strength that is not a tier fails the ceiling', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  for (const bad of ['silicon_root', 'constructor']) {
+    const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: bad }] }
+    const r = verifyReceipt({ ...c, keys })
+    assert.equal(r.ok, false, bad)
+    assert.match(r.reason, /unrecognized attestation_strength/)
+  }
+})
+
+// Missing is undefined, null or false (verify.sh's jq `//`); "" or 0 is a
+// claim that is not a tier, which verify.sh refuses and this used to read as missing.
+test('an empty or non-string receipt attestation_strength is refused, not read as missing', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  for (const bad of ['', 0, {}]) {
+    const r = verifyReceipt({ ...c, receipt: resignReceipt({ ...c.receipt, attestation_strength: bad }, privateKey) })
+    assert.equal(r.ok, false, JSON.stringify(bad))
+    assert.match(r.reason, /unrecognized attestation_strength/)
+  }
+  for (const missing of [null, false]) {
+    const r = verifyReceipt({ ...c, receipt: resignReceipt({ ...c.receipt, attestation_strength: missing }, privateKey) })
+    assert.equal(r.ok, true, r.reason)
+    assert.equal(r.attestation_strength, 'self-asserted')
+  }
+})
