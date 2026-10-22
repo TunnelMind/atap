@@ -294,7 +294,10 @@ lookup_did_key() {
 # still verify here while atap-js refuses it: two verifiers, two verdicts.
 # python's json keeps the surrogate, so every JSON input is checked with it
 # first. A file python cannot parse is left for the step that reads it.
-has_lone_surrogate() {
+# Exit 0: no lone surrogate (or not JSON); 3: one found; 4: nested too deeply
+# to walk. Anything else (a traceback exits 1) is a check that did not run,
+# and fails: an uncaught RecursionError used to read as "no surrogate".
+lone_surrogate_check() {
   python3 -I -c '
 import json, sys
 def walk(o):
@@ -308,15 +311,24 @@ def walk(o):
 try:
     with open(sys.argv[1], encoding="utf-8", errors="replace") as f:
         doc = json.load(f)
+    found = walk(doc)
+except RecursionError:
+    sys.exit(4)
 except ValueError:
-    sys.exit(1)
-sys.exit(0 if walk(doc) else 1)
+    sys.exit(0)
+sys.exit(3 if found else 0)
 ' "$1"
 }
 for f in "$RECEIPT_DIR/manifest.json" "$RECEIPT_DIR/ait.json" "$RECEIPT_DIR/attestation_chain.json" \
          "$KEYS_FILE" "$RECEIPT_DIR/profile_artifacts/witness_events.json"; do
   [ -f "$f" ] || continue
-  ! has_lone_surrogate "$f" || err "${f#"$RECEIPT_DIR"/} holds a lone UTF-16 surrogate"
+  rc=0; lone_surrogate_check "$f" || rc=$?
+  case $rc in
+    0) ;;
+    3) err "${f#"$RECEIPT_DIR"/} holds a lone UTF-16 surrogate" ;;
+    4) err "${f#"$RECEIPT_DIR"/} is nested too deeply to check for a lone UTF-16 surrogate" ;;
+    *) err "cannot check ${f#"$RECEIPT_DIR"/} for a lone UTF-16 surrogate" ;;
+  esac
 done
 
 ##############################################################################

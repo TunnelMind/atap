@@ -388,3 +388,17 @@ test('whitespace in a signature or a strength fails verify.sh as it fails atap-j
     assert.equal(lib(dir).ok, true)
   }
 })
+
+// verify.sh's python surrogate walk recursed; past Python's recursion limit
+// it died with a traceback and exit 1, which read as "no surrogate". jq 1.7
+// refuses depth > 256 later anyway, but a jq with a higher limit would have
+// passed a deeply nested lone surrogate that atap-js refuses.
+test('a manifest too deep for the surrogate check fails it, not passes it', async () => {
+  for (const depth of [1200, 3000]) {
+    const { dir } = await receiptDir()
+    const path = join(dir, 'manifest.json')
+    const text = readFileSync(path, 'utf8')
+    writeFileSync(path, text.replace(/}$/, `,"note":${'['.repeat(depth)}"\\udc00"${']'.repeat(depth)}}`))
+    assertFails(verifySh(dir), /manifest\.json is nested too deeply to check for a lone UTF-16 surrogate/)
+  }
+})
