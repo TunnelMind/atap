@@ -146,6 +146,17 @@ test('fresh v0.2 receipt verifies, as a zipped dir and as the CLI\'s own receipt
   }
 })
 
+// The page cannot be handed trusted keys, so an OAI receipt that passes against
+// its own public_keys.json must say so, as the CLI does: without the warning a
+// forger's receipt with a forged keys file reads as plainly verified.
+test('an OAI receipt checked against its own keys carries the CLI\'s warning', { skip: skipFresh }, async () => {
+  const cli = cliVerify(fresh.out)
+  assert.ok(cli.warnings?.length, 'the CLI warns')
+  const v = await viewer.verifyZip(zipDir(fresh.out))
+  assert.equal(v.result.ok, true, v.result.reason)
+  assert.deepEqual([...v.result.warnings], cli.warnings) // spread: the page's array is from the vm realm
+})
+
 // The viewer's verdict on a tampered dir must carry the CLI's exact reason.
 async function sameReasonAsCli(dir, expect) {
   const cli = cliVerify(dir)

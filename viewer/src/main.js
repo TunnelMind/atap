@@ -5,7 +5,7 @@
 // (checkManifestFiles, verifyReceipt, checkWitnessEvents) live in atap-js and
 // are bundled, so the page and the CLI share one implementation.
 
-import { checkManifestFiles, checkWitnessEvents, fromHex, verifyReceipt, WITNESS_EVENTS } from '@atap'
+import { checkManifestFiles, checkWitnessEvents, fromHex, isDidKey, verifyReceipt, WITNESS_EVENTS } from '@atap'
 import { pendingCount, resolvePending } from './shim.js'
 import { MAX_ZIP_BYTES, readZip } from './zip.js'
 import { render } from './render.js'
@@ -24,6 +24,12 @@ export async function ed25519Supported() {
 }
 
 const CODE_CREW_PROFILE = 'tunnelmind:code_crew:v1'
+
+// A page has no --keys: an OAI witness is checked against the receipt's own
+// public_keys.json, which whoever made the receipt chose, so a pass proves
+// self-consistency, not who signed (or what strength they hold). The CLI's
+// warning, word for word; a did:key is its own key and needs none.
+const OWN_KEYS_WARNING = "OAI witness checked against the receipt's own public_keys.json: proves self-consistency, not who signed; pass --keys"
 
 function readJson(files, name) {
   try {
@@ -59,6 +65,7 @@ async function verifyFiles(files) {
       const chain = readJson(files, 'attestation_chain.json')
       const keys = readJson(files, 'public_keys.json')
       const result = verifyReceipt({ receipt, ait, chain, keys })
+      if (!isDidKey(ait?.witness) || !isDidKey(receipt?.witness)) result.warnings = [...(result.warnings ?? []), OWN_KEYS_WARNING]
       if (!result.ok) return result
       if (!hasEvents && ait.profile !== CODE_CREW_PROFILE) return result
       events = readJson(files, WITNESS_EVENTS)

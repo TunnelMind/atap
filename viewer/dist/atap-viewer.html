@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- No network at all. The inline script and style are allowed by their
      sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-TQ69B6kwMsHi0jKXOaMptYayZt6PwJ+zVnp1he8vQKE='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-n0Un8GzNg+WyGJaA2E7YctOXR2BSKxA1gtaN2EZ9vj0='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ATAP receipt viewer</title>
 <style>
 body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
@@ -131,8 +131,8 @@ return { nodeCrypto, Buffer, pendingCount, resolvePending };
 })();
 __mods["atap/types"] = (function () {
 // ATAP v0.1/v0.2 — TypeScript types
-// Mirrors the JSON Schemas at https://tunnelmind.ai/atap/schemas/v0.1/ (and
-// profiles/atap-v0.2-schemas for the did:key additions)
+// Mirrors the JSON Schemas in schemas/v0.1/ (repo root) and
+// profiles/atap-v0.2-schemas for the did:key additions
 const ATTESTATION_STRENGTH_RANK = {
     'self-asserted': 0,
     software: 1,
@@ -152,13 +152,17 @@ const REPLAY_WINDOW_SECONDS = 30;
 return { ATTESTATION_STRENGTH_RANK, GENESIS_HASH, ATAP_CONTEXT, ATAP_VERSION, MAX_PAYLOAD_BYTES, MAX_CONSTRAINTS_BYTES, MAX_CAPABILITIES, MIN_BLOCK_INTERVAL_S, MAX_BLOCK_INTERVAL_S, MAX_AIT_LIFETIME_DAYS, REPLAY_WINDOW_SECONDS };
 })();
 __mods["atap/canonicalize"] = (function () {
-// RFC 8785 JSON Canonicalization Scheme (JCS) — subset sufficient for ATAP v0.1.
-//
-// JCS specifies an unambiguous serialization of JSON. v0.1 artifacts use a constrained
-// subset of JSON (no NaN/Infinity, no extreme floats) so this implementation is
-// short and auditable; a lone surrogate is refused (test/vectors/jcs.json, shared
-// with receipt-verify and tollbooth). For other JCS edge cases substitute a strict
-// library.
+// RFC 8785 JSON Canonicalization Scheme (JCS): the bytes every ATAP signature
+// and self_hash is computed over (witness.ts signs them, verify.ts and
+// verify.sh's python recompute them), so the output must be the same for
+// every signer and verifier. ATAP artifacts use a constrained subset of JSON
+// (no NaN/Infinity, no extreme floats) so this implementation stays short and
+// auditable; the frozen vectors in test/vectors/jcs.json (shared verbatim with
+// receipt-verify and tollbooth) pin its bytes. A lone UTF-16 surrogate is
+// refused rather than mapped to U+FFFD, so two strings can never sign to one
+// byte string. Input is untrusted parsed JSON: throws on a lone surrogate, a
+// non-finite number or a non-JSON type; `undefined` members are dropped.
+// Never normalizes Unicode: "é" and "é" hash differently, by design.
 const ESC = {
     '"': '\\"',
     '\\': '\\\\',
@@ -175,7 +179,7 @@ function encodeString(s) {
         // The iterator yields a valid pair as one code point > 0xFFFF, so a cp in
         // this range is a lone surrogate. TextEncoder would map it to U+FFFD and
         // two different strings would sign to the same bytes; refused, as
-        // receipt-verify's jcs.ts and verify.sh's python do, 2026-10-20.
+        // receipt-verify's jcs.ts and verify.sh's python do.
         if (cp >= 0xd800 && cp <= 0xdfff)
             throw new Error('JCS: lone surrogate in string');
         if (ch in ESC) {
@@ -230,7 +234,17 @@ return { canonicalize, canonicalizeBytes };
 })();
 __mods["atap/crypto"] = (function () {
 const { Buffer } = __mods["viewer/shim"];
-// SHA-256 and Ed25519 helpers (Node 20+ crypto module).
+// SHA-256 and Ed25519 helpers over node:crypto (Node 20+), the one place ATAP
+// bytes meet a key. Wire forms: hashes are `0x<64 hex>`, signatures
+// `ed25519:0x<128 hex>`, keys raw 32 bytes wrapped in the fixed PKCS#8 / SPKI
+// DER prefixes below. Signing (witness.ts) runs only on the witness's own
+// data; verification (verify.ts, scitt.ts, the CLI) takes signature strings
+// and hashes from an attacker-controlled receipt, so ed25519Verify answers
+// false — never throws — for any string that is not a well-formed signature.
+// Keys come from the trusted KeysDocument: a malformed public_key throws in
+// publicKeyFromHex and the caller reports it. The browser viewer bundles
+// this file over a record/replay shim (viewer/src/shim.js), so it must keep
+// to createHash/createPublicKey/verify and Buffer.from.
 const { createHash, createPrivateKey, createPublicKey, sign: nodeSign, verify: nodeVerify, } = __mods["viewer/shim"].nodeCrypto;
 function toHex(b) {
     return Array.from(b)
@@ -241,13 +255,15 @@ function fromHex(hex) {
     const s = hex.startsWith('0x') ? hex.slice(2) : hex;
     if (s.length % 2 !== 0)
         throw new Error('fromHex: odd-length hex');
+    // A character test, not parseInt's NaN: parseInt reads a prefix, so "+f",
+    // " f" and "fz" would all decode to 0x0f and "-1" to 0xff, giving one
+    // signature many spellings, and verify.sh (whose xxd skips non-hex
+    // characters, leaving too few bytes) would fail what this passed.
+    if (!/^[0-9a-fA-F]*$/.test(s))
+        throw new Error('fromHex: bad hex character');
     const out = new Uint8Array(s.length / 2);
-    for (let i = 0; i < out.length; i++) {
-        const byte = parseInt(s.substr(i * 2, 2), 16);
-        if (Number.isNaN(byte))
-            throw new Error('fromHex: bad hex character');
-        out[i] = byte;
-    }
+    for (let i = 0; i < out.length; i++)
+        out[i] = parseInt(s.substr(i * 2, 2), 16);
     return out;
 }
 function sha256(data) {
@@ -293,9 +309,25 @@ function ed25519Sign(message, privateKey) {
     const sig = nodeSign(null, Buffer.from(message), privateKey);
     return ('ed25519:0x' + toHex(new Uint8Array(sig)));
 }
+// False for a signature that is not a string, not hex after the optional
+// `ed25519:0x` prefix, or not 64 bytes: a receipt's signature field is
+// attacker-controlled, and a verifier must give a verdict, not a TypeError.
+// verify.sh strips the same optional prefix and fails any such string in
+// `openssl pkeyutl -verify`. The schemas' stricter `^ed25519:0x[0-9a-f]{128}$`
+// is not enforced here; verify.sh enforces its hex part on the AIT only.
 function ed25519Verify(message, signature, publicKey) {
-    const sigHex = signature.replace(/^ed25519:0x/, '');
-    return nodeVerify(null, Buffer.from(message), publicKey, fromHex(sigHex));
+    if (typeof signature !== 'string')
+        return false;
+    let sig;
+    try {
+        sig = fromHex(signature.replace(/^ed25519:0x/, ''));
+    }
+    catch {
+        return false;
+    }
+    if (sig.length !== 64)
+        return false;
+    return nodeVerify(null, Buffer.from(message), publicKey, sig);
 }
 return { sha256, privateKeyFromRaw, publicKeyFromRaw, publicKeyFromHex, ed25519Sign, ed25519Verify, toHex, fromHex };
 })();
@@ -303,6 +335,11 @@ __mods["atap/didkey"] = (function () {
 // did:key for Ed25519 public keys (ATAP-v0.2 §3; W3C did:key method).
 // did:key:z<base58btc(0xed 0x01 || raw32)> — 'z' is the multibase prefix for
 // base58btc and 0xed01 is the varint of multicodec ed25519-pub.
+// A did:key is self-certifying: the identifier IS the public key, so a
+// verifier needs no registry for it. Identifiers come from untrusted records:
+// isDidKey is the shape gate verify.ts uses first, and publicKeyFromDidKey
+// throws on anything that is not exactly an Ed25519 did:key (other
+// multicodecs, bad base58, wrong length), which callers turn into a verdict.
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const PREFIX = 'did:key:z';
 // Mirrors the did:key pattern in profiles/atap-v0.2-schemas/ait.schema.json;
@@ -370,7 +407,22 @@ function publicKeyFromDidKey(did) {
 return { isDidKey, didKeyFromPublicKey, publicKeyFromDidKey };
 })();
 __mods["atap/verify"] = (function () {
-// In-process verifier. Parallel to /atap/verify.sh — same logic, JS-native.
+// In-process ATAP receipt verifier: the same rules as /atap/verify.sh, the
+// reference bash verifier, in the same order; the two are pinned together by
+// atap-cli's verify-sh-* tests and must not disagree on any receipt.
+// Dialect: ATAP v0.1/v0.2 — `ed25519:0x<hex>` signatures over JCS bytes (AIT,
+// receipt) or over the raw 32-byte self_hash digest (blocks, events; §7.7);
+// JCS refuses a lone surrogate (canonicalize.ts), so such a record fails.
+// Trust: ONLY the KeysDocument the caller passes (for an OAI witness, keys the
+// verifier chose; for a did:key witness, the key the identifier encodes, which
+// the entry must match). The receipt, AIT, chain and events are attacker-
+// controlled; every id and path they carry is validated before use and
+// stripped of control characters before it is echoed in a reason.
+// Ceiling: attestation_strength must be one of the four tiers and at most the
+// strength of the receipt witness's key at the AIT's issue time.
+// Fails closed: every mismatch is {ok:false, reason}; malformed shapes are a
+// verdict, never a throw. Callers: atap-cli `verify` (a receipt, or a store
+// with skipReceiptSignature), the browser viewer.
 const { ATTESTATION_STRENGTH_RANK, GENESIS_HASH, ATAP_CONTEXT, } = __mods["atap/types"];
 const { canonicalizeBytes } = __mods["atap/canonicalize"];
 const { ed25519Verify, fromHex, publicKeyFromHex, sha256, toHex } = __mods["atap/crypto"];
@@ -392,7 +444,7 @@ function pickKey(doc, witness, at) {
         return `${at} is not an RFC 3339 time`;
     const hits = [];
     for (const k of doc.keys) {
-        if (k.witness !== witness)
+        if (!isObject(k) || k.witness !== witness)
             continue;
         const from = instant(k.valid_from);
         const until = instant(k.valid_until);
@@ -433,13 +485,24 @@ function didKeyEntryProblem(k, didRaw) {
 // on any of them in force at `at` voids the key. Returns the entry, null for
 // no usable entry, or the reason an entry is refused.
 function pickDidKeyKey(doc, witness, didRaw, at) {
-    const entries = doc.keys.filter(k => k.witness === witness);
+    const entries = doc.keys.filter(k => isObject(k) && k.witness === witness);
     for (const k of entries) {
         const problem = didKeyEntryProblem(k, didRaw);
         if (problem)
             return problem;
-        if (k.status === 'compromised' && (!k.compromise_notice || at >= k.compromise_notice.disclosed_at))
-            return null;
+        if (k.status === 'compromised') {
+            if (!k.compromise_notice)
+                return null;
+            // Instants, as pickKey and verify.sh's lookup_did_key: `at` is written by
+            // the key holder, and a string compare would let "…T20:00:00-05:00" sort
+            // before a disclosed_at of the next UTC day it actually follows.
+            const t = instant(at);
+            const disclosed = instant(k.compromise_notice.disclosed_at);
+            if (Number.isNaN(t) || Number.isNaN(disclosed))
+                return `cannot compare the compromise notice for ${witness} at ${at} as RFC 3339 times`;
+            if (t >= disclosed)
+                return null;
+        }
     }
     return entries[0] ?? null;
 }
@@ -452,6 +515,12 @@ function verifyReceipt(opts) {
 }
 function verifyReceiptRaw(opts) {
     const { receipt, ait, chain, keys, skipReceiptSignature } = opts;
+    // Shapes first: every later line reads fields off these, and a malformed
+    // input is a verdict, not a TypeError (the CLI and viewer pass parsed JSON through).
+    if (!isObject(receipt) || !isObject(ait))
+        return { ok: false, blocks: 0, reason: 'receipt or AIT is not an object' };
+    if (!isObject(keys) || !Array.isArray(keys.keys))
+        return { ok: false, blocks: 0, reason: 'keys document has no keys array' };
     if (ait['@context'] !== ATAP_CONTEXT) {
         return { ok: false, blocks: 0, reason: `bad @context on AIT` };
     }
@@ -516,7 +585,9 @@ function verifyReceiptRaw(opts) {
         return { ok: false, blocks: 0, reason: 'attestation chain is not a non-empty array' };
     }
     let prev = GENESIS_HASH;
-    for (const block of chain) {
+    for (const [i, block] of chain.entries()) {
+        if (!isObject(block))
+            return { ok: false, blocks: 0, reason: `block ${i} is not an object` };
         // ATAP-v0.2 §3.3: every block under a did:key-identified AIT declares 0.2.
         if (didIdentified && block.ab_version !== '0.2') {
             return { ok: false, blocks: 0, reason: `block ${block.id} declares ab_version '${block.ab_version}' under a v0.2 AIT (ATAP-v0.2 §3.3)` };
@@ -634,9 +705,8 @@ function verifyReceiptRaw(opts) {
     // witness that is step 1's AIT key (receipt and AIT name the same witness).
     // An OAI receipt may name another witness than its AIT (ATAP-v0.2 §3.4), and
     // the ceiling binds to the key that signed the receipt's claim, not the
-    // AIT's: until 2026-10-21 this read the AIT witness's key, so a receipt
-    // signed by a self-asserted witness over a silicon-root AIT passed here and
-    // failed verify.sh.
+    // AIT's: read the AIT witness's key instead and a receipt signed by a
+    // self-asserted witness over a silicon-root AIT would inherit silicon-root.
     const aitPeriodKey = didRaw || receipt.witness === ait.witness ? aitKey : pickKey(keys, receipt.witness, ait.issued_at);
     if (typeof aitPeriodKey === 'string')
         return { ok: false, blocks: chain.length, reason: aitPeriodKey };
@@ -667,7 +737,7 @@ function verifyReceiptRaw(opts) {
 }
 // tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
 const WITNESS_EVENTS = 'profile_artifacts/witness_events.json';
-// Exported for atap-cli, which had its own copy until 2026-10-20.
+// Exported so atap-cli's shape checks are the library's.
 function isObject(v) {
     return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -766,7 +836,13 @@ function checkManifestFiles(receipt, read, present) {
 }
 function manifestFilesProblem(receipt, read, present) {
     const listed = new Map();
-    for (const f of receipt.files ?? []) {
+    if (!isObject(receipt) || (receipt.files !== undefined && !Array.isArray(receipt.files)))
+        return 'manifest.files is not an array';
+    for (const [i, f] of (receipt.files ?? []).entries()) {
+        // A verdict, not a TypeError: the manifest is parsed from untrusted JSON.
+        if (!isObject(f) || typeof f.path !== 'string' || (f.sha256 !== null && typeof f.sha256 !== 'string')) {
+            return `manifest.files[${i}] is not {path, sha256}`;
+        }
         const rel = normaliseReceiptPath(f.path);
         if (rel === null || hasDotDot(f.path))
             return `${f.path} escapes the receipt directory`;
@@ -1011,7 +1087,7 @@ __mods["viewer/main"] = (function () {
 // (checkManifestFiles, verifyReceipt, checkWitnessEvents) live in atap-js and
 // are bundled, so the page and the CLI share one implementation.
 
-const { checkManifestFiles, checkWitnessEvents, fromHex, verifyReceipt, WITNESS_EVENTS } = Object.assign({}, __mods["atap/types"], __mods["atap/canonicalize"], __mods["atap/crypto"], __mods["atap/didkey"], __mods["atap/verify"]);
+const { checkManifestFiles, checkWitnessEvents, fromHex, isDidKey, verifyReceipt, WITNESS_EVENTS } = Object.assign({}, __mods["atap/types"], __mods["atap/canonicalize"], __mods["atap/crypto"], __mods["atap/didkey"], __mods["atap/verify"]);
 const { pendingCount, resolvePending } = __mods["viewer/shim"];
 const { MAX_ZIP_BYTES, readZip } = __mods["viewer/zip"];
 const { render } = __mods["viewer/render"];
@@ -1030,6 +1106,12 @@ async function ed25519Supported() {
 }
 
 const CODE_CREW_PROFILE = 'tunnelmind:code_crew:v1'
+
+// A page has no --keys: an OAI witness is checked against the receipt's own
+// public_keys.json, which whoever made the receipt chose, so a pass proves
+// self-consistency, not who signed (or what strength they hold). The CLI's
+// warning, word for word; a did:key is its own key and needs none.
+const OWN_KEYS_WARNING = "OAI witness checked against the receipt's own public_keys.json: proves self-consistency, not who signed; pass --keys"
 
 function readJson(files, name) {
   try {
@@ -1065,6 +1147,7 @@ async function verifyFiles(files) {
       const chain = readJson(files, 'attestation_chain.json')
       const keys = readJson(files, 'public_keys.json')
       const result = verifyReceipt({ receipt, ait, chain, keys })
+      if (!isDidKey(ait?.witness) || !isDidKey(receipt?.witness)) result.warnings = [...(result.warnings ?? []), OWN_KEYS_WARNING]
       if (!result.ok) return result
       if (!hasEvents && ait.profile !== CODE_CREW_PROFILE) return result
       events = readJson(files, WITNESS_EVENTS)
