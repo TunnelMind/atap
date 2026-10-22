@@ -308,6 +308,29 @@ test('a did:key compromise notice with an unparseable time fails closed', async 
   assertFails(verifySh(dir), /RFC 3339/)
 })
 
+// One RFC 3339 grammar in verify.sh and atap-js: a disclosed_at written as a
+// leap second, as 24:00, with an offset past 23:59 or on a day the month
+// lacks fails both (each passed one verifier and failed the other, or both);
+// a fraction finer than a millisecond is compared exactly (atap-js cut it to
+// milliseconds and voided a key that was still good at generated_at).
+test('a did:key compromise notice gets one time grammar in verify.sh and the CLI', async () => {
+  for (const bad of ['2099-12-31T23:59:60Z', '2099-12-31T24:00:00Z', '2099-12-31T00:00:00+99:99', '2099-02-30T00:00:00Z']) {
+    const { dir } = await didReceiptDir(undefined, { afterExpiry: true })
+    edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: bad } }] }))
+    assertFails(verifySh(dir), /RFC 3339/)
+    const cli = cliVerify(dir)
+    assert.equal(cli.ok, false, bad)
+    assert.match(cli.reason, /cannot compare the compromise notice/)
+  }
+  const { dir, receipt } = await didReceiptDir(undefined, { afterExpiry: true })
+  const disclosed_at = receipt.generated_at.replace('Z', '1Z') // 0.1 ms after generated_at
+  edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at } }] }))
+  const sh = verifySh(dir)
+  assert.equal(sh.status, 0, sh.stderr)
+  const cli = cliVerify(dir)
+  assert.equal(cli.ok, true, cli.reason)
+})
+
 // §3.1: the manifest's own witness_signature binds it to the did:key.
 for (const [what, fn, cliReason] of [
   ['a tampered manifest witness_signature', m => ({ ...m, witness_signature: m.witness_signature.slice(0, -1) + (m.witness_signature.endsWith('0') ? '1' : '0') }), /receipt signature invalid/],

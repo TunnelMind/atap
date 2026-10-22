@@ -329,6 +329,17 @@ test('a compromise notice compares as an instant, not a string', async () => {
   const garbled = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice('yesterday')] } })
   assert.equal(garbled.ok, false)
   assert.match(garbled.reason, /cannot compare the compromise notice/)
+  // verify.sh's grammar: no leap second, no 24:00, no offset past 23:59, no
+  // day the month lacks. Date.parse took 24:00 and Feb 30 (rolled over).
+  for (const bad of ['2099-12-31T23:59:60Z', '2099-12-31T24:00:00Z', '2099-12-31T00:00:00+99:99', '2099-02-30T00:00:00Z']) {
+    const r = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(bad)] } })
+    assert.equal(r.ok, false, bad)
+    assert.match(r.reason, /cannot compare the compromise notice/)
+  }
+  // A fraction finer than a millisecond counts: 0.1 ms after generated_at the
+  // key was still good (Date.parse cut it to generated_at and voided it).
+  const justAfter = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(c.receipt.generated_at.replace('Z', '1Z'))] } })
+  assert.equal(justAfter.ok, true, justAfter.reason)
 })
 
 // verifyReceipt takes parsed JSON straight from a receipt: a wrong shape is a

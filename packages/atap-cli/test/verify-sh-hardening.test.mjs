@@ -134,8 +134,12 @@ test('key validity is compared as instants, not strings', async () => {
 
 test('an unparsable key validity time is a rejection, not a pass', async () => {
   // Zoneless (host-local in bare Date.parse), date-only and lowercase t/z are
-  // refused by both verifiers alike, not read as some instant.
-  for (const bad of ['yesterday', null, '2000-01-01T00:00:00', '2000-01-01', '2000-01-01t00:00:00z']) {
+  // refused by both verifiers alike, not read as some instant. So are a leap
+  // second (jq took it), 24:00 (Date.parse rolled it over), an offset past
+  // 23:59 (jq did the arithmetic), a day the month lacks and a trailing
+  // newline (jq's $ matched before it): one grammar in both.
+  for (const bad of ['yesterday', null, '2000-01-01T00:00:00', '2000-01-01', '2000-01-01t00:00:00z',
+    '2000-01-01T23:59:60Z', '2000-01-01T24:00:00Z', '2000-01-01T00:00:00+99:99', '2000-02-30T00:00:00Z', '2000-01-01T00:00:00Z\n']) {
     const { dir } = await receiptDir(k1 => [{ ...k1, valid_from: bad }])
     assertFails(verifySh(dir), /not RFC 3339|RFC 3339 times/)
     const r = lib(dir)

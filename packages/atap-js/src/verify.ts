@@ -57,13 +57,32 @@ export interface VerifyResult {
   reason?: string
 }
 
-// An RFC 3339 time as epoch ms, NaN if it does not parse. Key validity is
-// compared as instants, not strings, so "+00:00" vs "Z" or fractional
-// seconds cannot flip the verdict (as verify.sh's oai_keys_at). The shape is
-// checked first, case-sensitively as verify.sh's jq does: bare Date.parse
-// would also take a date-only or zoneless value, the latter in host local time.
-const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
-const instant = (s: unknown): number => (typeof s === 'string' && RFC3339.test(s) ? Date.parse(s) : NaN)
+// An RFC 3339 time as epoch seconds, NaN if it is not one. Key validity and
+// compromise notices are compared as instants, not strings, so "+00:00" vs
+// "Z" or an offset cannot flip the verdict. One grammar with verify.sh's
+// JQ_INSTANT, which must not drift from this: upper-case T and Z; a real
+// calendar day; hour 00-23, minute and second 00-59 (no leap second, no
+// 24:00); an offset of at most 23:59; the fraction added exactly, not cut
+// to Date.parse's milliseconds. The arithmetic is jq's, in the same order,
+// so both give the same double. Bare Date.parse would also take a date-only
+// or zoneless value (the latter in host local time), roll 24:00 over to
+// the next day, and refuse :60 and +99:99, none of which jq did.
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+function instant(s: unknown): number {
+  const m = typeof s === 'string' ? RFC3339.exec(s) : null
+  if (!m) return NaN
+  const [y, mo, d, hh, mm, ss] = m.slice(1, 7).map(Number) as [number, number, number, number, number, number]
+  const fraction = m[7] ?? ''
+  const sign = m[8] // undefined for Z
+  const [oh, om] = [Number(m[9]), Number(m[10])]
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0
+  const dim = mo === 2 && leap ? 29 : DAYS_IN_MONTH[mo - 1]
+  if (dim === undefined || d < 1 || d > dim || hh > 23 || mm > 59 || ss > 59) return NaN
+  if (sign && (oh > 23 || om > 59)) return NaN
+  const offset = sign ? (sign === '-' ? -1 : 1) * (oh * 3600 + om * 60) : 0
+  return Date.parse(m[0].slice(0, 19) + 'Z') / 1000 + Number('0' + fraction) - offset
+}
 
 // ATAP §8.2 key lookup for an OAI witness: the one entry with valid_from <= at
 // < valid_until that is not compromised before `at`. Returns the entry, null

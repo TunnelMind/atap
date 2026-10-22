@@ -201,12 +201,22 @@ verify_sig() {
 }
 
 # jq def: an RFC 3339 time as epoch seconds, so times compare as instants, not
-# strings ("+00:00" vs "Z" or fractional seconds cannot flip a verdict). A time
-# that does not parse is a jq error; every caller turns that into a failure.
+# strings ("+00:00" vs "Z" or an offset cannot flip a verdict). One grammar
+# with atap-js verify.ts's instant(), which must not drift from this: upper-
+# case T and Z; a real calendar day; hour 00-23, minute and second 00-59 (no
+# leap second, no 24:00); an offset of at most 23:59; the fraction added
+# exactly. \A and \z, not ^ and $: jq's $ also matches before a final
+# newline. A time that is not one is a jq error; every caller fails on it.
 JQ_INSTANT='
   def instant:
-    (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>[.][0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):(?<m>[0-9]{2}))$")
+    (capture("\\A(?<d>(?<Y>[0-9]{4})-(?<M>[0-9]{2})-(?<D>[0-9]{2})T(?<hh>[0-9]{2}):(?<mm>[0-9]{2}):(?<ss>[0-9]{2}))(?<f>[.][0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):(?<m>[0-9]{2}))\\z")
       // error("not an RFC 3339 time")) |
+    (.Y | tonumber) as $y | (.M | tonumber) as $mo | (.D | tonumber) as $day |
+    (if ($y % 4 == 0 and $y % 100 != 0) or $y % 400 == 0 then 29 else 28 end) as $feb |
+    if $mo < 1 or $mo > 12 or $day < 1 or $day > ([31, $feb, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][$mo - 1])
+      or (.hh | tonumber) > 23 or (.mm | tonumber) > 59 or (.ss | tonumber) > 59
+      or (.z != "Z" and ((.h | tonumber) > 23 or (.m | tonumber) > 59))
+    then error("not an RFC 3339 time") else . end |
     (.d + "Z" | fromdateiso8601) + ("0" + (.f // "") | tonumber)
       - (if .z == "Z" then 0 else (.s + "1" | tonumber) * ((.h | tonumber) * 3600 + (.m | tonumber) * 60) end);'
 
