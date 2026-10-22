@@ -98,7 +98,16 @@ export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8A
   for (const k of entries) {
     const problem = didKeyEntryProblem(k, didRaw)
     if (problem) return problem
-    if (k.status === 'compromised' && (!k.compromise_notice || at >= k.compromise_notice.disclosed_at)) return null
+    if (k.status === 'compromised') {
+      if (!k.compromise_notice) return null
+      // Instants, as pickKey and verify.sh's lookup_did_key: `at` is written by
+      // the key holder, and a string compare would let "…T20:00:00-05:00" sort
+      // before a disclosed_at of the next UTC day it actually follows.
+      const t = instant(at)
+      const disclosed = instant(k.compromise_notice.disclosed_at)
+      if (Number.isNaN(t) || Number.isNaN(disclosed)) return `cannot compare the compromise notice for ${witness} at ${at} as RFC 3339 times`
+      if (t >= disclosed) return null
+    }
   }
   return entries[0] ?? null
 }

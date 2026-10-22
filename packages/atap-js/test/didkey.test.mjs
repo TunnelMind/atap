@@ -313,3 +313,21 @@ test('a block or receipt bound to another AIT or profile fails', async () => {
   r = verifyReceipt({ ...c, receipt: resignReceipt({ ...c.receipt, ait: 'AIT-00000000-0000-7000-8000-000000000000' }, c.privateKey) })
   assert.deepEqual([r.ok, r.reason], [false, `receipt ait AIT-00000000-0000-7000-8000-000000000000 != AIT id ${c.ait.id}`])
 })
+
+// A compromise notice voids a key from its disclosed_at instant on, compared as
+// instants (as verify.sh's lookup_did_key): a later disclosure written with a
+// -05:00 offset sorts before the records' "…Z" times as a string, and a string
+// compare voided the key for records signed before the disclosure.
+test('a compromise notice compares as an instant, not a string', async () => {
+  const c = await didChain()
+  const inAnHour = new Date(Date.now() + 3600_000)
+  const local = new Date(inAnHour.getTime() - 5 * 3600_000).toISOString().replace(/\.\d+Z$/, '-05:00')
+  assert.ok(local < c.ait.issued_at, 'the offset form must sort before the AIT time as a string')
+  const notice = disclosed_at => ({ ...c.keys.keys[0], status: 'compromised', compromise_notice: { disclosed_at } })
+  const later = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(local)] } })
+  assert.equal(later.ok, true, later.reason)
+  const garbled = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice('yesterday')] } })
+  assert.equal(garbled.ok, false)
+  assert.match(garbled.reason, /cannot compare the compromise notice/)
+})
+
