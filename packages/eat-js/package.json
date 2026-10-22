@@ -19,6 +19,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "test": "tsc && node --test test/*.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

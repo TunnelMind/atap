@@ -60,6 +60,11 @@ export interface VerifyResult {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+const RANK: Record<AttestationStrength, number> = {
+  'self-asserted': 0, 'software': 1, 'tee-tpm': 2, 'silicon-root': 3,
+};
+const isTier = (v: unknown): v is AttestationStrength => typeof v === 'string' && Object.hasOwn(RANK, v);
+
 function b64uToBytes(b64u: string): Uint8Array<ArrayBuffer> {
   const b64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
   const padded = b64 + '=='.slice(0, (4 - (b64.length % 4)) % 4);
@@ -148,26 +153,35 @@ export async function verifyJwt(token: string, opts: VerifierOptions = {}): Prom
   if (!key) {
     errors.push(`no key found for kid=${kid ?? '<none>'}`);
   } else {
-    const pubKey = await subtle.importKey(
-      'raw',
-      decodePublicKey(key.public_key),
-      { name: 'Ed25519' },
-      false,
-      ['verify'],
-    );
-    const signingInput = new TextEncoder().encode(parts[0] + '.' + parts[1]);
-    const ok = await subtle.verify('Ed25519', pubKey, sig, signingInput);
-    if (!ok) errors.push('Ed25519 signature did not verify');
+    // A key that is not 32 raw bytes, or a signature WebCrypto refuses, is a
+    // failed check: the result must carry the error, not reject the promise.
+    try {
+      const pubKey = await subtle.importKey(
+        'raw',
+        decodePublicKey(key.public_key),
+        { name: 'Ed25519' },
+        false,
+        ['verify'],
+      );
+      const signingInput = new TextEncoder().encode(parts[0] + '.' + parts[1]);
+      const ok = await subtle.verify('Ed25519', pubKey, sig, signingInput);
+      if (!ok) errors.push('Ed25519 signature did not verify');
+    } catch (e) {
+      errors.push(`Ed25519 verify failed: ${(e as Error).message}`);
+    }
 
-    // Attestation-strength ceiling check (spec §9.1)
-    const tokenStrength = claims[CLAIM.STRENGTH] as AttestationStrength | undefined;
-    if (tokenStrength && key.attestation_strength) {
-      const rank: Record<AttestationStrength, number> = {
-        'self-asserted': 0, 'software': 1, 'tee-tpm': 2, 'silicon-root': 3,
-      };
-      if ((rank[tokenStrength] ?? 0) > (rank[key.attestation_strength] ?? 0)) {
-        errors.push(`attestation-strength ceiling violated: token=${tokenStrength} > key=${key.attestation_strength}`);
-      }
+    // Attestation-strength ceiling check (spec §9.1). Object.hasOwn, not a
+    // lookup with `?? 0`: an unknown tier ranked 0, and a prototype name
+    // ("constructor") ranked as a function, so `>` was false and any claim
+    // passed, as receipt-verify, atap and the Python SDK refuse.
+    const tokenStrength: unknown = claims[CLAIM.STRENGTH];
+    if (tokenStrength !== undefined && !isTier(tokenStrength)) {
+      errors.push(`unrecognized ${CLAIM.STRENGTH}: ${String(tokenStrength)}`);
+    } else if (key.attestation_strength !== undefined && !isTier(key.attestation_strength)) {
+      errors.push(`key ${key.key_id} has unrecognized attestation_strength: ${String(key.attestation_strength)}`);
+    } else if (tokenStrength !== undefined && key.attestation_strength !== undefined
+      && RANK[tokenStrength] > RANK[key.attestation_strength]) {
+      errors.push(`attestation-strength ceiling violated: token=${tokenStrength} > key=${key.attestation_strength}`);
     }
   }
 
