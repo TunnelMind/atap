@@ -1,10 +1,14 @@
-// RFC 8785 JSON Canonicalization Scheme (JCS) — subset sufficient for ATAP v0.1.
-//
-// JCS specifies an unambiguous serialization of JSON. v0.1 artifacts use a constrained
-// subset of JSON (no NaN/Infinity, no extreme floats) so this implementation is
-// short and auditable; a lone surrogate is refused (test/vectors/jcs.json, shared
-// with receipt-verify and tollbooth). For other JCS edge cases substitute a strict
-// library.
+// RFC 8785 JSON Canonicalization Scheme (JCS): the bytes every ATAP signature
+// and self_hash is computed over (witness.ts signs them, verify.ts and
+// verify.sh's python recompute them), so the output must be the same for
+// every signer and verifier. ATAP artifacts use a constrained subset of JSON
+// (no NaN/Infinity, no extreme floats) so this implementation stays short and
+// auditable; the frozen vectors in test/vectors/jcs.json (shared verbatim with
+// receipt-verify and tollbooth) pin its bytes. A lone UTF-16 surrogate is
+// refused rather than mapped to U+FFFD, so two strings can never sign to one
+// byte string. Input is untrusted parsed JSON: throws on a lone surrogate, a
+// non-finite number or a non-JSON type; `undefined` members are dropped.
+// Never normalizes Unicode: "é" and "é" hash differently, by design.
 
 const ESC: Record<string, string> = {
   '"': '\\"',
@@ -23,7 +27,7 @@ function encodeString(s: string): string {
     // The iterator yields a valid pair as one code point > 0xFFFF, so a cp in
     // this range is a lone surrogate. TextEncoder would map it to U+FFFD and
     // two different strings would sign to the same bytes; refused, as
-    // receipt-verify's jcs.ts and verify.sh's python do, 2026-10-20.
+    // receipt-verify's jcs.ts and verify.sh's python do.
     if (cp >= 0xd800 && cp <= 0xdfff) throw new Error('JCS: lone surrogate in string')
     if (ch in ESC) {
       out += ESC[ch]

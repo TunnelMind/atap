@@ -1,5 +1,17 @@
-// Witness service helpers. The Witness class is what an application profile's
-// witness service uses to sign and chain ATAP artifacts.
+// The signing side of ATAP: WitnessService declares AITs, witnesses events,
+// rolls them into Attestation Blocks and generates Receipts, each signed with
+// the one Ed25519 key it holds and chained by hash (events by prev_event_hash,
+// blocks by prev_block_hash, both from GENESIS_HASH). Called by atap-cli (over
+// DirStorage) and by profile example generators (over InMemoryStorage).
+// Inputs (AitInput, event payloads, summaries) come from the caller; the CLI
+// schema-checks them first, and the shape and size limits here are the
+// spec's, so a malformed input is refused before anything is signed.
+// Invariants: a record is returned only after storage accepted it, so a
+// storage refusal hands the caller nothing signed (generateReceipt stores
+// nothing; the caller writes the receipt); event times never step back behind
+// the last chained event; a did:key witness is the key it signs with and is
+// always 'self-asserted'. Fails by throwing; every input check runs before
+// the first storage write.
 
 import { createPublicKey, KeyObject } from 'node:crypto'
 import {

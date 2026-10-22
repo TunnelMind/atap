@@ -1,4 +1,19 @@
-// In-process verifier. Parallel to /atap/verify.sh — same logic, JS-native.
+// In-process ATAP receipt verifier: the same rules as /atap/verify.sh, the
+// reference bash verifier, in the same order; the two are pinned together by
+// atap-cli's verify-sh-* tests and must not disagree on any receipt.
+// Dialect: ATAP v0.1/v0.2 — `ed25519:0x<hex>` signatures over JCS bytes (AIT,
+// receipt) or over the raw 32-byte self_hash digest (blocks, events; §7.7);
+// JCS refuses a lone surrogate (canonicalize.ts), so such a record fails.
+// Trust: ONLY the KeysDocument the caller passes (for an OAI witness, keys the
+// verifier chose; for a did:key witness, the key the identifier encodes, which
+// the entry must match). The receipt, AIT, chain and events are attacker-
+// controlled; every id and path they carry is validated before use and
+// stripped of control characters before it is echoed in a reason.
+// Ceiling: attestation_strength must be one of the four tiers and at most the
+// strength of the receipt witness's key at the AIT's issue time.
+// Fails closed: every mismatch is {ok:false, reason}; malformed shapes are a
+// verdict, never a throw. Callers: atap-cli `verify` (a receipt, or a store
+// with skipReceiptSignature), the browser viewer.
 
 import {
   AIT,
@@ -25,8 +40,8 @@ export interface VerifyOptions {
   /**
    * Skip the receipt signature check (verify.sh step 6) and run everything
    * else. For `atap-witness verify --store`, which has a chain but no signed
-   * receipt (since 2026-10-20, replacing its own key lookup). Never for a
-   * receipt someone handed you.
+   * receipt, so the store is checked by the library's one key lookup rather
+   * than a second copy of it. Never for a receipt someone handed you.
    */
   skipReceiptSignature?: boolean
 }
@@ -115,7 +130,7 @@ export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8A
 // Reasons echo ids and paths from the receipt, which is attacker-controlled:
 // control characters (C0 incl. ESC, DEL, C1) are stripped so a reason printed
 // to a terminal cannot drive it or forge extra lines (as verify.sh's clean).
-// Exported for atap-cli, which had its own copy until 2026-10-20.
+// Exported so atap-cli strips its own messages the same way.
 export function clean(reason: string): string
 export function clean(reason: string | null): string | null
 export function clean(reason: string | null): string | null {
@@ -326,9 +341,8 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // witness that is step 1's AIT key (receipt and AIT name the same witness).
   // An OAI receipt may name another witness than its AIT (ATAP-v0.2 §3.4), and
   // the ceiling binds to the key that signed the receipt's claim, not the
-  // AIT's: until 2026-10-21 this read the AIT witness's key, so a receipt
-  // signed by a self-asserted witness over a silicon-root AIT passed here and
-  // failed verify.sh.
+  // AIT's: read the AIT witness's key instead and a receipt signed by a
+  // self-asserted witness over a silicon-root AIT would inherit silicon-root.
   const aitPeriodKey = didRaw || receipt.witness === ait.witness ? aitKey : pickKey(keys, receipt.witness, ait.issued_at)
   if (typeof aitPeriodKey === 'string') return { ok: false, blocks: chain.length, reason: aitPeriodKey }
   // No entry at all is a failure, not the "omits the field" warning below: a
@@ -361,7 +375,7 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
 // tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
 export const WITNESS_EVENTS = 'profile_artifacts/witness_events.json'
 
-// Exported for atap-cli, which had its own copy until 2026-10-20.
+// Exported so atap-cli's shape checks are the library's.
 export function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }

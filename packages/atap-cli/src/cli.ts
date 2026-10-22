@@ -7,6 +7,19 @@
 //
 // Before signing, event payloads and block period_summaries are validated
 // against the AIT's profile schemas; a refused call writes nothing.
+//
+// Trust boundaries. Untrusted: stdin JSON (parsed, shape-checked, then
+// schema-checked before it is signed); a receipt directory under `verify` /
+// `scitt` (symlinks refused, paths normalised, every reason stripped of
+// control characters); `.atap/config.json`, which a cloned repo may carry
+// (its `key` must resolve inside the store, and it never names a binary).
+// Trusted: the --key PEM, --keys / the receipt's public_keys.json as the user
+// chose it (an OAI receipt verified against its own copy earns a warning),
+// the profiles dir. The only network call is `scitt register --service`; the
+// only subprocesses are `zip` and `git`, by name with argv arrays (no shell).
+// Every stored AIT, event and block passes DirStorage's core-schema guards,
+// and a command's read-sign-append runs under the store lock, so two
+// processes cannot fork a chain.
 
 import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
@@ -470,7 +483,7 @@ async function verifyStore(dir: string, v: Values): Promise<StoreResult> {
   // a store does not have. There is no key to sign with, so the signature
   // check is skipped and the library's other checks (AIT, blocks, chain head,
   // period and counts, strength ceiling) run as for a receipt — one key
-  // lookup, the library's (this had its own until 2026-10-20).
+  // lookup, the library's, so the store and a receipt cannot be judged differently.
   const last = chain.at(-1)!
   const rcpt = {
     ait: ait.id,
@@ -716,8 +729,8 @@ async function init(v: Values): Promise<Record<string, string | boolean>> {
   // The core's maximum lifetime, so a drop-in outlives its first AIT for a
   // year; `ait rotate` declares the next one in the same store.
   // One instant for expires_at and the library's issued_at: a clock that steps
-  // back between the two (WSL2 under load does) made a 365-day lifetime read
-  // as more and init fail (2026-10-21).
+  // back between two reads (WSL2 under load does) would make a 365-day
+  // lifetime read as more and init fail.
   const now = new Date()
   const input: AitInput = {
     agentType: profile.split(':')[1] ?? profile,
@@ -767,8 +780,8 @@ async function findAtap(from = process.cwd()): Promise<{ dir: string; config: Re
 // The signing key config.json names, which must live inside the store. The
 // config can be committed, so a cloned repo could otherwise point `key` (or a
 // committed symlink at it) to any Ed25519 PEM on this machine, e.g. another
-// project's witness.pem, and the hook would sign events as that witness
-// (2026-10-21). init always writes the key into the store; --key is explicit.
+// project's witness.pem, and the hook would sign events as that witness.
+// init always writes the key into the store; --key is explicit.
 function configKeyPath(dir: string, key: string): string {
   const abs = resolve(dir, key)
   const root = realpathSync(dir)

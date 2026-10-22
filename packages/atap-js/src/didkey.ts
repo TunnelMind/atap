@@ -1,6 +1,11 @@
 // did:key for Ed25519 public keys (ATAP-v0.2 §3; W3C did:key method).
 // did:key:z<base58btc(0xed 0x01 || raw32)> — 'z' is the multibase prefix for
 // base58btc and 0xed01 is the varint of multicodec ed25519-pub.
+// A did:key is self-certifying: the identifier IS the public key, so a
+// verifier needs no registry for it. Identifiers come from untrusted records:
+// isDidKey is the shape gate verify.ts uses first, and publicKeyFromDidKey
+// throws on anything that is not exactly an Ed25519 did:key (other
+// multicodecs, bad base58, wrong length), which callers turn into a verdict.
 
 import type { DidKey } from './types.js'
 

@@ -1,4 +1,14 @@
-// SHA-256 and Ed25519 helpers (Node 20+ crypto module).
+// SHA-256 and Ed25519 helpers over node:crypto (Node 20+), the one place ATAP
+// bytes meet a key. Wire forms: hashes are `0x<64 hex>`, signatures
+// `ed25519:0x<128 hex>`, keys raw 32 bytes wrapped in the fixed PKCS#8 / SPKI
+// DER prefixes below. Signing (witness.ts) runs only on the witness's own
+// data; verification (verify.ts, scitt.ts, the CLI) takes signature strings
+// and hashes from an attacker-controlled receipt, so ed25519Verify answers
+// false — never throws — for any string that is not a well-formed signature.
+// Keys come from the trusted KeysDocument: a malformed public_key throws in
+// publicKeyFromHex and the caller reports it. The browser viewer bundles
+// this file over a record/replay shim (viewer/src/shim.js), so it must keep
+// to createHash/createPublicKey/verify and Buffer.from.
 
 import {
   createHash,
