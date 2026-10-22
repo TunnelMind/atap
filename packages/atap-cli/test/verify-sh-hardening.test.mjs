@@ -311,3 +311,19 @@ test('a manifest edited from U+FFFD to a lone surrogate escape fails both verifi
   assert.equal(js.ok, false)
   assert.match(js.reason, /lone surrogate/)
 })
+
+// The bundled public_keys.json is the receipt maker's: a public_key with a
+// trailing newline passed verify.sh ($(…) stripped it) and threw out of
+// atap-js. Both now refuse it, and the CLI reports it as a verdict.
+test('a malformed key public_key fails verify.sh, the library and the CLI alike', async () => {
+  for (const spoil of [pk => pk + '\n', pk => pk.slice(0, -1), pk => pk.slice(0, -2) + 'zz']) {
+    const { dir } = await receiptDir(k1 => [{ ...k1, public_key: spoil(k1.public_key) }])
+    assertFails(verifySh(dir), /key k1 public_key is not 32-byte hex/)
+    const js = lib(dir)
+    assert.equal(js.ok, false)
+    assert.match(js.reason, /key k1 public_key is not 32-byte hex/)
+    const cli = cliVerify(dir)
+    assert.equal(cli.ok, false)
+    assert.match(cli.reason, /key k1 public_key is not 32-byte hex/)
+  }
+})

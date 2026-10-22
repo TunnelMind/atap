@@ -403,3 +403,26 @@ test('a lone surrogate in a receipt or an event is a failed check, not a throw',
     assert.match(r.reason, /lone surrogate/)
   }
 })
+
+// Without --keys the keys document is the receipt's own, so its public_key is
+// attacker input: a malformed one is a reason, never fromHex's throw. The
+// trailing "\n" is the spelling verify.sh's $(…) used to strip and pass.
+test('a malformed key public_key is a verdict, not a throw, for OAI and did:key', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const oai = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  const did = await didChain()
+  for (const c of [oai, did]) {
+    const pk = c.keys.keys[0].public_key
+    for (const bad of [pk + '\n', pk.slice(0, -1), pk.slice(0, -2) + 'zz', ' ' + pk, pk.slice(2) + '00', 7, null]) {
+      const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], public_key: bad }] }
+      const r = verifyReceipt({ ...c, keys })
+      assert.equal(r.ok, false, JSON.stringify(bad))
+      assert.match(r.reason, /key k1 public_key is not 32-byte hex/)
+    }
+    // The spellings the key regex accepts still verify: with and without 0x, upper case.
+    for (const good of [pk, pk.slice(2), '0x' + pk.slice(2).toUpperCase()]) {
+      const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], public_key: good }] }
+      assert.equal(verifyReceipt({ ...c, keys }).ok, true, good)
+    }
+  }
+})

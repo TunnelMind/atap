@@ -31,6 +31,7 @@ import {
 import { canonicalizeBytes } from './canonicalize.js'
 import { ed25519Verify, fromHex, publicKeyFromHex, sha256, toHex } from './crypto.js'
 import { isDidKey, publicKeyFromDidKey } from './didkey.js'
+import type { KeyObject } from 'node:crypto'
 
 export interface VerifyOptions {
   receipt: Receipt
@@ -90,9 +91,25 @@ function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | st
   return hits[0] ?? null
 }
 
+// A key entry's public_key: an optional 0x and exactly 64 hex digits, the
+// spelling verify.sh's lookup_key accepts (checked inside jq, before $(…)
+// could strip a trailing newline). Without --keys the keys document is the
+// receipt's own, so a malformed key is attacker input like any other.
+const PUBLIC_KEY_HEX = /^(0x)?[0-9a-fA-F]{64}$/
+const badPublicKey = (k: PublicKey): string | null =>
+  typeof k.public_key === 'string' && PUBLIC_KEY_HEX.test(k.public_key) ? null : `key ${k.key_id} public_key is not 32-byte hex`
+
+// The picked entry's key, or the reason it cannot be one (a verdict, where
+// publicKeyFromHex would throw).
+function keyObjectOf(k: PublicKey): KeyObject | string {
+  return badPublicKey(k) ?? publicKeyFromHex(k.public_key)
+}
+
 // ATAP-v0.2 §3.1/§3.2: a key entry for a did:key witness must carry the key
 // the did:key encodes and declare 'self-asserted'. Returns why not, or null.
 function didKeyEntryProblem(k: PublicKey, didRaw: Uint8Array): string | null {
+  const bad = badPublicKey(k)
+  if (bad) return bad
   if (toHex(fromHex(k.public_key)) !== toHex(didRaw)) {
     return `key ${k.key_id} public_key is not the key ${k.witness} encodes (ATAP-v0.2 §3.1)`
   }
@@ -213,12 +230,10 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
     }
   }
   if (typeof aitKey === 'string') return { ok: false, blocks: 0, reason: aitKey }
+  const aitPub = keyObjectOf(aitKey)
+  if (typeof aitPub === 'string') return { ok: false, blocks: 0, reason: aitPub }
   const { witness_signature: aitSig, ...aitMinusSig } = ait
-  const aitOk = ed25519Verify(
-    canonicalizeBytes(aitMinusSig),
-    aitSig,
-    publicKeyFromHex(aitKey.public_key),
-  )
+  const aitOk = ed25519Verify(canonicalizeBytes(aitMinusSig), aitSig, aitPub)
   if (!aitOk) return { ok: false, blocks: 0, reason: 'AIT signature invalid' }
 
   // 2. Block chain. An empty chain would leave prev at genesis and pass against
@@ -263,10 +278,12 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
       }
     }
     if (typeof blockKey === 'string') return { ok: false, blocks: 0, reason: blockKey }
+    const blockPub = keyObjectOf(blockKey)
+    if (typeof blockPub === 'string') return { ok: false, blocks: 0, reason: blockPub }
     const blockOk = ed25519Verify(
       fromHex(self_hash), // ATAP §7.7: signature is over the raw 32-byte digest
       witness_signature,
-      publicKeyFromHex(blockKey.public_key),
+      blockPub,
     )
     if (!blockOk) {
       return { ok: false, blocks: 0, reason: `block signature invalid on ${block.id}` }
@@ -295,8 +312,10 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
       return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${at}` }
     }
     if (typeof rcptKey === 'string') return { ok: false, blocks: chain.length, reason: rcptKey }
+    const rcptPub = keyObjectOf(rcptKey)
+    if (typeof rcptPub === 'string') return { ok: false, blocks: chain.length, reason: rcptPub }
     const { witness_signature: rcptSig, ...rcptMinusSig } = receipt
-    if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, publicKeyFromHex(rcptKey.public_key))) {
+    if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, rcptPub)) {
       return { ok: false, blocks: chain.length, reason: 'receipt signature invalid' }
     }
   }
@@ -437,8 +456,10 @@ function witnessEventsProblem(events: WitnessEvent[], chain: AttestationBlock[],
       const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at)
       if (!key) return `no key for ${ait.witness} at ${e.witnessed_at}`
       if (typeof key === 'string') return key
+      const pub = keyObjectOf(key)
+      if (typeof pub === 'string') return pub
       // Malformed input is a verdict, not a TypeError.
-      if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, publicKeyFromHex(key.public_key))) {
+      if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, pub)) {
         return `event ${i} (${e.id}) signature invalid`
       }
     }

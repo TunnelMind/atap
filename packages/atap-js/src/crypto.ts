@@ -5,8 +5,9 @@
 // data; verification (verify.ts, scitt.ts, the CLI) takes signature strings
 // and hashes from an attacker-controlled receipt, so ed25519Verify answers
 // false — never throws — for any string that is not a well-formed signature.
-// Keys come from the trusted KeysDocument: a malformed public_key throws in
-// publicKeyFromHex and the caller reports it. The browser viewer bundles
+// Keys come from a KeysDocument, which is the receipt's own when the caller
+// passed none: publicKeyFromHex throws on a malformed key, so verify.ts
+// refuses one with a reason before calling it. The browser viewer bundles
 // this file over a record/replay shim (viewer/src/shim.js), so it must keep
 // to createHash/createPublicKey/verify and Buffer.from.
 

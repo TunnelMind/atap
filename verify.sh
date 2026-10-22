@@ -218,11 +218,18 @@ oai_keys_at() {
 
 # Look up the public key (hex, no 0x) for a given witness at a given RFC-3339 timestamp.
 # With no valid entry this prints an empty line and the caller fails "no key for ...".
+# The key must be an optional 0x and exactly 64 hex digits, checked inside jq
+# as atap-js's verify.ts does: $(…) would strip a trailing newline and xxd
+# skips non-hex characters, so "0x<hex>\n" would otherwise verify here and
+# fail there. Without --keys the keys file is the receipt's own.
 lookup_key() {
-  local witness="$1" t="$2" keys
+  local witness="$1" t="$2" keys pk
   if [[ "$witness" =~ ^did:key: ]]; then lookup_did_key "$witness" "$t"; return; fi
   keys=$(oai_keys_at "$witness" "$t") || exit 1
-  jq -r '.[0].public_key // empty' <<<"$keys" | sed 's/^0x//'
+  pk=$(jq -r '.[0] // empty | .public_key
+    | if type == "string" and test("\\A(0x)?[0-9a-fA-F]{64}\\z") then sub("^0x"; "") else "MALFORMED" end' <<<"$keys")
+  [ "$pk" != MALFORMED ] || err "key $(jq -r '.[0].key_id' <<<"$keys") public_key is not 32-byte hex"
+  printf '%s\n' "$pk"
 }
 
 # A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1), so
