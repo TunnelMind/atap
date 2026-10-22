@@ -293,3 +293,21 @@ test('a verify.sh inside the receipt it verifies refuses to run', async () => {
   const inside = spawnSync('bash', [REPO_VERIFY_SH, '.'], { cwd: r.dir, encoding: 'utf8' })
   assert.equal(inside.status, 0, inside.stderr)
 })
+
+// jq maps a lone low-surrogate escape to U+FFFD before verify.sh's python sees
+// it. A manifest signed with "�" and edited to "\udc00" canonicalizes to
+// the signed bytes there, so verify.sh passed what atap-js refuses. Both now
+// fail it, verify.sh before any jq read.
+test('a manifest edited from U+FFFD to a lone surrogate escape fails both verifiers', async () => {
+  const r = await receiptDir()
+  editManifest(r, m => ({ ...m, format: m.format, note: '�' }))
+  assert.equal(verifySh(r.dir).status, 0, 'the honest U+FFFD manifest verifies')
+  const path = join(r.dir, 'manifest.json')
+  const text = readFileSync(path, 'utf8')
+  assert.ok(text.includes('�'))
+  writeFileSync(path, text.replace('�', '\\udc00'))
+  assertFails(verifySh(r.dir), /manifest\.json holds a lone UTF-16 surrogate/)
+  const js = lib(r.dir)
+  assert.equal(js.ok, false)
+  assert.match(js.reason, /lone surrogate/)
+})

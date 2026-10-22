@@ -138,8 +138,21 @@ export function clean(reason: string | null): string | null {
 }
 
 export function verifyReceipt(opts: VerifyOptions): VerifyResult {
-  const r = verifyReceiptRaw(opts)
+  const r = jcsRefusal(() => verifyReceiptRaw(opts), reason => ({ ok: false, blocks: 0, reason }))
   return r.reason === undefined ? r : { ...r, reason: clean(r.reason) }
+}
+
+// canonicalize throws "JCS: …" on a string with a lone surrogate, which a
+// receipt's JSON can carry ("\udc00"); that is a failed check like any other,
+// so it becomes the verdict rather than an exception. Any other throw is a bug
+// and propagates.
+function jcsRefusal<T>(run: () => T, verdict: (reason: string) => T): T {
+  try {
+    return run()
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('JCS: ')) return verdict(e.message)
+    throw e
+  }
 }
 
 function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
@@ -403,7 +416,7 @@ export function isObject(v: unknown): v is Record<string, unknown> {
 // every witness_signature must verify under the key it encodes (ATAP-v0.2
 // §3.1), as verify.sh checks too, over the raw 32-byte self_hash (§7.7).
 export function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
-  return clean(witnessEventsProblem(events, chain, ait, keys))
+  return clean(jcsRefusal(() => witnessEventsProblem(events, chain, ait, keys), reason => reason))
 }
 
 function witnessEventsProblem(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {

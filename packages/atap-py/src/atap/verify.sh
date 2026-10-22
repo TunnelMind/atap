@@ -265,6 +265,36 @@ WARN
   fi
 fi
 
+# jq turns a lone low-surrogate escape ("\udc00") into U+FFFD before the
+# canonicalizer sees it, so a manifest edited from "�" to "\udc00" would
+# still verify here while atap-js refuses it: two verifiers, two verdicts.
+# python's json keeps the surrogate, so every JSON input is checked with it
+# first. A file python cannot parse is left for the step that reads it.
+has_lone_surrogate() {
+  python3 -I -c '
+import json, sys
+def walk(o):
+    if isinstance(o, str):
+        return any(0xD800 <= ord(c) <= 0xDFFF for c in o)
+    if isinstance(o, dict):
+        return any(walk(k) or walk(v) for k, v in o.items())
+    if isinstance(o, list):
+        return any(walk(x) for x in o)
+    return False
+try:
+    with open(sys.argv[1], encoding="utf-8", errors="replace") as f:
+        doc = json.load(f)
+except ValueError:
+    sys.exit(1)
+sys.exit(0 if walk(doc) else 1)
+' "$1"
+}
+for f in "$RECEIPT_DIR/manifest.json" "$RECEIPT_DIR/ait.json" "$RECEIPT_DIR/attestation_chain.json" \
+         "$KEYS_FILE" "$RECEIPT_DIR/profile_artifacts/witness_events.json"; do
+  [ -f "$f" ] || continue
+  ! has_lone_surrogate "$f" || err "${f#"$RECEIPT_DIR"/} holds a lone UTF-16 surrogate"
+done
+
 ##############################################################################
 # 1. File integrity
 ##############################################################################

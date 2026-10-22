@@ -172,3 +172,9 @@ test('checkManifestFiles: a non-array files or a malformed entry is a verdict', 
     assert.equal(checkManifestFiles({ files: [f] }, read), 'manifest.files[0] is not {path, sha256}', JSON.stringify(f))
   }
 })
+
+test('checkWitnessEvents reports a lone surrogate in an event as its verdict', async () => {
+  const { events, chain, ait, keys } = await chainFixture()
+  events[0] = { ...events[0], payload: { i: '\udc00' } }
+  assert.match(checkWitnessEvents(events, chain, ait, keys), /lone surrogate/)
+})

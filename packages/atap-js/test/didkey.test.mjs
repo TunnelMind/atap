@@ -383,3 +383,14 @@ test('an empty or non-string receipt attestation_strength is refused, not read a
     assert.equal(r.attestation_strength, 'self-asserted')
   }
 })
+
+// JSON.parse keeps "\udc00" as a lone surrogate; canonicalize refuses it, and
+// the verifier reports that as its verdict instead of throwing.
+test('a lone surrogate in a receipt or an event is a failed check, not a throw', async () => {
+  const c = await didChain()
+  for (const patch of [{ receipt: { ...c.receipt, format: 'full\udc00' } }, { ait: { ...c.ait, agent_type: '\ud800' } }]) {
+    const r = verifyReceipt({ ...c, ...patch })
+    assert.equal(r.ok, false)
+    assert.match(r.reason, /lone surrogate/)
+  }
+})
