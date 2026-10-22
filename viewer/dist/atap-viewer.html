@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- No network at all. The inline script and style are allowed by their
      sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-x3O3TOBZ93IzA5Zlk8nWVEEI4K6sS2Z4tSBPPU6hEqQ='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/63/ah8AhfKFYcEhQCfLrgg1jp4hMKZbpygqvyXgGXk='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ATAP receipt viewer</title>
 <style>
 body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
@@ -313,9 +313,10 @@ function ed25519Sign(message, privateKey) {
 // False for a signature that is not a string, not hex after the optional
 // `ed25519:0x` prefix, or not 64 bytes: a receipt's signature field is
 // attacker-controlled, and a verifier must give a verdict, not a TypeError.
-// verify.sh strips the same optional prefix and fails any such string in
-// `openssl pkeyutl -verify`. The schemas' stricter `^ed25519:0x[0-9a-f]{128}$`
-// is not enforced here; verify.sh enforces its hex part on the AIT only.
+// verify.sh's sig_hex takes exactly these spellings (prefix, optional 0x,
+// 128 hex digits), checked inside jq before xxd, which skips whitespace,
+// sees the string. The schemas' stricter `^ed25519:0x[0-9a-f]{128}$` is not
+// enforced here; verify.sh enforces its lower-case hex on the AIT only.
 function ed25519Verify(message, signature, publicKey) {
     if (typeof signature !== 'string')
         return false;

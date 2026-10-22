@@ -350,3 +350,37 @@ test('a null manifest, a null files[] entry or a null AIT is a CLI verdict, not 
     assert.notEqual(verifySh(dir).status, 0)
   }
 })
+
+// $(…) strips trailing newlines and xxd -r -p skips whitespace, so verify.sh
+// read "<sig>\n", "<si g>", "self-asserted\n" and a key's "software\n" as the
+// clean values that atap-js refuses. verify.sh now reads each inside jq.
+test('whitespace in a signature or a strength fails verify.sh as it fails atap-js', async () => {
+  const sigCases = [s => s + '\n', s => s.slice(0, 20) + ' ' + s.slice(20)]
+  for (const spoil of sigCases) {
+    const { dir } = await receiptDir()
+    const m = readJson(dir, 'manifest.json')
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...m, witness_signature: spoil(m.witness_signature) }))
+    assertFails(verifySh(dir), /manifest signature invalid/)
+    assert.match(lib(dir).reason, /receipt signature invalid/)
+  }
+  const nlReceipt = await receiptDir()
+  editManifest(nlReceipt, m => ({ ...m, attestation_strength: 'self-asserted\n' }))
+  assertFails(verifySh(nlReceipt.dir), /manifest\.attestation_strength has unrecognized value/)
+  assert.match(lib(nlReceipt.dir).reason, /unrecognized attestation_strength/)
+  const nlKey = await receiptDir(k1 => [{ ...k1, attestation_strength: 'software\n' }])
+  assertFails(verifySh(nlKey.dir), /exceeds key\.attestation_strength/)
+  assert.match(lib(nlKey.dir).reason, /key k1 has unrecognized attestation_strength/)
+  // A strength spelled as the script's own MISSING sentinel is a claim, not "absent".
+  const sentinel = await receiptDir()
+  editManifest(sentinel, m => ({ ...m, attestation_strength: 'MISSING' }))
+  assertFails(verifySh(sentinel.dir), /unrecognized value/)
+  assert.match(lib(sentinel.dir).reason, /unrecognized attestation_strength/)
+  // The accepted spellings still verify: bare hex, bare 0x, upper case.
+  for (const respell of [s => s.slice(10), s => '0x' + s.slice(10), s => 'ed25519:0x' + s.slice(10).toUpperCase()]) {
+    const { dir } = await receiptDir()
+    const m = readJson(dir, 'manifest.json')
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...m, witness_signature: respell(m.witness_signature) }))
+    assert.equal(verifySh(dir).status, 0, verifySh(dir).stderr)
+    assert.equal(lib(dir).ok, true)
+  }
+})

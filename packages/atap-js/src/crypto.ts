@@ -92,9 +92,10 @@ export function ed25519Sign(message: Uint8Array, privateKey: KeyObject): Ed25519
 // False for a signature that is not a string, not hex after the optional
 // `ed25519:0x` prefix, or not 64 bytes: a receipt's signature field is
 // attacker-controlled, and a verifier must give a verdict, not a TypeError.
-// verify.sh strips the same optional prefix and fails any such string in
-// `openssl pkeyutl -verify`. The schemas' stricter `^ed25519:0x[0-9a-f]{128}$`
-// is not enforced here; verify.sh enforces its hex part on the AIT only.
+// verify.sh's sig_hex takes exactly these spellings (prefix, optional 0x,
+// 128 hex digits), checked inside jq before xxd, which skips whitespace,
+// sees the string. The schemas' stricter `^ed25519:0x[0-9a-f]{128}$` is not
+// enforced here; verify.sh enforces its lower-case hex on the AIT only.
 export function ed25519Verify(
   message: Uint8Array,
   signature: Ed25519Sig,
