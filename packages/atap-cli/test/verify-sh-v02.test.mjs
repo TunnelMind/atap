@@ -37,11 +37,12 @@ function rawPub(privateKey) {
 // OAI-witnessed one when `oai` is given. With `afterExpiry` the AIT lives one
 // day, three days ago, and the receipt is generated two days after its
 // expires_at, under a key entry whose valid_until is that expires_at.
-async function didReceiptDir(oai, { afterExpiry = false } = {}) {
+// With `late` the first event is witnessed a minute after the AIT is issued.
+async function didReceiptDir(oai, { afterExpiry = false, late = false } = {}) {
   const { privateKey } = generateKeyPairSync('ed25519')
   const witness = oai ?? didKeyFromPublicKey(rawPub(privateKey))
   let t = Date.now() - 3 * 86400_000
-  const clock = afterExpiry ? { now: () => new Date(t) } : {}
+  const clock = afterExpiry || late ? { now: () => new Date(t) } : {}
   const svc = new WitnessService({ witnessOAI: witness, privateKey, storage: new InMemoryStorage(), ...clock })
   const ait = await svc.declareAit({
     agentType: 'crew-ops',
@@ -51,6 +52,7 @@ async function didReceiptDir(oai, { afterExpiry = false } = {}) {
     attestationPolicy: POLICY,
     expiresAt: new Date(afterExpiry ? t + 86400_000 : Date.now() + 30 * 86400_000).toISOString(),
   })
+  if (late) t += 60_000
   await svc.witness(ait.id, 'crew_ops:ratify', { n: 1 })
   const block = await svc.rollUp(ait.id, { ratifications: 1 })
   t += 2 * 86400_000
@@ -304,6 +306,29 @@ test('a did:key compromise notice with an unparseable time fails closed', async 
   edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: '2100-01-01T00:00:00Z' } }] }))
   edit(dir, 'ait.json', a => ({ ...a, issued_at: 'yesterday' }))
   assertFails(verifySh(dir), /RFC 3339/)
+})
+
+// One RFC 3339 grammar in verify.sh and atap-js: a disclosed_at written as a
+// leap second, as 24:00, with an offset past 23:59 or on a day the month
+// lacks fails both (each passed one verifier and failed the other, or both);
+// a fraction finer than a millisecond is compared exactly (atap-js cut it to
+// milliseconds and voided a key that was still good at generated_at).
+test('a did:key compromise notice gets one time grammar in verify.sh and the CLI', async () => {
+  for (const bad of ['2099-12-31T23:59:60Z', '2099-12-31T24:00:00Z', '2099-12-31T00:00:00+99:99', '2099-02-30T00:00:00Z']) {
+    const { dir } = await didReceiptDir(undefined, { afterExpiry: true })
+    edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: bad } }] }))
+    assertFails(verifySh(dir), /RFC 3339/)
+    const cli = cliVerify(dir)
+    assert.equal(cli.ok, false, bad)
+    assert.match(cli.reason, /cannot compare the compromise notice/)
+  }
+  const { dir, receipt } = await didReceiptDir(undefined, { afterExpiry: true })
+  const disclosed_at = receipt.generated_at.replace('Z', '1Z') // 0.1 ms after generated_at
+  edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at } }] }))
+  const sh = verifySh(dir)
+  assert.equal(sh.status, 0, sh.stderr)
+  const cli = cliVerify(dir)
+  assert.equal(cli.ok, true, cli.reason)
 })
 
 // §3.1: the manifest's own witness_signature binds it to the did:key.
@@ -626,3 +651,42 @@ for (const oai of [undefined, OAI]) {
     }
   })
 }
+
+// 2026-10-21: both verifiers hold the receipt's strength to the key of the
+// witness named by the manifest (verify.sh step 5); atap-js read the AIT
+// witness's key, so a receipt re-signed by a weaker witness passed one and
+// failed the other.
+test("a receipt re-signed by a weaker OAI witness fails the strength ceiling in both verifiers", async () => {
+  const { dir, witness, privateKey } = await didReceiptDir('OAI-2026-0010002')
+  const OTHER = 'OAI-2026-0010003'
+  const keys = readJson(dir, 'public_keys.json')
+  const k = keys.keys[0]
+  put(dir, 'public_keys.json', JSON.stringify({ ...keys, keys: [{ ...k, attestation_strength: 'silicon-root' }, { ...k, witness: OTHER, key_id: 'k2', attestation_strength: 'self-asserted' }] }))
+  const { witness_signature: _, ...m } = readJson(dir, 'manifest.json')
+  assert.equal(m.witness, witness)
+  const asOther = { ...m, witness: OTHER, attestation_strength: 'silicon-root' }
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...asOther, witness_signature: ed25519Sign(canonicalizeBytes(asOther), privateKey) }))
+  assertFails(verifySh(dir), /attestation_strength=silicon-root exceeds key\.attestation_strength=self-asserted/)
+  const js = cliVerify(dir)
+  assert.notEqual(js.status, 0)
+  assert.match(js.reason, /attestation_strength=silicon-root exceeds key attestation_strength=self-asserted/)
+})
+
+// Review 2026-10-21 C1: with no key for the manifest's witness at the AIT's
+// issued_at both verifiers fell into the "key omits the field" warning and
+// passed the inflated claim. Now a failure in both.
+test("a weaker OAI witness whose key starts after the AIT's issue fails in both verifiers", async () => {
+  const { dir, ait, privateKey } = await didReceiptDir('OAI-2026-0010002', { late: true })
+  const OTHER = 'OAI-2026-0010003'
+  const keys = readJson(dir, 'public_keys.json')
+  const k = keys.keys[0]
+  const after = new Date(Date.parse(ait.issued_at) + 1).toISOString()
+  put(dir, 'public_keys.json', JSON.stringify({ ...keys, keys: [{ ...k, attestation_strength: 'silicon-root' }, { ...k, witness: OTHER, key_id: 'k2', attestation_strength: 'self-asserted', valid_from: after }] }))
+  const { witness_signature: _, ...m } = readJson(dir, 'manifest.json')
+  const asOther = { ...m, witness: OTHER, attestation_strength: 'silicon-root' }
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...asOther, witness_signature: ed25519Sign(canonicalizeBytes(asOther), privateKey) }))
+  assertFails(verifySh(dir), /no key for receipt witness OAI-2026-0010003 at/)
+  const js = cliVerify(dir)
+  assert.notEqual(js.status, 0)
+  assert.match(js.reason, /no key for receipt witness OAI-2026-0010003 at/)
+})

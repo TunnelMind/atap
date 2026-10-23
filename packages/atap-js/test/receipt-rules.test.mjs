@@ -163,3 +163,18 @@ test('verifyReceipt refuses a re-signed receipt that misdescribes its chain', as
     assert.equal(r.reason, `receipt ${field} mismatch (want ${JSON.stringify(receipt[field])}, got ${JSON.stringify(value)})`)
   }
 })
+
+test('checkManifestFiles: a non-array files or a malformed entry is a verdict', () => {
+  const read = () => undefined
+  assert.equal(checkManifestFiles({ files: 'x' }, read), 'manifest.files is not an array')
+  assert.equal(checkManifestFiles({ files: {} }, read), 'manifest.files is not an array')
+  for (const f of [null, 'ait.json', { path: 1, sha256: null }, { path: 'ait.json', sha256: 5 }]) {
+    assert.equal(checkManifestFiles({ files: [f] }, read), 'manifest.files[0] is not {path, sha256}', JSON.stringify(f))
+  }
+})
+
+test('checkWitnessEvents reports a lone surrogate in an event as its verdict', async () => {
+  const { events, chain, ait, keys } = await chainFixture()
+  events[0] = { ...events[0], payload: { i: '\udc00' } }
+  assert.match(checkWitnessEvents(events, chain, ait, keys), /lone surrogate/)
+})

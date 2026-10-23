@@ -1,5 +1,6 @@
-// ATAP v0.1 — TypeScript types
-// Mirrors the JSON Schemas in schemas/v0.1/ (repo root)
+// ATAP v0.1/v0.2 — TypeScript types
+// Mirrors the JSON Schemas in schemas/v0.1/ (repo root) and
+// profiles/atap-v0.2-schemas for the did:key additions
 
 export type Iso8601 = string
 export type HexHash = `0x${string}`

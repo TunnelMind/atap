@@ -46,3 +46,35 @@ test('RFC 8032 §7.1 TEST 1 known answer', () => {
   assert.equal(ed25519Sign(msg, priv), expected)
   assert.equal(ed25519Verify(msg, expected, pub), true)
 })
+
+// A receipt's signature strings are attacker-controlled: a verifier answers
+// false for any of them, never throws.
+test('ed25519Verify answers false, never throws, for malformed signatures', () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  const msg = enc('m')
+  const good = ed25519Sign(msg, privateKey)
+  const hex = good.slice('ed25519:0x'.length)
+  for (const bad of [null, 42, {}, [], '', 'ed25519:0x', 'ed25519:0x' + hex.slice(2),
+    'ed25519:0x' + hex + '00', 'ed25519:0x' + hex.slice(1), 'ed25519:0x' + 'zz' + hex.slice(2)]) {
+    assert.equal(ed25519Verify(msg, bad, publicKey), false, JSON.stringify(bad))
+  }
+  // The prefix stays optional, as verify.sh's `sed 's/^ed25519:0x//'` has it.
+  assert.equal(ed25519Verify(msg, hex, publicKey), true)
+})
+
+// parseInt reads a prefix, so a NaN check let "+f", " f" and "fz" decode to
+// 0x0f: one signature would have many spellings, and verify.sh would reject
+// the ones TypeScript accepted.
+test('fromHex refuses non-hex characters that parseInt would half-read', () => {
+  assert.deepEqual([...fromHex('0x0fA0')], [0x0f, 0xa0])
+  for (const s of ['+f', ' f', 'fz', '-1', '0g', '0x+f']) {
+    assert.throws(() => fromHex(s), /bad hex character/, s)
+  }
+  // RFC 8032 TEST 1's signature with its 4th byte, 00, re-spelled +0: the
+  // same 64 bytes under the old decoder, which made it verify.
+  const pub = publicKeyFromHex('d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a')
+  const sig = 'e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b'
+  const msg = new Uint8Array(0)
+  assert.equal(ed25519Verify(msg, 'ed25519:0x' + sig, pub), true)
+  assert.equal(ed25519Verify(msg, 'ed25519:0x' + sig.slice(0, 6) + '+0' + sig.slice(8), pub), false)
+})

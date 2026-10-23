@@ -313,3 +313,149 @@ test('a block or receipt bound to another AIT or profile fails', async () => {
   r = verifyReceipt({ ...c, receipt: resignReceipt({ ...c.receipt, ait: 'AIT-00000000-0000-7000-8000-000000000000' }, c.privateKey) })
   assert.deepEqual([r.ok, r.reason], [false, `receipt ait AIT-00000000-0000-7000-8000-000000000000 != AIT id ${c.ait.id}`])
 })
+
+// A compromise notice voids a key from its disclosed_at instant on, compared as
+// instants (as verify.sh's lookup_did_key): a later disclosure written with a
+// -05:00 offset sorts before the records' "…Z" times as a string, and a string
+// compare voided the key for records signed before the disclosure.
+test('a compromise notice compares as an instant, not a string', async () => {
+  const c = await didChain()
+  const inAnHour = new Date(Date.now() + 3600_000)
+  const local = new Date(inAnHour.getTime() - 5 * 3600_000).toISOString().replace(/\.\d+Z$/, '-05:00')
+  assert.ok(local < c.ait.issued_at, 'the offset form must sort before the AIT time as a string')
+  const notice = disclosed_at => ({ ...c.keys.keys[0], status: 'compromised', compromise_notice: { disclosed_at } })
+  const later = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(local)] } })
+  assert.equal(later.ok, true, later.reason)
+  const garbled = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice('yesterday')] } })
+  assert.equal(garbled.ok, false)
+  assert.match(garbled.reason, /cannot compare the compromise notice/)
+  // verify.sh's grammar: no leap second, no 24:00, no offset past 23:59, no
+  // day the month lacks. Date.parse took 24:00 and Feb 30 (rolled over).
+  for (const bad of ['2099-12-31T23:59:60Z', '2099-12-31T24:00:00Z', '2099-12-31T00:00:00+99:99', '2099-02-30T00:00:00Z']) {
+    const r = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(bad)] } })
+    assert.equal(r.ok, false, bad)
+    assert.match(r.reason, /cannot compare the compromise notice/)
+  }
+  // A fraction finer than a millisecond counts: 0.1 ms after generated_at the
+  // key was still good (Date.parse cut it to generated_at and voided it).
+  const justAfter = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(c.receipt.generated_at.replace('Z', '1Z'))] } })
+  assert.equal(justAfter.ok, true, justAfter.reason)
+})
+
+// verifyReceipt takes parsed JSON straight from a receipt: a wrong shape is a
+// verdict ({ok:false}), never a TypeError out of the verifier.
+test('malformed receipt, AIT, keys or block shapes are a verdict, not a throw', async () => {
+  const c = await didChain()
+  const cases = [
+    [{ receipt: null }, /receipt or AIT is not an object/],
+    [{ ait: [] }, /receipt or AIT is not an object/],
+    [{ keys: null }, /keys document has no keys array/],
+    [{ keys: { keys: 'k' } }, /keys document has no keys array/],
+    [{ chain: [null] }, /block 0 is not an object/],
+    [{ ait: { ...c.ait, witness_signature: 7 } }, /AIT signature invalid/],
+  ]
+  for (const [patch, reason] of cases) {
+    const r = verifyReceipt({ ...c, ...patch })
+    assert.equal(r.ok, false, JSON.stringify(patch))
+    assert.match(r.reason, reason)
+  }
+  // A null entry in keys[] is skipped, as verify.sh's jq select skips it.
+  const r = verifyReceipt({ ...c, keys: { ...c.keys, keys: [null, ...c.keys.keys] } })
+  assert.equal(r.ok, true, r.reason)
+})
+
+// verify.sh ranks an unknown key strength -1, so every claim exceeds it; here
+// an unknown key strength had an undefined rank and `rank > undefined` is
+// false, so a typo in a trusted bundle let any claim through the ceiling.
+test('a key attestation_strength that is not a tier fails the ceiling', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  // ['self-asserted'] and 0 are the typed half: hasOwn coerced the array to
+  // its one string, and 0 read as "omitted"; verify.sh fails both.
+  for (const bad of ['silicon_root', 'constructor', ['self-asserted'], 0, true, {}]) {
+    const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: bad }] }
+    const r = verifyReceipt({ ...c, keys })
+    assert.equal(r.ok, false, JSON.stringify(bad))
+    assert.match(r.reason, /unrecognized attestation_strength/)
+  }
+  // Omitted is undefined, null, false or "" (verify.sh's `// empty` and -n):
+  // the receipt passes with the not-key-attested warning.
+  for (const omitted of [undefined, null, false, '']) {
+    const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: omitted }] }
+    const r = verifyReceipt({ ...c, keys })
+    assert.equal(r.ok, true, `${JSON.stringify(omitted)}: ${r.reason}`)
+  }
+})
+
+// Missing is undefined, null or false (verify.sh's jq `//`); "" or 0 is a
+// claim that is not a tier, which verify.sh refuses and this used to read as missing.
+test('an empty or non-string receipt attestation_strength is refused, not read as missing', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  for (const bad of ['', 0, {}]) {
+    const r = verifyReceipt({ ...c, receipt: resignReceipt({ ...c.receipt, attestation_strength: bad }, privateKey) })
+    assert.equal(r.ok, false, JSON.stringify(bad))
+    assert.match(r.reason, /unrecognized attestation_strength/)
+  }
+  for (const missing of [null, false]) {
+    const r = verifyReceipt({ ...c, receipt: resignReceipt({ ...c.receipt, attestation_strength: missing }, privateKey) })
+    assert.equal(r.ok, true, r.reason)
+    assert.equal(r.attestation_strength, 'self-asserted')
+  }
+})
+
+// JSON.parse keeps "\udc00" as a lone surrogate; canonicalize refuses it, and
+// the verifier reports that as its verdict instead of throwing.
+test('a lone surrogate in a receipt or an event is a failed check, not a throw', async () => {
+  const c = await didChain()
+  for (const patch of [{ receipt: { ...c.receipt, format: 'full\udc00' } }, { ait: { ...c.ait, agent_type: '\ud800' } }]) {
+    const r = verifyReceipt({ ...c, ...patch })
+    assert.equal(r.ok, false)
+    assert.match(r.reason, /lone surrogate/)
+  }
+})
+
+// Without --keys the keys document is the receipt's own, so its public_key is
+// attacker input: a malformed one is a reason, never fromHex's throw. The
+// trailing "\n" is the spelling verify.sh's $(…) used to strip and pass.
+test('a malformed key public_key is a verdict, not a throw, for OAI and did:key', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const oai = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  const did = await didChain()
+  for (const c of [oai, did]) {
+    const pk = c.keys.keys[0].public_key
+    for (const bad of [pk + '\n', pk.slice(0, -1), pk.slice(0, -2) + 'zz', ' ' + pk, pk.slice(2) + '00', 7, null]) {
+      const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], public_key: bad }] }
+      const r = verifyReceipt({ ...c, keys })
+      assert.equal(r.ok, false, JSON.stringify(bad))
+      assert.match(r.reason, /key k1 public_key is not 32-byte hex/)
+    }
+    // The spellings the key regex accepts still verify: with and without 0x, upper case.
+    for (const good of [pk, pk.slice(2), '0x' + pk.slice(2).toUpperCase()]) {
+      const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], public_key: good }] }
+      assert.equal(verifyReceipt({ ...c, keys }).ok, true, good)
+    }
+  }
+})
+
+// isDidKey is a shape test: "did:key:z6Mk" + 44 base58 characters can still
+// decode to another multicodec, on which publicKeyFromDidKey throws. As the
+// AIT's witness or operator that is a verdict, as verify.sh's didkey_to_hex
+// fails it, not an exception out of verifyReceipt or checkWitnessEvents.
+test('a did:key of the right shape that does not decode is a verdict, not a throw', async () => {
+  const c = await didChain()
+  let bad = null
+  for (const ch of B58) {
+    const s = 'did:key:z6Mk' + ch + c.ait.witness.slice(13)
+    if (!isDidKey(s)) continue
+    try { publicKeyFromDidKey(s) } catch { bad = s; break }
+  }
+  assert.ok(bad, 'found a shape-valid did:key that does not decode')
+  for (const field of ['witness', 'operator']) {
+    const r = verifyReceipt({ ...c, ait: { ...c.ait, [field]: bad } })
+    assert.equal(r.ok, false, field)
+    assert.match(r.reason, new RegExp(`AIT ${field} .* is not an Ed25519 did:key`))
+  }
+  const { checkWitnessEvents } = await import('../dist/index.js')
+  assert.match(checkWitnessEvents([], c.chain, { ...c.ait, witness: bad }, c.keys), /is not an Ed25519 did:key/)
+})

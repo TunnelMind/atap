@@ -14,6 +14,19 @@
 #   receipt chose it. Without --keys an OAI receipt still verifies, with a
 #   WARNING. A did:key witness's key is its identifier, so --keys never applies.
 #
+# Dialect: every signature is `ed25519:0x<hex>` over JCS (RFC 8785) bytes (AIT,
+#   manifest) or over the raw 32-byte self_hash digest (blocks, events; §7.7).
+#   A string holding a lone UTF-16 surrogate is refused, checked in python
+#   before any jq read (jq maps a lone low surrogate to U+FFFD), so no two
+#   different string values sign as one byte string (JCS itself maps many
+#   JSON texts of one value to one).
+# Ceiling: manifest.attestation_strength must be one of the four tiers
+#   (missing reads as self-asserted, with a WARN) and at most the strength the
+#   receipt witness's key declares at the AIT's issue time; no key for that
+#   witness then, or a key strength that is not a tier, fails.
+# Fails closed: the first failed check prints `FAIL: <reason>` and exits 1;
+#   exit 0 means every check passed (WARN lines go to stderr).
+#
 # Requirements: bash 4+, jq 1.6+, openssl 3.0+ (or 1.1.1 with -rawin), python3.
 # python3 is used only for RFC 8785 (JSON Canonicalization Scheme) canonicalization
 # and for the base58btc decode of did:key witnesses (ATAP-v0.2 §3).
@@ -168,20 +181,43 @@ pem_from_raw_ed25519() {
   openssl pkey -pubin -inform DER -in "$TMP/.pub.der" -out "$out" 2>/dev/null
 }
 
+# The hex of a signature field, read with jq path $1 from file $2 (or stdin):
+# `ed25519:0x`, then an optional `0x`, then exactly 128 hex digits, the
+# spellings atap-js's ed25519Verify takes. Anything else prints nothing, and
+# verify_sig fails it. Checked inside jq: $(…) strips a trailing newline and
+# xxd -r -p skips whitespace, so "<hex>\n" or "<he x>" would verify here and
+# fail in atap-js.
+sig_hex() {
+  jq -r "$1"' | strings | sub("^ed25519:0x"; "") | sub("^0x"; "")
+    | select(test("\\A[0-9a-fA-F]{128}\\z"))' "${@:2}"
+}
+
 # Verify an Ed25519 signature over $msgfile using PEM pubkey $pemfile and raw signature hex $sighex.
 verify_sig() {
   local msgfile="$1" pemfile="$2" sighex="$3"
+  # Only 128 hex digits reach xxd, which would skip anything else.
+  [[ "$sighex" =~ ^[0-9a-fA-F]{128}$ ]] || return 1
   printf '%s' "$sighex" | xxd -r -p > "$TMP/.sig"
   openssl pkeyutl -verify -pubin -inkey "$pemfile" -rawin -in "$msgfile" -sigfile "$TMP/.sig" >/dev/null
 }
 
 # jq def: an RFC 3339 time as epoch seconds, so times compare as instants, not
-# strings ("+00:00" vs "Z" or fractional seconds cannot flip a verdict). A time
-# that does not parse is a jq error; every caller turns that into a failure.
+# strings ("+00:00" vs "Z" or an offset cannot flip a verdict). One grammar
+# with atap-js verify.ts's instant(), which must not drift from this: upper-
+# case T and Z; a real calendar day; hour 00-23, minute and second 00-59 (no
+# leap second, no 24:00); an offset of at most 23:59; the fraction added
+# exactly. \A and \z, not ^ and $: jq's $ also matches before a final
+# newline. A time that is not one is a jq error; every caller fails on it.
 JQ_INSTANT='
   def instant:
-    (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?<f>[.][0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):(?<m>[0-9]{2}))$")
+    (capture("\\A(?<d>(?<Y>[0-9]{4})-(?<M>[0-9]{2})-(?<D>[0-9]{2})T(?<hh>[0-9]{2}):(?<mm>[0-9]{2}):(?<ss>[0-9]{2}))(?<f>[.][0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):(?<m>[0-9]{2}))\\z")
       // error("not an RFC 3339 time")) |
+    (.Y | tonumber) as $y | (.M | tonumber) as $mo | (.D | tonumber) as $day |
+    (if ($y % 4 == 0 and $y % 100 != 0) or $y % 400 == 0 then 29 else 28 end) as $feb |
+    if $mo < 1 or $mo > 12 or $day < 1 or $day > ([31, $feb, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][$mo - 1])
+      or (.hh | tonumber) > 23 or (.mm | tonumber) > 59 or (.ss | tonumber) > 59
+      or (.z != "Z" and ((.h | tonumber) > 23 or (.m | tonumber) > 59))
+    then error("not an RFC 3339 time") else . end |
     (.d + "Z" | fromdateiso8601) + ("0" + (.f // "") | tonumber)
       - (if .z == "Z" then 0 else (.s + "1" | tonumber) * ((.h | tonumber) * 3600 + (.m | tonumber) * 60) end);'
 
@@ -206,11 +242,18 @@ oai_keys_at() {
 
 # Look up the public key (hex, no 0x) for a given witness at a given RFC-3339 timestamp.
 # With no valid entry this prints an empty line and the caller fails "no key for ...".
+# The key must be an optional 0x and exactly 64 hex digits, checked inside jq
+# as atap-js's verify.ts does: $(…) would strip a trailing newline and xxd
+# skips non-hex characters, so "0x<hex>\n" would otherwise verify here and
+# fail there. Without --keys the keys file is the receipt's own.
 lookup_key() {
-  local witness="$1" t="$2" keys
+  local witness="$1" t="$2" keys pk
   if [[ "$witness" =~ ^did:key: ]]; then lookup_did_key "$witness" "$t"; return; fi
   keys=$(oai_keys_at "$witness" "$t") || exit 1
-  jq -r '.[0].public_key // empty' <<<"$keys" | sed 's/^0x//'
+  pk=$(jq -r '.[0] // empty | .public_key
+    | if type == "string" and test("\\A(0x)?[0-9a-fA-F]{64}\\z") then sub("^0x"; "") else "MALFORMED" end' <<<"$keys")
+  [ "$pk" != MALFORMED ] || err "key $(jq -r '.[0].key_id' <<<"$keys") public_key is not 32-byte hex"
+  printf '%s\n' "$pk"
 }
 
 # A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1), so
@@ -246,6 +289,53 @@ lookup_did_key() {
   esac
   printf '%s\n' "$first"
 }
+
+# jq turns a lone low-surrogate escape ("\udc00") into U+FFFD before the
+# canonicalizer sees it, so a manifest edited from "�" to "\udc00" would
+# still verify here while atap-js refuses it: two verifiers, two verdicts.
+# python's json keeps the surrogate, so every JSON input is checked with it
+# first. The bytes must be strict UTF-8 too, as atap-cli and the viewer read
+# them: jq decodes invalid bytes lossily, so raw "ED B0 80" could stand in for
+# a signed U+FFFD. A file python cannot parse as JSON is left for the step
+# that reads it. Exit 0: clean (or not JSON); 3: a lone surrogate; 4: nested
+# too deeply to walk; 5: not UTF-8. Anything else is a check that did not run
+# (a traceback exits 1), and fails rather than reading as clean.
+json_text_check() {
+  python3 -I -c '
+import json, sys
+def walk(o):
+    if isinstance(o, str):
+        return any(0xD800 <= ord(c) <= 0xDFFF for c in o)
+    if isinstance(o, dict):
+        return any(walk(k) or walk(v) for k, v in o.items())
+    if isinstance(o, list):
+        return any(walk(x) for x in o)
+    return False
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        doc = json.load(f)
+    found = walk(doc)
+except RecursionError:
+    sys.exit(4)
+except UnicodeDecodeError:
+    sys.exit(5)
+except ValueError:
+    sys.exit(0)
+sys.exit(3 if found else 0)
+' "$1"
+}
+for f in "$RECEIPT_DIR/manifest.json" "$RECEIPT_DIR/ait.json" "$RECEIPT_DIR/attestation_chain.json" \
+         "$KEYS_FILE" "$RECEIPT_DIR/profile_artifacts/witness_events.json"; do
+  [ -f "$f" ] || continue
+  rc=0; json_text_check "$f" || rc=$?
+  case $rc in
+    0) ;;
+    3) err "${f#"$RECEIPT_DIR"/} holds a lone UTF-16 surrogate" ;;
+    4) err "${f#"$RECEIPT_DIR"/} is nested too deeply to check for a lone UTF-16 surrogate" ;;
+    5) err "${f#"$RECEIPT_DIR"/} is not valid UTF-8" ;;
+    *) err "cannot check ${f#"$RECEIPT_DIR"/} for a lone UTF-16 surrogate" ;;
+  esac
+done
 
 ##############################################################################
 # 0. Which keys an OAI witness is checked against
@@ -296,7 +386,7 @@ done
 ##############################################################################
 echo "==> Verifying AIT witness signature"
 AIT_TS=$(jq  -r '.issued_at'   "$RECEIPT_DIR/ait.json")
-AIT_SIG=$(jq -r '.witness_signature' "$RECEIPT_DIR/ait.json" | sed 's/^ed25519:0x//')
+AIT_SIG=$(sig_hex '.witness_signature' "$RECEIPT_DIR/ait.json")
 MAN_WIT=$(jq -r '.witness' "$RECEIPT_DIR/manifest.json")
 # For a did:key witness the manifest and AIT must name the same witness (same
 # rule as verifyReceipt): that is what binds the manifest and blocks to the key
@@ -319,6 +409,8 @@ if [ -n "$DID_AIT" ]; then
   AIT_VER=$(jq -r '.ait_version' "$RECEIPT_DIR/ait.json")
   [ "$AIT_VER" = "0.2" ] || err "AIT with a did:key witness or operator declares ait_version '$AIT_VER', want '0.2' (ATAP-v0.2 §3.3)"
 fi
+# Lower-case hex only, as the schemas say: stricter than atap-js, which
+# takes either case here as it does for every other signature.
 [[ "$AIT_SIG" =~ ^[0-9a-f]{128}$ ]] || err "AIT witness_signature malformed"
 AIT_KEY=$(lookup_key "$AIT_WIT" "$AIT_TS")
 [ -n "$AIT_KEY" ] || err "no key for AIT witness $AIT_WIT at $AIT_TS"
@@ -371,7 +463,7 @@ while IFS= read -r block; do
   [ -n "$key_hex" ] || err "no key for $WITNESS at $ts"
   pem_from_raw_ed25519 "$key_hex" "$TMP/blk.pub.pem"
   printf '%s' "$got_self" | xxd -r -p > "$TMP/blk.selfhash"
-  sig=$(jq -r '.witness_signature' <<<"$block" | sed 's/^ed25519:0x//')
+  sig=$(sig_hex '.witness_signature' <<<"$block")
   verify_sig "$TMP/blk.selfhash" "$TMP/blk.pub.pem" "$sig" || err "block signature invalid on $(jq -r '.id' <<<"$block")"
 
   PREV="0x$want_self"
@@ -387,7 +479,14 @@ MANIFEST_HEAD=$(jq -r '.chain_head_hash' "$RECEIPT_DIR/manifest.json")
 ##############################################################################
 # 5. Attestation strength (ATAP §7.4.1 — optional in v0.1.x, required at v0.2)
 ##############################################################################
-RCPT_STRENGTH=$(jq -r '.attestation_strength // "MISSING"' "$RECEIPT_DIR/manifest.json")
+# jq def: a strength as one shell word that is a tier only if the JSON value
+# is exactly that tier string. A string prints as itself unless it ends in a
+# newline, which $(…) would strip ("software\n" would read as software here
+# while atap-js refuses it), or is the MISSING sentinel below; anything else
+# prints as its JSON text, which is never a tier.
+JQ_STRENGTH='def strength: if type == "string" and (endswith("\n") | not) and . != "MISSING" then . else tojson end;'
+# Missing is absent, null or false, as atap-js reads it.
+RCPT_STRENGTH=$(jq -r "$JQ_STRENGTH"'.attestation_strength | if . == null or . == false then "MISSING" else strength end' "$RECEIPT_DIR/manifest.json")
 # ATAP-v0.2 §3.2: a did:key witness is self-asserted by definition. The receipt
 # must say so explicitly (no v0.1 default); lookup_key holds key entries to the same.
 if [[ "$WITNESS" =~ ^did:key: ]]; then
@@ -405,15 +504,20 @@ esac
 # Cross-check against the matching key entry, if the key declares a strength.
 if [[ "$WITNESS" =~ ^did:key: ]]; then
   # No validity window for a did:key's key (ATAP-v0.2 §3.1, as lookup_did_key).
-  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" "$JQ_INSTANT"'
+  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" "$JQ_INSTANT$JQ_STRENGTH"'
     .keys[] |
     select(.witness == $w) |
     select(.status != "compromised" or (.compromise_notice and ($t | instant) < (.compromise_notice.disclosed_at | instant))) |
-    .attestation_strength // empty
+    .attestation_strength // empty | strength
   ' "$RECEIPT_DIR/public_keys.json" 2>/dev/null | head -1) \
     || err "cannot compare the compromise notice for $WITNESS at $AIT_TS as RFC 3339 times"
 else
-  KEY_STRENGTH=$(oai_keys_at "$WITNESS" "$AIT_TS" | jq -r '.[0].attestation_strength // empty')
+  # No entry at all is a failure, not the "omits the field" WARN below: a
+  # witness with no key at the AIT's issue time attests nothing about it.
+  KEY_AT_AIT=$(oai_keys_at "$WITNESS" "$AIT_TS")
+  [ "$(jq length <<<"$KEY_AT_AIT")" -eq 1 ] || err "no key for receipt witness $WITNESS at $AIT_TS"
+  # Omitted is absent, null, false or "" (`// empty`, then -n below).
+  KEY_STRENGTH=$(jq -r "$JQ_STRENGTH"'.[0].attestation_strength // empty | strength' <<<"$KEY_AT_AIT")
 fi
 if [ -n "$KEY_STRENGTH" ]; then
   STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }
@@ -434,10 +538,10 @@ fi
 # key has no validity window (ATAP-v0.2 §3.1), so generated_at serves. An OAI
 # key's valid_until is often the AIT's expires_at, and a receipt of an expired
 # AIT is generated after it, so the key is the one in force at the last
-# block's period_end (generated_at only for a receipt with no blocks). Each
-# After step 5 so a §3.2 failure reports as such.
+# block's period_end (step 3 made sure there is one). After step 5 so a §3.2
+# failure reports as such.
 echo "==> Verifying manifest signature"
-if [[ "$WITNESS" =~ ^did:key: || -z "${LAST_END:-}" ]]; then
+if [[ "$WITNESS" =~ ^did:key: ]]; then
   MAN_TS=$(jq -r '.generated_at' "$RECEIPT_DIR/manifest.json")
 else
   MAN_TS=$LAST_END
@@ -446,7 +550,7 @@ key_hex=$(lookup_key "$WITNESS" "$MAN_TS")
 [ -n "$key_hex" ] || err "no key for $WITNESS at $MAN_TS"
 pem_from_raw_ed25519 "$key_hex" "$TMP/man.pub.pem"
 jq 'del(.witness_signature)' "$RECEIPT_DIR/manifest.json" | canonicalize > "$TMP/man.canon"
-sig=$(jq -r '.witness_signature' "$RECEIPT_DIR/manifest.json" | sed 's/^ed25519:0x//')
+sig=$(sig_hex '.witness_signature' "$RECEIPT_DIR/manifest.json")
 verify_sig "$TMP/man.canon" "$TMP/man.pub.pem" "$sig" || err "manifest signature invalid"
 ok "manifest signature"
 
@@ -542,7 +646,7 @@ if [ -e "$RECEIPT_DIR/$EVENTS" ] || [ "$AIT_PROFILE" = "tunnelmind:code_crew:v1"
       [ -n "$key_hex" ] || err "no key for $WITNESS at $ts"
       pem_from_raw_ed25519 "$key_hex" "$TMP/ev.pub.pem"
       printf '%s' "$got_self" | xxd -r -p > "$TMP/ev.selfhash"
-      sig=$(jq -r '.witness_signature' <<<"$ev" | sed 's/^ed25519:0x//')
+      sig=$(sig_hex '.witness_signature' <<<"$ev")
       verify_sig "$TMP/ev.selfhash" "$TMP/ev.pub.pem" "$sig" || err "event signature invalid on $id"
     fi
     EV_IDS+=("$id") EV_HASHES+=("$want_self")

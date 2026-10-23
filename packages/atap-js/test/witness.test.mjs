@@ -168,3 +168,119 @@ test('a receipt for a window wider than its blocks takes the period from the blo
   const r = verifyReceipt({ ait, chain: [b1, b2], receipt, keys })
   assert.equal(r.ok, true, r.reason)
 })
+
+// `atap-witness verify --store` has a chain but no signed receipt:
+// skipReceiptSignature skips the signature check and nothing else.
+test('skipReceiptSignature skips the receipt signature and nothing else', async () => {
+  const storage = new InMemoryStorage()
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const svc = new WitnessService({ witnessOAI: WITNESS, privateKey, storage })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+  })
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const block = await svc.rollUp(ait.id, {})
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const keys = {
+    keys: [{
+      witness: WITNESS,
+      key_id: 'k1',
+      algorithm: 'ed25519',
+      public_key: '0x' + toHex(new Uint8Array(der.subarray(der.length - 32))),
+      valid_from: ait.issued_at,
+      valid_until: ait.expires_at,
+      status: 'active',
+      rotated_to: null,
+      compromise_notice: null,
+    }],
+    updated_at: receipt.generated_at,
+  }
+  const unsigned = { ...receipt, witness_signature: `ed25519:0x${'00'.repeat(64)}` }
+  assert.equal(verifyReceipt({ ait, chain: [block], receipt: unsigned, keys }).reason, 'receipt signature invalid')
+  assert.equal(verifyReceipt({ ait, chain: [block], receipt: unsigned, keys, skipReceiptSignature: true }).ok, true)
+  const misdescribed = { ...unsigned, block_count: 2 }
+  assert.match(verifyReceipt({ ait, chain: [block], receipt: misdescribed, keys, skipReceiptSignature: true }).reason, /block_count mismatch/)
+  // Review 2026-10-20 C1: a prototype property name is not a strength (`in` walked the chain).
+  for (const bogus of ['constructor', '__proto__', 'toString']) {
+    const claimed = { ...unsigned, attestation_strength: bogus }
+    assert.match(verifyReceipt({ ait, chain: [block], receipt: claimed, keys, skipReceiptSignature: true }).reason, /unrecognized attestation_strength/)
+  }
+})
+
+// 2026-10-21: the strength ceiling binds to the key of the witness that signed
+// the receipt, as verify.sh step 5. An OAI receipt may name another witness
+// than its AIT; reading the AIT witness's key let a self-asserted witness
+// claim silicon-root over a silicon-root AIT and pass here while verify.sh failed.
+import { ed25519Sign, canonicalizeBytes } from '../dist/index.js'
+test("the strength ceiling is the receipt witness's key, not the AIT witness's", async () => {
+  const storage = new InMemoryStorage()
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const svc = new WitnessService({ witnessOAI: WITNESS, privateKey, storage, attestationStrength: 'silicon-root' })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+  })
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const block = await svc.rollUp(ait.id, {})
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const pub = '0x' + toHex(new Uint8Array(der.subarray(der.length - 32)))
+  // One key under two OAI names: the AIT's witness is trusted to silicon-root, the other is not.
+  const OTHER = 'OAI-2026-0010003'
+  const entry = (witness, attestation_strength) => ({
+    witness, key_id: `k-${witness}`, algorithm: 'ed25519', public_key: pub, valid_from: ait.issued_at,
+    valid_until: ait.expires_at, status: 'active', attestation_strength, rotated_to: null, compromise_notice: null,
+  })
+  const keys = { keys: [entry(WITNESS, 'silicon-root'), entry(OTHER, 'self-asserted')], updated_at: receipt.generated_at }
+  assert.equal(verifyReceipt({ ait, chain: [block], receipt, keys }).ok, true)
+  const { witness_signature: _, ...m } = { ...receipt, witness: OTHER }
+  const asOther = { ...m, witness_signature: ed25519Sign(canonicalizeBytes(m), privateKey) }
+  const r = verifyReceipt({ ait, chain: [block], receipt: asOther, keys })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /attestation_strength=silicon-root exceeds key attestation_strength=self-asserted/)
+})
+
+// Review 2026-10-21 C1: no key for the receipt witness at the AIT's issue time
+// is a failure, not the "key omits attestation_strength" warning.
+test("a receipt witness with no key at the AIT's issued_at fails, warning or not", async () => {
+  const storage = new InMemoryStorage()
+  const { privateKey } = generateKeyPairSync('ed25519')
+  let t = Date.now()
+  const svc = new WitnessService({ witnessOAI: WITNESS, privateKey, storage, attestationStrength: 'silicon-root', now: () => new Date(t) })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(t + 30 * 86400_000).toISOString(),
+  })
+  t += 60_000
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const block = await svc.rollUp(ait.id, {})
+  const receipt = await svc.generateReceipt(ait.id, block.period_start, block.period_end)
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const pub = '0x' + toHex(new Uint8Array(der.subarray(der.length - 32)))
+  const OTHER = 'OAI-2026-0010003'
+  const entry = (witness, attestation_strength, valid_from) => ({
+    witness, key_id: `k-${witness}`, algorithm: 'ed25519', public_key: pub, valid_from,
+    valid_until: ait.expires_at, status: 'active', attestation_strength, rotated_to: null, compromise_notice: null,
+  })
+  const after = new Date(Date.parse(ait.issued_at) + 1).toISOString()
+  const keys = { keys: [entry(WITNESS, 'silicon-root', ait.issued_at), entry(OTHER, 'self-asserted', after)], updated_at: receipt.generated_at }
+  const { witness_signature: _, ...m } = { ...receipt, witness: OTHER }
+  const asOther = { ...m, witness_signature: ed25519Sign(canonicalizeBytes(m), privateKey) }
+  const r = verifyReceipt({ ait, chain: [block], receipt: asOther, keys })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, new RegExp(`no key for receipt witness ${OTHER} at ${ait.issued_at}`))
+})

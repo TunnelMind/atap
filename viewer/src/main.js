@@ -3,9 +3,17 @@
 // verifyFiles runs the same steps as `atap-witness verify DIR` (packages/
 // atap-cli/src/cli.ts: verify) in the same order. The rules themselves
 // (checkManifestFiles, verifyReceipt, checkWitnessEvents) live in atap-js and
-// are bundled, so the page and the CLI share one implementation.
+// are bundled, so the page and the CLI share one implementation: the same
+// dialect (ATAP v0.1/v0.2 ed25519 over JCS bytes), the same lone-surrogate
+// refusal and the same attestation_strength ceiling (see atap-js verify.ts).
+// Trust: the ZIP is hostile (zip.js bounds it, render.js never parses its
+// strings as HTML). The page has no --keys, so an OAI witness is checked
+// against the receipt's own public_keys.json and the verdict carries the
+// CLI's warning that this proves self-consistency only; a did:key is its own
+// key. Fails closed: anything that throws becomes {ok:false, reason}, and no
+// Ed25519 in WebCrypto means no verdict at all. No network (CSP connect-src 'none').
 
-import { checkManifestFiles, checkWitnessEvents, fromHex, verifyReceipt, WITNESS_EVENTS } from '@atap'
+import { checkManifestFiles, checkWitnessEvents, fromHex, isDidKey, isObject, verifyReceipt, WITNESS_EVENTS } from '@atap'
 import { pendingCount, resolvePending } from './shim.js'
 import { MAX_ZIP_BYTES, readZip } from './zip.js'
 import { render } from './render.js'
@@ -25,9 +33,18 @@ export async function ed25519Supported() {
 
 const CODE_CREW_PROFILE = 'tunnelmind:code_crew:v1'
 
+// A page has no --keys: an OAI witness is checked against the receipt's own
+// public_keys.json, which whoever made the receipt chose, so a pass proves
+// self-consistency, not who signed (or what strength they hold). The CLI's
+// warning, word for word; a did:key is its own key and needs none.
+const OWN_KEYS_WARNING = "OAI witness checked against the receipt's own public_keys.json: proves self-consistency, not who signed; pass --keys"
+
+// Strict UTF-8, as the CLI's readJsonFile: a lossy decode would let raw
+// invalid bytes stand in for the U+FFFD text that was signed. A leading BOM
+// is still dropped, as the page always did (the CLI refuses one).
 function readJson(files, name) {
   try {
-    return JSON.parse(new TextDecoder().decode(files.get(name)))
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(files.get(name)))
   } catch {
     throw new Error(`cannot read ${name} in the receipt`)
   }
@@ -38,6 +55,10 @@ function readJson(files, name) {
 async function verifyFiles(files) {
   const fail = reason => ({ result: { ok: false, blocks: 0, reason } })
   const receipt = readJson(files, 'manifest.json')
+  // Any JSON value: a wrong shape gets the CLI's verdict, not a TypeError
+  // message as the reason. A malformed files[] is checkManifestFiles's verdict.
+  if (!isObject(receipt)) return fail('manifest.json is not an object')
+  const listed = Array.isArray(receipt.files) ? receipt.files : []
   // Every entry must be listed in files[], as in the CLI's receiptEntries (scitt/
   // is the CLI's own sidecar, never listed).
   const present = [...files.keys()].filter(k => !k.startsWith('scitt/'))
@@ -45,7 +66,7 @@ async function verifyFiles(files) {
   // profile requires them, as the CLI's verify(): dropping them from files[]
   // must not skip the check. Absent but required, readJson throws and the
   // reason says so (the CLI crashes there).
-  const hasEvents = files.has(WITNESS_EVENTS) || receipt.files?.some(f => f.path === WITNESS_EVENTS)
+  const hasEvents = files.has(WITNESS_EVENTS) || listed.some(f => isObject(f) && f.path === WITNESS_EVENTS)
   let ait
   let events = []
   // Everything that hashes or verifies runs inside a pass, manifest files
@@ -59,6 +80,7 @@ async function verifyFiles(files) {
       const chain = readJson(files, 'attestation_chain.json')
       const keys = readJson(files, 'public_keys.json')
       const result = verifyReceipt({ receipt, ait, chain, keys })
+      if (!isDidKey(ait?.witness) || !isDidKey(receipt?.witness)) result.warnings = [...(result.warnings ?? []), OWN_KEYS_WARNING]
       if (!result.ok) return result
       if (!hasEvents && ait.profile !== CODE_CREW_PROFILE) return result
       events = readJson(files, WITNESS_EVENTS)
@@ -73,7 +95,7 @@ async function verifyFiles(files) {
   // ponytail: every pass reruns from the top, O(n²) in blocks+events; fine
   // under the 10 MiB entry cap, batch-precompute if receipts grow past that.
   const chain = readJsonOr(files, 'attestation_chain.json')
-  const n = (receipt.files?.length ?? 0) + (Array.isArray(chain) ? chain.length : 0) + (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0)
+  const n = listed.length +(Array.isArray(chain) ? chain.length : 0) + (readJsonOr(files, WITNESS_EVENTS)?.length ?? 0)
   for (let pass = 0; pass <= 4 * n + 8; pass++) {
     const result = run()
     if (pendingCount() === 0) return { result, receipt, ait, events }

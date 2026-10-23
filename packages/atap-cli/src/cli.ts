@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// atap-witness: a file-backed ATAP v0.1 witness. Each command reads JSON on
+// atap-witness: a file-backed ATAP v0.1/v0.2 witness. Each command reads JSON on
 // stdin and writes JSON on stdout, so any language can drive it. Errors go
 // to stderr as one line of {"error": "..."} with a non-zero exit.
 //
@@ -7,11 +7,24 @@
 //
 // Before signing, event payloads and block period_summaries are validated
 // against the AIT's profile schemas; a refused call writes nothing.
+//
+// Trust boundaries. Untrusted: stdin JSON (parsed, shape-checked, then
+// schema-checked before it is signed); a receipt directory under `verify` /
+// `scitt` (symlinks refused, paths normalised, every reason stripped of
+// control characters); `.atap/config.json`, which a cloned repo may carry
+// (its `key` must resolve inside the store, and it never names a binary).
+// Trusted: the --key PEM, --keys / the receipt's public_keys.json as the user
+// chose it (an OAI receipt verified against its own copy earns a warning),
+// the profiles dir. The only network call is `scitt register --service`; the
+// only subprocesses are `zip` and `git`, by name with argv arrays (no shell).
+// Every stored AIT, event and block passes DirStorage's core-schema guards,
+// and a command's read-sign-append runs under the store lock, so two
+// processes cannot fork a chain.
 
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
+import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { existsSync, lstatSync, readFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
@@ -22,8 +35,11 @@ import {
   WitnessService,
   cborDecode,
   checkManifestFiles,
+  clean,
   normaliseReceiptPath,
   checkWitnessEvents,
+  isObject,
+  sha256,
   didKeyFromPublicKey,
   isDidKey,
   publicKeyFromDidKey,
@@ -130,10 +146,6 @@ async function stdinJson(allowEmpty: boolean): Promise<unknown> {
   }
 }
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
 function json(v: unknown): string {
   return JSON.stringify(v, null, 2) + '\n'
 }
@@ -173,10 +185,6 @@ function parseStrength(s: string | undefined): AttestationStrength {
 function requireAit(v: Values): AIT_ID {
   if (!v.ait) throw new Error('--ait <id> is required')
   return v.ait as AIT_ID
-}
-
-function sha256(bytes: Uint8Array): HexHash {
-  return `0x${createHash('sha256').update(bytes).digest('hex')}`
 }
 
 // summary.json: integers are summed key-wise, nested objects merge
@@ -315,9 +323,17 @@ async function receipt(svc: WitnessService, storage: DirStorage, v: Values, key:
   return rcpt
 }
 
+// Strict UTF-8 (RFC 8259 §8.1). A lossy decode maps invalid bytes to U+FFFD,
+// so a manifest whose signed "a���b" is re-written with the raw
+// bytes "a ED B0 80 b" would verify as the text that was signed, a second
+// spelling of one signed string (verify.sh refuses it). ignoreBOM keeps a
+// leading BOM in the text, as readFile(…, 'utf8') did, so JSON.parse still
+// refuses one.
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
 async function readJsonFile<T>(dir: string, name: string): Promise<T> {
   try {
-    return JSON.parse(await readFile(join(dir, name), 'utf8')) as T
+    return JSON.parse(STRICT_UTF8.decode(await readFile(join(dir, name)))) as T
   } catch {
     throw new Error(`cannot read ${name} in ${dir}`)
   }
@@ -368,15 +384,19 @@ async function receiptEntries(root: string, sub = ''): Promise<string[]> {
 // A did:key is its own key, so its receipts always use the bundled entries.
 async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   const receipt = await readJsonFile<Receipt>(dir, 'manifest.json')
+  // Parsed from the receipt, so any JSON value: every read below assumes an
+  // object, and a wrong shape must be a verdict, not a TypeError crash.
+  if (!isObject(receipt)) return { ok: false, blocks: 0, reason: 'manifest.json is not an object' }
   const root = resolve(dir)
   const present = await receiptEntries(root)
   // readFileSync follows symlinks, so a listed link (or a path under a linked
   // directory) would hash a file outside the receipt. Refused, as verify.sh does.
-  for (const f of receipt.files ?? []) {
-    const rel = typeof f.path === 'string' ? normaliseReceiptPath(f.path) : null
+  // A non-array files[] or a malformed entry is left for checkManifestFiles
+  // to report as a verdict.
+  for (const f of Array.isArray(receipt.files) ? receipt.files : []) {
+    const rel = isObject(f) && typeof f.path === 'string' ? normaliseReceiptPath(f.path) : null
     if (rel && underSymlink(root, rel)) {
-      // Control characters stripped, as the library's reasons are.
-      return { ok: false, blocks: 0, reason: `${f.path.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')} is or is under a symlink` }
+      return { ok: false, blocks: 0, reason: clean(`${f.path} is or is under a symlink`) }
     }
   }
   const bad = checkManifestFiles(receipt, rel => {
@@ -389,11 +409,13 @@ async function verify(dir: string, keysFile?: string): Promise<VerifyResult> {
   if (bad) return { ok: false, blocks: 0, reason: bad }
   const ait = await readJsonFile<AIT>(dir, 'ait.json')
   const chain = await readJsonFile<AttestationBlock[]>(dir, 'attestation_chain.json')
-  const oai = !isDidKey(ait.witness) || !isDidKey(receipt.witness)
+  // ait may be any JSON value, which verifyReceipt turns into its verdict;
+  // `?.` keeps this line from crashing on it first.
+  const oai = !isDidKey(ait?.witness) || !isDidKey(receipt.witness)
   let keys: KeysDocument
   if (oai && keysFile) {
     try {
-      keys = JSON.parse(await readFile(keysFile, 'utf8')) as KeysDocument
+      keys = JSON.parse(STRICT_UTF8.decode(await readFile(keysFile))) as KeysDocument
     } catch {
       throw new Error(`cannot read --keys ${keysFile}`)
     }
@@ -472,40 +494,24 @@ async function verifyStore(dir: string, v: Values): Promise<StoreResult> {
   if (chain.length === 0) return done({ ok: false, reason: `no blocks for ${ait.id}` })
 
   // Only the fields verifyReceipt reads; the rest of a Receipt describes files
-  // a store does not have.
+  // a store does not have. There is no key to sign with, so the signature
+  // check is skipped and the library's other checks (AIT, blocks, chain head,
+  // period and counts, strength ceiling) run as for a receipt — one key
+  // lookup, the library's, so the store and a receipt cannot be judged differently.
+  const last = chain.at(-1)!
   const rcpt = {
     ait: ait.id,
     witness,
-    chain_head_hash: chain.at(-1)!.self_hash,
+    chain_head_hash: last.self_hash,
     attestation_strength: strength,
-    generated_at: new Date().toISOString(),
-    // Well-formed but never valid: there is no key to sign with (see below).
-    witness_signature: `ed25519:0x${'00'.repeat(64)}`,
+    period_start: chain[0]!.period_start,
+    period_end: last.period_end,
+    block_count: chain.length,
+    event_count: chain.reduce((n, b) => n + b.event_count, 0),
+    first_block: chain[0]!.id,
+    last_block: last.id,
   } as Receipt
-  let result = verifyReceipt({ receipt: rcpt, ait, chain, keys })
-  // verifyReceipt ends by checking the receipt's own signature, which needs
-  // the private key; this stand-in's zero signature must fail it. That check
-  // runs after the AIT, every block and the chain head have passed, so this
-  // one reason means the store passed those. The strength checks verifyReceipt
-  // would run after it are run here instead: a known strength, ranked no
-  // higher than the key in force at ait.issued_at (verifyReceipt's aitKey;
-  // a did:key store has one entry, 'self-asserted' on both sides).
-  // If the library ever words the reason differently, this fails closed.
-  if (result.reason === 'receipt signature invalid') {
-    const at = ait.issued_at
-    const aitKey = keys.keys.find(k =>
-      k.witness === witness &&
-      (isDidKey(witness) || (k.valid_from <= at && k.valid_until > at)) &&
-      (k.status !== 'compromised' || (k.compromise_notice && at < k.compromise_notice.disclosed_at)))
-    if (strength && !Object.hasOwn(ATTESTATION_STRENGTH_RANK, strength)) {
-      result = { ok: false, blocks: chain.length, reason: `unrecognized attestation_strength '${strength}'` }
-    } else if (strength && aitKey?.attestation_strength &&
-      ATTESTATION_STRENGTH_RANK[strength] > ATTESTATION_STRENGTH_RANK[aitKey.attestation_strength]) {
-      result = { ok: false, blocks: chain.length, reason: `attestation_strength=${strength} exceeds key attestation_strength=${aitKey.attestation_strength}` }
-    } else {
-      result = { ok: true, blocks: chain.length, attestation_strength: strength ?? 'self-asserted' }
-    }
-  }
+  const result = verifyReceipt({ receipt: rcpt, ait, chain, keys, skipReceiptSignature: true })
   if (!result.ok) return done(result)
   const reason = checkWitnessEvents(covered, chain, ait, keys)
   return done(reason ? { ok: false, reason } : result)
@@ -736,13 +742,17 @@ async function init(v: Values): Promise<Record<string, string | boolean>> {
   // constraints (allowed_repos, models, ...) are the operator's to declare.
   // The core's maximum lifetime, so a drop-in outlives its first AIT for a
   // year; `ait rotate` declares the next one in the same store.
+  // One instant for expires_at and the library's issued_at: a clock that steps
+  // back between two reads (WSL2 under load does) would make a 365-day
+  // lifetime read as more and init fail.
+  const now = new Date()
   const input: AitInput = {
     agentType: profile.split(':')[1] ?? profile,
     profile,
     operator: witness,
     capabilities: Object.keys(caps.capabilities),
     attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
-    expiresAt: new Date(Date.now() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
+    expiresAt: new Date(now.getTime() + MAX_AIT_LIFETIME_DAYS * 86400_000).toISOString(),
   }
 
   if (exists) for (const f of INIT_FILES) await rm(join(dir, f), { force: true })
@@ -754,7 +764,7 @@ async function init(v: Values): Promise<Record<string, string | boolean>> {
     await chmod(keyPath, 0o600)
     await writeFile(join(dir, '.gitignore'), 'witness.pem\n')
     const storage = new DirStorage(dir, profiles.coreGuards())
-    const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: 'self-asserted' })
+    const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: 'self-asserted', now: () => now })
     const ait = await withLock(dir, () => svc.declareAit(input))
     // key is relative to the dir, so the dir can move as a whole.
     // git_sync only with --git, so a plain init's config.json is unchanged.
@@ -779,6 +789,26 @@ async function findAtap(from = process.cwd()): Promise<{ dir: string; config: Re
     if (up === d) return null
     d = up
   }
+}
+
+// The signing key config.json names, which must live inside the store. The
+// config can be committed, so a cloned repo could otherwise point `key` (or a
+// committed symlink at it) to any Ed25519 PEM on this machine, e.g. another
+// project's witness.pem, and the hook would sign events as that witness.
+// init always writes the key into the store; --key is explicit.
+function configKeyPath(dir: string, key: string): string {
+  const abs = resolve(dir, key)
+  const root = realpathSync(dir)
+  let real: string
+  try {
+    real = realpathSync(abs)
+  } catch {
+    real = join(root, relative(dir, abs)) // missing: loadKey reports it; judged where it would be
+  }
+  if (escapes(root, relative(root, real))) {
+    throw new Error(`.atap/config.json key ${key} resolves outside the store ${dir}; the key must be inside it (or pass --key)`)
+  }
+  return abs
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -886,7 +916,7 @@ async function main(argv: string[]): Promise<number> {
   const explicitWitness = v['witness-oai'] ?? process.env.ATAP_WITNESS_OAI
   const str = (x: unknown): string | undefined => (typeof x === 'string' ? x : undefined)
   const atapKey = str(atap?.config.key)
-  if (atap && atapKey) v.key ??= resolve(atap.dir, atapKey)
+  if (atap && atapKey && v.key === undefined) v.key = configKeyPath(atap.dir, atapKey)
   if (atap && cmd !== 'scitt') {
     v.dir ??= atap.dir
     v['witness-oai'] ??= process.env.ATAP_WITNESS_OAI ?? str(atap.config.witness_oai)

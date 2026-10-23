@@ -1,11 +1,11 @@
 # @tunnelmindai/atap
 
-Reference TypeScript wrapper for **ATAP v0.1** — the Agent Trust Attestation Protocol.
+Reference TypeScript wrapper for **ATAP v0.1/v0.2** — the Agent Trust Attestation Protocol.
 
 - **Standard:** https://tunnelmind.ai/atap/standard
 - **Verifier (bash):** https://tunnelmind.ai/atap/verify.sh
 - **JSON Schemas:** [`schemas/v0.1/`](../../schemas/v0.1/)
-- **License:** MIT
+- **License:** Apache-2.0
 
 This package gives a witness service the helpers it needs to sign and chain
 ATAP artifacts (AITs, Witness Events, Attestation Blocks, Receipts), plus an
@@ -115,4 +115,4 @@ These match §6.3, §7.1, §7.1.1, and §7.2 of the standard.
 
 ## License
 
-MIT.
+Apache-2.0.

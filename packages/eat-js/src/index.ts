@@ -12,6 +12,20 @@
 //
 // The verifier is intentionally dependency-free — only WebCrypto + base64 +
 // JSON. Run anywhere Node ≥18, Cloudflare Workers, Deno, Bun.
+//
+// Dialect: a compact JWS (`header.payload.signature`, base64url) with alg
+// EdDSA; the Ed25519 signature covers the ASCII `header.payload` exactly as
+// received, so no JSON canonicalization is involved and the lone-surrogate
+// rule of the JCS verifiers does not arise (a payload that is not valid UTF-8
+// decodes lossily into `claims`, but the bytes signed are the bytes received).
+// Trust: the keys the caller passes in opts.keys; without them, the bundle at
+// ATAP_KEYS_URL fetched over HTTPS (TLS + that server are then the trust
+// root). The token is untrusted: every field is checked before use and a
+// malformed token or key is an error in the result, never a throw.
+// Ceiling (spec §9.1): a tunnelmind-attestation-strength-tier claim must be
+// one of the four tiers and at most the signing key's declared strength; a
+// key strength that is not a tier fails. A key with no strength is no ceiling.
+// Submodules: atap-receipt is surfaced, not verified (a warning says so).
 
 const subtle = globalThis.crypto.subtle;
 
@@ -59,6 +73,11 @@ export interface VerifyResult {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+const RANK: Record<AttestationStrength, number> = {
+  'self-asserted': 0, 'software': 1, 'tee-tpm': 2, 'silicon-root': 3,
+};
+const isTier = (v: unknown): v is AttestationStrength => typeof v === 'string' && Object.hasOwn(RANK, v);
 
 function b64uToBytes(b64u: string): Uint8Array<ArrayBuffer> {
   const b64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
@@ -112,19 +131,30 @@ async function fetchAtapKeys(): Promise<VerifierKey[]> {
 export async function verifyJwt(token: string, opts: VerifierOptions = {}): Promise<VerifyResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
+  // Typed callers aside, the token is whatever arrived: not a string is an error.
+  if (typeof token !== 'string') return { valid: false, errors: ['malformed JWT: not a string'], warnings };
   const parts = token.split('.');
   if (parts.length !== 3) {
     return { valid: false, errors: ['malformed JWT: expected 3 parts'], warnings };
   }
   let header: Record<string, unknown> = {};
   let claims: Record<string, unknown> = {};
+  let sig: Uint8Array<ArrayBuffer>;
   try {
     header = JSON.parse(bytesToString(b64uToBytes(parts[0]!)));
     claims = JSON.parse(bytesToString(b64uToBytes(parts[1]!)));
+    // atob throws on a character outside base64url ("!!!").
+    sig = b64uToBytes(parts[2]!);
   } catch (e) {
     return { valid: false, errors: [`JWT parse: ${(e as Error).message}`], warnings };
   }
-  const sig = b64uToBytes(parts[2]!);
+  // RFC 7515 §4 / RFC 7519 §7.2: the header and the claims set are JSON
+  // objects. `null` would throw on the first field read below, and an array
+  // or a scalar is not a claims set.
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isObj(header) || !isObj(claims)) {
+    return { valid: false, errors: ['malformed JWT: header or payload is not a JSON object'], warnings };
+  }
 
   // Algorithm check
   const alg = header['alg'];
@@ -148,26 +178,35 @@ export async function verifyJwt(token: string, opts: VerifierOptions = {}): Prom
   if (!key) {
     errors.push(`no key found for kid=${kid ?? '<none>'}`);
   } else {
-    const pubKey = await subtle.importKey(
-      'raw',
-      decodePublicKey(key.public_key),
-      { name: 'Ed25519' },
-      false,
-      ['verify'],
-    );
-    const signingInput = new TextEncoder().encode(parts[0] + '.' + parts[1]);
-    const ok = await subtle.verify('Ed25519', pubKey, sig, signingInput);
-    if (!ok) errors.push('Ed25519 signature did not verify');
+    // A key that is not 32 raw bytes, or a signature WebCrypto refuses, is a
+    // failed check: the result must carry the error, not reject the promise.
+    try {
+      const pubKey = await subtle.importKey(
+        'raw',
+        decodePublicKey(key.public_key),
+        { name: 'Ed25519' },
+        false,
+        ['verify'],
+      );
+      const signingInput = new TextEncoder().encode(parts[0] + '.' + parts[1]);
+      const ok = await subtle.verify('Ed25519', pubKey, sig, signingInput);
+      if (!ok) errors.push('Ed25519 signature did not verify');
+    } catch (e) {
+      errors.push(`Ed25519 verify failed: ${(e as Error).message}`);
+    }
 
-    // Attestation-strength ceiling check (spec §9.1)
-    const tokenStrength = claims[CLAIM.STRENGTH] as AttestationStrength | undefined;
-    if (tokenStrength && key.attestation_strength) {
-      const rank: Record<AttestationStrength, number> = {
-        'self-asserted': 0, 'software': 1, 'tee-tpm': 2, 'silicon-root': 3,
-      };
-      if ((rank[tokenStrength] ?? 0) > (rank[key.attestation_strength] ?? 0)) {
-        errors.push(`attestation-strength ceiling violated: token=${tokenStrength} > key=${key.attestation_strength}`);
-      }
+    // Attestation-strength ceiling check (spec §9.1). Object.hasOwn, not a
+    // lookup with `?? 0`: an unknown tier ranked 0, and a prototype name
+    // ("constructor") ranked as a function, so `>` was false and any claim
+    // passed, as receipt-verify, atap and the Python SDK refuse.
+    const tokenStrength: unknown = claims[CLAIM.STRENGTH];
+    if (tokenStrength !== undefined && !isTier(tokenStrength)) {
+      errors.push(`unrecognized ${CLAIM.STRENGTH}: ${String(tokenStrength)}`);
+    } else if (key.attestation_strength !== undefined && !isTier(key.attestation_strength)) {
+      errors.push(`key ${key.key_id} has unrecognized attestation_strength: ${String(key.attestation_strength)}`);
+    } else if (tokenStrength !== undefined && key.attestation_strength !== undefined
+      && RANK[tokenStrength] > RANK[key.attestation_strength]) {
+      errors.push(`attestation-strength ceiling violated: token=${tokenStrength} > key=${key.attestation_strength}`);
     }
   }
 

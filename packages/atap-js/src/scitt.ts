@@ -10,6 +10,13 @@
 // Label 3 (content type) is deliberately absent: RFC 9995 §4 says it MUST NOT be
 // present in a hash envelope, because it would describe the digest, not the
 // artifact. The ATAP artifact type travels in 259 instead.
+//
+// Trust: toSignedStatement signs the witness's own artifacts; the statement
+// bytes verifySignedStatement takes come from a receipt's scitt/ directory and
+// are hostile. cborDecode bounds-checks every length against the input, refuses
+// duplicate keys and trailing bytes, and verifySignedStatement answers false on
+// any malformed statement, never throws. The public key is the caller's
+// (atap-cli looks it up by kid in the keys document it trusts).
 
 import { createHash, sign as nodeSign, verify as nodeVerify, KeyObject } from 'node:crypto'
 import { canonicalizeBytes } from './canonicalize.js'
@@ -44,7 +51,7 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
   return Buffer.compare(a, b)
 }
 
-export function cborEncode(v: Cbor): Uint8Array {
+function cborEncode(v: Cbor): Uint8Array {
   if (typeof v === 'number') {
     if (!Number.isSafeInteger(v)) throw new Error(`CBOR: only integers are supported, got ${v}`)
     return v >= 0 ? head(0, v) : head(1, -1 - v)

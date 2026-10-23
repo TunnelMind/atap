@@ -1,4 +1,21 @@
-// In-process verifier. Parallel to /atap/verify.sh — same logic, JS-native.
+// In-process ATAP receipt verifier: the same rules as /atap/verify.sh, the
+// reference bash verifier, in the same order; the two are pinned together by
+// atap-cli's verify-sh-* tests and must not disagree on any receipt.
+// Dialect: ATAP v0.1/v0.2 — `ed25519:0x<hex>` signatures over JCS bytes (AIT,
+// receipt) or over the raw 32-byte self_hash digest (blocks, events; §7.7);
+// JCS refuses a lone surrogate (canonicalize.ts), so such a record fails.
+// Trust: ONLY the KeysDocument the caller passes (for an OAI witness, keys the
+// verifier chose; for a did:key witness, the key the identifier encodes, which
+// the entry must match). The receipt, AIT, chain and events are attacker-
+// controlled; every id and path they carry is validated before use and
+// stripped of control characters before it is echoed in a reason.
+// Ceiling: attestation_strength must be one of the four tiers and at most the
+// strength of the receipt witness's key at the AIT's issue time.
+// Fails closed: every mismatch is {ok:false, reason}; malformed shapes and
+// key material are a verdict, not a throw. The one throw left is a
+// RangeError from canonicalize recursing through a document nested
+// thousands deep, which still never passes. Callers: atap-cli `verify` (a
+// receipt, or a store with skipReceiptSignature), the browser viewer.
 
 import {
   AIT,
@@ -16,12 +33,20 @@ import {
 import { canonicalizeBytes } from './canonicalize.js'
 import { ed25519Verify, fromHex, publicKeyFromHex, sha256, toHex } from './crypto.js'
 import { isDidKey, publicKeyFromDidKey } from './didkey.js'
+import type { KeyObject } from 'node:crypto'
 
 export interface VerifyOptions {
   receipt: Receipt
   ait: AIT
   chain: AttestationBlock[]
   keys: KeysDocument
+  /**
+   * Skip the receipt signature check (verify.sh step 6) and run everything
+   * else. For `atap-witness verify --store`, which has a chain but no signed
+   * receipt, so the store is checked by the library's one key lookup rather
+   * than a second copy of it. Never for a receipt someone handed you.
+   */
+  skipReceiptSignature?: boolean
 }
 
 export interface VerifyResult {
@@ -34,13 +59,32 @@ export interface VerifyResult {
   reason?: string
 }
 
-// An RFC 3339 time as epoch ms, NaN if it does not parse. Key validity is
-// compared as instants, not strings, so "+00:00" vs "Z" or fractional
-// seconds cannot flip the verdict (as verify.sh's oai_keys_at). The shape is
-// checked first, case-sensitively as verify.sh's jq does: bare Date.parse
-// would also take a date-only or zoneless value, the latter in host local time.
-const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
-const instant = (s: unknown): number => (typeof s === 'string' && RFC3339.test(s) ? Date.parse(s) : NaN)
+// An RFC 3339 time as epoch seconds, NaN if it is not one. Key validity and
+// compromise notices are compared as instants, not strings, so "+00:00" vs
+// "Z" or an offset cannot flip the verdict. One grammar with verify.sh's
+// JQ_INSTANT, which must not drift from this: upper-case T and Z; a real
+// calendar day; hour 00-23, minute and second 00-59 (no leap second, no
+// 24:00); an offset of at most 23:59; the fraction added exactly, not cut
+// to Date.parse's milliseconds. The arithmetic is jq's, in the same order,
+// so both give the same double. Bare Date.parse would also take a date-only
+// or zoneless value (the latter in host local time), roll 24:00 over to
+// the next day, and refuse :60 and +99:99, none of which jq did.
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+function instant(s: unknown): number {
+  const m = typeof s === 'string' ? RFC3339.exec(s) : null
+  if (!m) return NaN
+  const [y, mo, d, hh, mm, ss] = m.slice(1, 7).map(Number) as [number, number, number, number, number, number]
+  const fraction = m[7] ?? ''
+  const sign = m[8] // undefined for Z
+  const [oh, om] = [Number(m[9]), Number(m[10])]
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0
+  const dim = mo === 2 && leap ? 29 : DAYS_IN_MONTH[mo - 1]
+  if (dim === undefined || d < 1 || d > dim || hh > 23 || mm > 59 || ss > 59) return NaN
+  if (sign && (oh > 23 || om > 59)) return NaN
+  const offset = sign ? (sign === '-' ? -1 : 1) * (oh * 3600 + om * 60) : 0
+  return Date.parse(m[0].slice(0, 19) + 'Z') / 1000 + Number('0' + fraction) - offset
+}
 
 // ATAP §8.2 key lookup for an OAI witness: the one entry with valid_from <= at
 // < valid_until that is not compromised before `at`. Returns the entry, null
@@ -51,7 +95,7 @@ function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | st
   if (Number.isNaN(t)) return `${at} is not an RFC 3339 time`
   const hits: PublicKey[] = []
   for (const k of doc.keys) {
-    if (k.witness !== witness) continue
+    if (!isObject(k) || k.witness !== witness) continue
     const from = instant(k.valid_from)
     const until = instant(k.valid_until)
     if (Number.isNaN(from) || Number.isNaN(until)) return `key ${k.key_id} validity is not an RFC 3339 time`
@@ -68,9 +112,25 @@ function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | st
   return hits[0] ?? null
 }
 
+// A key entry's public_key: an optional 0x and exactly 64 hex digits, the
+// spelling verify.sh's lookup_key accepts (checked inside jq, before $(…)
+// could strip a trailing newline). Without --keys the keys document is the
+// receipt's own, so a malformed key is attacker input like any other.
+const PUBLIC_KEY_HEX = /^(0x)?[0-9a-fA-F]{64}$/
+const badPublicKey = (k: PublicKey): string | null =>
+  typeof k.public_key === 'string' && PUBLIC_KEY_HEX.test(k.public_key) ? null : `key ${k.key_id} public_key is not 32-byte hex`
+
+// The picked entry's key, or the reason it cannot be one (a verdict, where
+// publicKeyFromHex would throw).
+function keyObjectOf(k: PublicKey): KeyObject | string {
+  return badPublicKey(k) ?? publicKeyFromHex(k.public_key)
+}
+
 // ATAP-v0.2 §3.1/§3.2: a key entry for a did:key witness must carry the key
 // the did:key encodes and declare 'self-asserted'. Returns why not, or null.
 function didKeyEntryProblem(k: PublicKey, didRaw: Uint8Array): string | null {
+  const bad = badPublicKey(k)
+  if (bad) return bad
   if (toHex(fromHex(k.public_key)) !== toHex(didRaw)) {
     return `key ${k.key_id} public_key is not the key ${k.witness} encodes (ATAP-v0.2 §3.1)`
   }
@@ -87,32 +147,72 @@ function didKeyEntryProblem(k: PublicKey, didRaw: Uint8Array): string | null {
 // on any of them in force at `at` voids the key. Returns the entry, null for
 // no usable entry, or the reason an entry is refused.
 export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8Array, at: string): PublicKey | string | null {
-  const entries = doc.keys.filter(k => k.witness === witness)
+  const entries = doc.keys.filter(k => isObject(k) && k.witness === witness)
   for (const k of entries) {
     const problem = didKeyEntryProblem(k, didRaw)
     if (problem) return problem
-    if (k.status === 'compromised' && (!k.compromise_notice || at >= k.compromise_notice.disclosed_at)) return null
+    if (k.status === 'compromised') {
+      if (!k.compromise_notice) return null
+      // Instants, as pickKey and verify.sh's lookup_did_key: `at` is written by
+      // the key holder, and a string compare would let "…T20:00:00-05:00" sort
+      // before a disclosed_at of the next UTC day it actually follows.
+      const t = instant(at)
+      const disclosed = instant(k.compromise_notice.disclosed_at)
+      if (Number.isNaN(t) || Number.isNaN(disclosed)) return `cannot compare the compromise notice for ${witness} at ${at} as RFC 3339 times`
+      if (t >= disclosed) return null
+    }
   }
   return entries[0] ?? null
+}
+
+// The key an Ed25519 did:key encodes, or null. isDidKey is a shape test only:
+// a string of that shape can still decode to another multicodec, on which
+// publicKeyFromDidKey throws; that is a verdict, as verify.sh's didkey_to_hex
+// fails it.
+function didKeyRaw(id: string): Uint8Array | null {
+  if (!isDidKey(id)) return null
+  try {
+    return publicKeyFromDidKey(id)
+  } catch {
+    return null
+  }
 }
 
 // Reasons echo ids and paths from the receipt, which is attacker-controlled:
 // control characters (C0 incl. ESC, DEL, C1) are stripped so a reason printed
 // to a terminal cannot drive it or forge extra lines (as verify.sh's clean).
-function clean(reason: string): string
-function clean(reason: string | null): string | null
-function clean(reason: string | null): string | null {
+// Exported so atap-cli strips its own messages the same way.
+export function clean(reason: string): string
+export function clean(reason: string | null): string | null
+export function clean(reason: string | null): string | null {
   return reason === null ? null : reason.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
 }
 
 export function verifyReceipt(opts: VerifyOptions): VerifyResult {
-  const r = verifyReceiptRaw(opts)
+  const r = jcsRefusal(() => verifyReceiptRaw(opts), reason => ({ ok: false, blocks: 0, reason }))
   return r.reason === undefined ? r : { ...r, reason: clean(r.reason) }
 }
 
-function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
-  const { receipt, ait, chain, keys } = opts
+// canonicalize throws "JCS: …" on a string with a lone surrogate, which a
+// receipt's JSON can carry ("\udc00"); that is a failed check like any other,
+// so it becomes the verdict rather than an exception. Any other throw is a bug
+// and propagates.
+function jcsRefusal<T>(run: () => T, verdict: (reason: string) => T): T {
+  try {
+    return run()
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('JCS: ')) return verdict(e.message)
+    throw e
+  }
+}
 
+function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
+  const { receipt, ait, chain, keys, skipReceiptSignature } = opts
+
+  // Shapes first: every later line reads fields off these, and a malformed
+  // input is a verdict, not a TypeError (the CLI and viewer pass parsed JSON through).
+  if (!isObject(receipt) || !isObject(ait)) return { ok: false, blocks: 0, reason: 'receipt or AIT is not an object' }
+  if (!isObject(keys) || !Array.isArray(keys.keys)) return { ok: false, blocks: 0, reason: 'keys document has no keys array' }
   if (ait['@context'] !== ATAP_CONTEXT) {
     return { ok: false, blocks: 0, reason: `bad @context on AIT` }
   }
@@ -125,14 +225,15 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
     if (typeof id !== 'string') return { ok: false, blocks: 0, reason: `AIT ${field} is not a string` }
     if (!id.startsWith('did:')) continue
     didIdentified = true
-    if (!isDidKey(id)) {
+    const raw = didKeyRaw(id)
+    if (!raw) {
       return { ok: false, blocks: 0, reason: `AIT ${field} ${id} is not an Ed25519 did:key (ATAP-v0.2 §3)` }
     }
     // §3.3: a did:key-identified AIT must declare 0.2.
     if (ait.ait_version !== '0.2') {
       return { ok: false, blocks: 0, reason: `AIT with did:key ${field} declares ait_version '${ait.ait_version}', want '0.2' (ATAP-v0.2 §3.3)` }
     }
-    if (field === 'witness') didRaw = publicKeyFromDidKey(id) // §3.5: only the witness binds a key
+    if (field === 'witness') didRaw = raw // §3.5: only the witness binds a key
   }
 
   // ATAP-v0.2 §3.1: for a did:key witness the receipt and AIT name the same
@@ -164,12 +265,10 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
     }
   }
   if (typeof aitKey === 'string') return { ok: false, blocks: 0, reason: aitKey }
+  const aitPub = keyObjectOf(aitKey)
+  if (typeof aitPub === 'string') return { ok: false, blocks: 0, reason: aitPub }
   const { witness_signature: aitSig, ...aitMinusSig } = ait
-  const aitOk = ed25519Verify(
-    canonicalizeBytes(aitMinusSig),
-    aitSig,
-    publicKeyFromHex(aitKey.public_key),
-  )
+  const aitOk = ed25519Verify(canonicalizeBytes(aitMinusSig), aitSig, aitPub)
   if (!aitOk) return { ok: false, blocks: 0, reason: 'AIT signature invalid' }
 
   // 2. Block chain. An empty chain would leave prev at genesis and pass against
@@ -179,7 +278,8 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
     return { ok: false, blocks: 0, reason: 'attestation chain is not a non-empty array' }
   }
   let prev: HexHash = GENESIS_HASH
-  for (const block of chain) {
+  for (const [i, block] of chain.entries()) {
+    if (!isObject(block)) return { ok: false, blocks: 0, reason: `block ${i} is not an object` }
     // ATAP-v0.2 §3.3: every block under a did:key-identified AIT declares 0.2.
     if (didIdentified && block.ab_version !== '0.2') {
       return { ok: false, blocks: 0, reason: `block ${block.id} declares ab_version '${block.ab_version}' under a v0.2 AIT (ATAP-v0.2 §3.3)` }
@@ -213,10 +313,12 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
       }
     }
     if (typeof blockKey === 'string') return { ok: false, blocks: 0, reason: blockKey }
+    const blockPub = keyObjectOf(blockKey)
+    if (typeof blockPub === 'string') return { ok: false, blocks: 0, reason: blockPub }
     const blockOk = ed25519Verify(
       fromHex(self_hash), // ATAP §7.7: signature is over the raw 32-byte digest
       witness_signature,
-      publicKeyFromHex(blockKey.public_key),
+      blockPub,
     )
     if (!blockOk) {
       return { ok: false, blocks: 0, reason: `block signature invalid on ${block.id}` }
@@ -236,17 +338,19 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // verify.sh step 6. A did:key witness's key has no validity window (ATAP-v0.2
   // §3.1), so generated_at serves. An OAI key's valid_until is often the AIT's
   // expires_at, and a receipt of an expired AIT is generated after it, so the
-  // key is the one in force at the last block's period_end (generated_at only
-  // for a receipt with no blocks).
-  {
-    const at = didRaw || chain.length === 0 ? receipt.generated_at : chain[chain.length - 1]!.period_end
+  // key is the one in force at the last block's period_end (step 2 refused an
+  // empty chain).
+  if (!skipReceiptSignature) {
+    const at = didRaw ? receipt.generated_at : chain[chain.length - 1]!.period_end
     const rcptKey = didRaw ? pickDidKeyKey(keys, receipt.witness, didRaw, at) : pickKey(keys, receipt.witness, at)
     if (!rcptKey) {
       return { ok: false, blocks: chain.length, reason: `no key for ${receipt.witness} at ${at}` }
     }
     if (typeof rcptKey === 'string') return { ok: false, blocks: chain.length, reason: rcptKey }
+    const rcptPub = keyObjectOf(rcptKey)
+    if (typeof rcptPub === 'string') return { ok: false, blocks: chain.length, reason: rcptPub }
     const { witness_signature: rcptSig, ...rcptMinusSig } = receipt
-    if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, publicKeyFromHex(rcptKey.public_key))) {
+    if (!ed25519Verify(canonicalizeBytes(rcptMinusSig), rcptSig, rcptPub)) {
       return { ok: false, blocks: chain.length, reason: 'receipt signature invalid' }
     }
   }
@@ -284,25 +388,54 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // 3. Attestation strength (ATAP §7.4.1 — optional in v0.1.x, required at v0.2)
   const warnings: string[] = []
   let effectiveStrength: AttestationStrength = 'self-asserted'
-  if (receipt.attestation_strength) {
-    if (!(receipt.attestation_strength in ATTESTATION_STRENGTH_RANK)) {
+  // Missing is undefined, null or false, as verify.sh's jq `// "MISSING"`;
+  // anything else ("", 0, an object) must be a tier, or "" would pass here
+  // as missing while verify.sh refuses it.
+  const claimed: unknown = receipt.attestation_strength
+  if (claimed !== undefined && claimed !== null && claimed !== false) {
+    // Object.hasOwn, not `in`: a prototype name ("constructor", "__proto__") is not a strength.
+    if (typeof claimed !== 'string' || !Object.hasOwn(ATTESTATION_STRENGTH_RANK, claimed)) {
       return {
         ok: false,
         blocks: chain.length,
         reason: `unrecognized attestation_strength '${receipt.attestation_strength}'`,
       }
     }
-    effectiveStrength = receipt.attestation_strength
+    effectiveStrength = claimed as AttestationStrength
   } else {
     warnings.push(
       "manifest.attestation_strength missing — treated as 'self-asserted' (ATAP §7.4.1). Required at v0.2.",
     )
   }
-  // Cross-check against the AIT-period key, if that key declares a strength.
-  // Step 1 looked it up already (pickKey for an OAI, pickDidKeyKey for a did:key).
-  const aitPeriodKey = aitKey
-  if (aitPeriodKey?.attestation_strength) {
-    const keyRank = ATTESTATION_STRENGTH_RANK[aitPeriodKey.attestation_strength]
+  // Cross-check against the key the receipt's witness held at the AIT's issue
+  // time, as verify.sh step 5 (oai_keys_at "$WITNESS" "$AIT_TS"). For a did:key
+  // witness that is step 1's AIT key (receipt and AIT name the same witness).
+  // An OAI receipt may name another witness than its AIT (ATAP-v0.2 §3.4), and
+  // the ceiling binds to the key that signed the receipt's claim, not the
+  // AIT's: read the AIT witness's key instead and a receipt signed by a
+  // self-asserted witness over a silicon-root AIT would inherit silicon-root.
+  const aitPeriodKey = didRaw || receipt.witness === ait.witness ? aitKey : pickKey(keys, receipt.witness, ait.issued_at)
+  if (typeof aitPeriodKey === 'string') return { ok: false, blocks: chain.length, reason: aitPeriodKey }
+  // No entry at all is a failure, not the "omits the field" warning below: a
+  // witness with no key at the AIT's issue time attests nothing about it.
+  if (!aitPeriodKey) return { ok: false, blocks: chain.length, reason: `no key for receipt witness ${receipt.witness} at ${ait.issued_at}` }
+  // A key that omits its strength is undefined, null, false or "", as
+  // verify.sh's jq `// empty` plus its `-n` test; anything else must be a
+  // tier string, as verify.sh's rank -1 fails everything else. Typed, not
+  // truthy: Object.hasOwn coerces ["self-asserted"] to its string, so an
+  // array would pass as that tier, and 0 would read as missing.
+  const keyStrength: unknown = aitPeriodKey.attestation_strength
+  if (keyStrength !== undefined && keyStrength !== null && keyStrength !== false && keyStrength !== '') {
+    // A typo in a trusted bundle ("silicon_root") has no rank, and
+    // `rank > undefined` is false, so without this any claim would pass.
+    if (typeof keyStrength !== 'string' || !Object.hasOwn(ATTESTATION_STRENGTH_RANK, keyStrength)) {
+      return {
+        ok: false,
+        blocks: chain.length,
+        reason: `key ${aitPeriodKey.key_id} has unrecognized attestation_strength '${typeof keyStrength === 'string' ? keyStrength : JSON.stringify(keyStrength)}'`,
+      }
+    }
+    const keyRank = ATTESTATION_STRENGTH_RANK[keyStrength as AttestationStrength]
     const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]
     if (rcptRank > keyRank) {
       return {
@@ -328,7 +461,8 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
 // tunnelmind:code_crew:v1 profile.md §9: every event the receipt's blocks cover.
 export const WITNESS_EVENTS = 'profile_artifacts/witness_events.json'
 
-function isObject(v: unknown): v is Record<string, unknown> {
+// Exported so atap-cli's shape checks are the library's.
+export function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
@@ -341,11 +475,14 @@ function isObject(v: unknown): v is Record<string, unknown> {
 // every witness_signature must verify under the key it encodes (ATAP-v0.2
 // §3.1), as verify.sh checks too, over the raw 32-byte self_hash (§7.7).
 export function checkWitnessEvents(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
-  return clean(witnessEventsProblem(events, chain, ait, keys))
+  return clean(jcsRefusal(() => witnessEventsProblem(events, chain, ait, keys), reason => reason))
 }
 
 function witnessEventsProblem(events: WitnessEvent[], chain: AttestationBlock[], ait: AIT, keys: KeysDocument): string | null {
   if (!Array.isArray(events)) return `${WITNESS_EVENTS} is not an array`
+  // A did:key witness signs every event with the key it encodes.
+  const didRaw = isDidKey(ait.witness) ? didKeyRaw(ait.witness) : null
+  if (isDidKey(ait.witness) && !didRaw) return `AIT witness ${ait.witness} is not an Ed25519 did:key (ATAP-v0.2 §3)`
   let prev: string = GENESIS_HASH
   for (const [i, e] of events.entries()) {
     if (!isObject(e)) return `event ${i} is not an object`
@@ -353,12 +490,14 @@ function witnessEventsProblem(events: WitnessEvent[], chain: AttestationBlock[],
     if (e.ait !== ait.id) return `event ${i} (${e.id}) is not under ${ait.id}`
     if (sha256(canonicalizeBytes(unsigned)) !== self_hash) return `event ${i} (${e.id}) self_hash mismatch`
     if (e.prev_event_hash !== prev) return `event ${i} (${e.id}) prev_event_hash breaks the chain`
-    if (isDidKey(ait.witness)) {
-      const key = pickDidKeyKey(keys, ait.witness, publicKeyFromDidKey(ait.witness), e.witnessed_at)
+    if (didRaw) {
+      const key = pickDidKeyKey(keys, ait.witness, didRaw, e.witnessed_at)
       if (!key) return `no key for ${ait.witness} at ${e.witnessed_at}`
       if (typeof key === 'string') return key
+      const pub = keyObjectOf(key)
+      if (typeof pub === 'string') return pub
       // Malformed input is a verdict, not a TypeError.
-      if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, publicKeyFromHex(key.public_key))) {
+      if (typeof e.witness_signature !== 'string' || !ed25519Verify(fromHex(self_hash), e.witness_signature, pub)) {
         return `event ${i} (${e.id}) signature invalid`
       }
     }
@@ -416,7 +555,12 @@ export function checkManifestFiles(receipt: Receipt, read: (rel: string) => Uint
 
 function manifestFilesProblem(receipt: Receipt, read: (rel: string) => Uint8Array | undefined, present?: Iterable<string>): string | null {
   const listed = new Map<string, string | null>()
-  for (const f of receipt.files ?? []) {
+  if (!isObject(receipt) || (receipt.files !== undefined && !Array.isArray(receipt.files))) return 'manifest.files is not an array'
+  for (const [i, f] of (receipt.files ?? []).entries()) {
+    // A verdict, not a TypeError: the manifest is parsed from untrusted JSON.
+    if (!isObject(f) || typeof f.path !== 'string' || (f.sha256 !== null && typeof f.sha256 !== 'string')) {
+      return `manifest.files[${i}] is not {path, sha256}`
+    }
     const rel = normaliseReceiptPath(f.path)
     if (rel === null || hasDotDot(f.path)) return `${f.path} escapes the receipt directory`
     listed.set(rel, f.sha256)

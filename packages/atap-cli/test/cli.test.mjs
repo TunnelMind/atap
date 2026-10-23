@@ -303,3 +303,39 @@ test('--help prints the usage table without a key or witness', async () => {
     for (const cmd of ['ait declare', 'event', 'block', 'receipt', 'verify']) assert.ok(r.stdout.includes(cmd), cmd)
   }
 })
+
+// 2026-10-21: config.json can be committed, so its `key` must stay inside the
+// store; a clone could otherwise point it (or a committed symlink) at another
+// project's witness.pem and sign as that witness through the hook.
+import { spawnSync } from 'node:child_process'
+import { copyFileSync, rmSync, symlinkSync } from 'node:fs'
+import { relative } from 'node:path'
+test('a config.json key outside the store is refused, by path or symlink', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'atap-keyesc-'))
+  const other = mkdtempSync(join(tmpdir(), 'atap-other-'))
+  const cli = (args, input = '') => spawnSync(process.execPath, [CLI, ...args], { cwd: project, input, encoding: 'utf8', env: { PATH: process.env.PATH } })
+  assert.equal(cli(['init']).status, 0)
+  const store = join(project, '.atap')
+  const config = JSON.parse(readFileSync(join(store, 'config.json'), 'utf8'))
+  // The same key bytes elsewhere, as another project's store would hold them.
+  const otherPem = join(other, 'witness.pem')
+  copyFileSync(join(store, 'witness.pem'), otherPem)
+  const event = () => cli(['event'], JSON.stringify(EXAMPLES[0]))
+  for (const key of [otherPem, relative(store, otherPem)]) {
+    writeFileSync(join(store, 'config.json'), JSON.stringify({ ...config, key }))
+    const r = event()
+    assert.notEqual(r.status, 0, key)
+    assert.match(JSON.parse(r.stderr).error, /resolves outside the store/)
+  }
+  writeFileSync(join(store, 'config.json'), JSON.stringify(config))
+  rmSync(join(store, 'witness.pem'))
+  symlinkSync(otherPem, join(store, 'witness.pem'))
+  const viaLink = event()
+  assert.notEqual(viaLink.status, 0)
+  assert.match(JSON.parse(viaLink.stderr).error, /resolves outside the store/)
+  assert.ok(!existsSync(join(store, 'events.jsonl')))
+  // An explicit --key is the user's own choice and still works.
+  const explicit = cli(['event', '--key', otherPem], JSON.stringify(EXAMPLES[0]))
+  assert.equal(explicit.status, 0, explicit.stderr)
+  assert.equal(readFileSync(join(store, 'events.jsonl'), 'utf8').trim().split('\n').length, 1)
+})

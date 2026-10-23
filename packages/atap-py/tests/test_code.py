@@ -5,7 +5,6 @@ from packages/atap-py: python3 -m unittest discover -s tests"""
 import io
 import json
 import os
-import re
 import subprocess
 import sys
 import unittest

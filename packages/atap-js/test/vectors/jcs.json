@@ -1,0 +1,51 @@
+{
+  "source": "TunnelMind/receipt-verify test/vectors/jcs.json",
+  "about": "RFC 8785 (JCS) wire vectors shared by every TunnelMind canonicalizer: receipt-verify (src/jcs.ts, scripts/verdict-lib/jcs.js, scripts/verify-log.mjs), tollbooth core, atap-js and atap verify.sh. Each vector is canonicalize(input) === canonical, or throws: true (a lone surrogate is refused, never mapped to U+FFFD). Other repos vendor this file verbatim: change it here first.",
+  "vectors": [
+    {
+      "name": "rfc8785-3.2.2-sample",
+      "input": {"numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001], "string": "\u20ac$\u000F\u000aA'\u0042\u0022\u005c\\\"\/", "literals": [null, true, false]},
+      "canonical": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}"
+    },
+    {
+      "name": "rfc8785-3.2.3-key-order-utf16",
+      "input": {"\u20ac": "Euro Sign", "\r": "Carriage Return", "\ufb33": "Hebrew Letter Dalet With Dagesh", "1": "One", "\ud83d\ude00": "Emoji: Grinning Face", "\u0080": "Control", "\u00f6": "Latin Small Letter O With Diaeresis"},
+      "canonical": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\",\"€\":\"Euro Sign\",\"😀\":\"Emoji: Grinning Face\",\"דּ\":\"Hebrew Letter Dalet With Dagesh\"}"
+    },
+    {
+      "name": "nested-sort-and-empties",
+      "input": {"b": [1, {"d": true, "c": null}, []], "a": {}, "": ""},
+      "canonical": "{\"\":\"\",\"a\":{},\"b\":[1,{\"c\":null,\"d\":true},[]]}"
+    },
+    {
+      "name": "number-forms",
+      "input": [1e21, 1e-7, 0.000001, 1e22, 5e-324, 1.7976931348623157e308, -0.0, 9007199254740993, 0.1, 100, 1.0, 1.5e-5, -1.25e-10, 0.7],
+      "canonical": "[1e+21,1e-7,0.000001,1e+22,5e-324,1.7976931348623157e+308,0,9007199254740992,0.1,100,1,0.000015,-1.25e-10,0.7]"
+    },
+    {
+      "name": "string-escapes",
+      "input": "q\"b\\c\u0001\n\t\u001f\u007f\u00e9\ud83d\ude00/",
+      "canonical": "\"q\\\"b\\\\c\\u0001\\n\\t\\u001fé😀/\""
+    },
+    {
+      "name": "surrogate-pair-value",
+      "input": {"s": "\ud83d\ude00"},
+      "canonical": "{\"s\":\"😀\"}"
+    },
+    {
+      "name": "lone-high-surrogate-value",
+      "input": {"s": "\ud800"},
+      "throws": true
+    },
+    {
+      "name": "lone-low-surrogate-value",
+      "input": {"s": "a\udc00b"},
+      "throws": true
+    },
+    {
+      "name": "lone-surrogate-key",
+      "input": {"\udc00": 1},
+      "throws": true
+    }
+  ]
+}

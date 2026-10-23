@@ -134,8 +134,12 @@ test('key validity is compared as instants, not strings', async () => {
 
 test('an unparsable key validity time is a rejection, not a pass', async () => {
   // Zoneless (host-local in bare Date.parse), date-only and lowercase t/z are
-  // refused by both verifiers alike, not read as some instant.
-  for (const bad of ['yesterday', null, '2000-01-01T00:00:00', '2000-01-01', '2000-01-01t00:00:00z']) {
+  // refused by both verifiers alike, not read as some instant. So are a leap
+  // second (jq took it), 24:00 (Date.parse rolled it over), an offset past
+  // 23:59 (jq did the arithmetic), a day the month lacks and a trailing
+  // newline (jq's $ matched before it): one grammar in both.
+  for (const bad of ['yesterday', null, '2000-01-01T00:00:00', '2000-01-01', '2000-01-01t00:00:00z',
+    '2000-01-01T23:59:60Z', '2000-01-01T24:00:00Z', '2000-01-01T00:00:00+99:99', '2000-02-30T00:00:00Z', '2000-01-01T00:00:00Z\n']) {
     const { dir } = await receiptDir(k1 => [{ ...k1, valid_from: bad }])
     assertFails(verifySh(dir), /not RFC 3339|RFC 3339 times/)
     const r = lib(dir)
@@ -292,4 +296,129 @@ test('a verify.sh inside the receipt it verifies refuses to run', async () => {
   assert.equal(good.status, 0, good.stderr)
   const inside = spawnSync('bash', [REPO_VERIFY_SH, '.'], { cwd: r.dir, encoding: 'utf8' })
   assert.equal(inside.status, 0, inside.stderr)
+})
+
+// jq maps a lone low-surrogate escape to U+FFFD before verify.sh's python sees
+// it. A manifest signed with "�" and edited to "\udc00" canonicalizes to
+// the signed bytes there, so verify.sh passed what atap-js refuses. Both now
+// fail it, verify.sh before any jq read.
+test('a manifest edited from U+FFFD to a lone surrogate escape fails both verifiers', async () => {
+  const r = await receiptDir()
+  editManifest(r, m => ({ ...m, format: m.format, note: '�' }))
+  assert.equal(verifySh(r.dir).status, 0, 'the honest U+FFFD manifest verifies')
+  const path = join(r.dir, 'manifest.json')
+  const text = readFileSync(path, 'utf8')
+  assert.ok(text.includes('�'))
+  writeFileSync(path, text.replace('�', '\\udc00'))
+  assertFails(verifySh(r.dir), /manifest\.json holds a lone UTF-16 surrogate/)
+  const js = lib(r.dir)
+  assert.equal(js.ok, false)
+  assert.match(js.reason, /lone surrogate/)
+})
+
+// The bundled public_keys.json is the receipt maker's: a public_key with a
+// trailing newline passed verify.sh ($(…) stripped it) and threw out of
+// atap-js. Both now refuse it, and the CLI reports it as a verdict.
+test('a malformed key public_key fails verify.sh, the library and the CLI alike', async () => {
+  for (const spoil of [pk => pk + '\n', pk => pk.slice(0, -1), pk => pk.slice(0, -2) + 'zz']) {
+    const { dir } = await receiptDir(k1 => [{ ...k1, public_key: spoil(k1.public_key) }])
+    assertFails(verifySh(dir), /key k1 public_key is not 32-byte hex/)
+    const js = lib(dir)
+    assert.equal(js.ok, false)
+    assert.match(js.reason, /key k1 public_key is not 32-byte hex/)
+    const cli = cliVerify(dir)
+    assert.equal(cli.ok, false)
+    assert.match(cli.reason, /key k1 public_key is not 32-byte hex/)
+  }
+})
+
+// The CLI read fields off the parsed manifest and AIT before the library saw
+// them, so each of these crashed with a TypeError; verify.sh fails each, and
+// the CLI now gives a verdict with a reason.
+test('a null manifest, a null files[] entry or a null AIT is a CLI verdict, not a crash', async () => {
+  const nullManifest = await receiptDir()
+  writeFileSync(join(nullManifest.dir, 'manifest.json'), 'null')
+  const nullEntry = await receiptDir()
+  editManifest(nullEntry, m => ({ ...m, files: [null, ...m.files] }))
+  const nullAit = await receiptDir()
+  writeFileSync(join(nullAit.dir, 'ait.json'), 'null')
+  editManifest(nullAit, m => ({ ...m, files: m.files.map(f => (f.path === 'ait.json' ? { ...f, sha256: sha256(Buffer.from('null')) } : f)) }))
+  for (const [{ dir }, reason] of [
+    [nullManifest, /^manifest\.json is not an object$/],
+    [nullEntry, /^manifest\.files\[0\] is not \{path, sha256\}$/],
+    [nullAit, /^receipt or AIT is not an object$/],
+  ]) {
+    const cli = cliVerify(dir)
+    assert.equal(cli.ok, false)
+    assert.match(cli.reason, reason)
+    assert.notEqual(verifySh(dir).status, 0)
+  }
+})
+
+// $(…) strips trailing newlines and xxd -r -p skips whitespace, so verify.sh
+// read "<sig>\n", "<si g>", "self-asserted\n" and a key's "software\n" as the
+// clean values that atap-js refuses. verify.sh now reads each inside jq.
+test('whitespace in a signature or a strength fails verify.sh as it fails atap-js', async () => {
+  const sigCases = [s => s + '\n', s => s.slice(0, 20) + ' ' + s.slice(20)]
+  for (const spoil of sigCases) {
+    const { dir } = await receiptDir()
+    const m = readJson(dir, 'manifest.json')
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...m, witness_signature: spoil(m.witness_signature) }))
+    assertFails(verifySh(dir), /manifest signature invalid/)
+    assert.match(lib(dir).reason, /receipt signature invalid/)
+  }
+  const nlReceipt = await receiptDir()
+  editManifest(nlReceipt, m => ({ ...m, attestation_strength: 'self-asserted\n' }))
+  assertFails(verifySh(nlReceipt.dir), /manifest\.attestation_strength has unrecognized value/)
+  assert.match(lib(nlReceipt.dir).reason, /unrecognized attestation_strength/)
+  const nlKey = await receiptDir(k1 => [{ ...k1, attestation_strength: 'software\n' }])
+  assertFails(verifySh(nlKey.dir), /exceeds key\.attestation_strength/)
+  assert.match(lib(nlKey.dir).reason, /key k1 has unrecognized attestation_strength/)
+  // A strength spelled as the script's own MISSING sentinel is a claim, not "absent".
+  const sentinel = await receiptDir()
+  editManifest(sentinel, m => ({ ...m, attestation_strength: 'MISSING' }))
+  assertFails(verifySh(sentinel.dir), /unrecognized value/)
+  assert.match(lib(sentinel.dir).reason, /unrecognized attestation_strength/)
+  // The accepted spellings still verify: bare hex, bare 0x, upper case.
+  for (const respell of [s => s.slice(10), s => '0x' + s.slice(10), s => 'ed25519:0x' + s.slice(10).toUpperCase()]) {
+    const { dir } = await receiptDir()
+    const m = readJson(dir, 'manifest.json')
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...m, witness_signature: respell(m.witness_signature) }))
+    assert.equal(verifySh(dir).status, 0, verifySh(dir).stderr)
+    assert.equal(lib(dir).ok, true)
+  }
+})
+
+// verify.sh's python surrogate walk recursed; past Python's recursion limit
+// it died with a traceback and exit 1, which read as "no surrogate". jq 1.7
+// refuses depth > 256 later anyway, but a jq with a higher limit would have
+// passed a deeply nested lone surrogate that atap-js refuses.
+test('a manifest too deep for the surrogate check fails it, not passes it', async () => {
+  for (const depth of [1200, 3000]) {
+    const { dir } = await receiptDir()
+    const path = join(dir, 'manifest.json')
+    const text = readFileSync(path, 'utf8')
+    writeFileSync(path, text.replace(/}$/, `,"note":${'['.repeat(depth)}"\\udc00"${']'.repeat(depth)}}`))
+    assertFails(verifySh(dir), /manifest\.json is nested too deeply to check for a lone UTF-16 surrogate/)
+  }
+})
+
+// A manifest signed with "a���b", re-written with the raw bytes
+// ED B0 80 (one invalid sequence, three U+FFFD under a lossy decode): the CLI
+// read it as the signed text and passed it. Every verifier now reads JSON as
+// strict UTF-8 and refuses it.
+test('invalid UTF-8 standing in for a signed U+FFFD fails verify.sh and the CLI', async () => {
+  const r = await receiptDir()
+  editManifest(r, m => ({ ...m, note: 'a���b' }))
+  assert.equal(cliVerify(r.dir).ok, true, 'the honest U+FFFD manifest verifies')
+  const path = join(r.dir, 'manifest.json')
+  const bytes = readFileSync(path)
+  const needle = Buffer.from('a���b')
+  const i = bytes.indexOf(needle)
+  assert.ok(i > 0)
+  writeFileSync(path, Buffer.concat([bytes.subarray(0, i + 1), Buffer.from([0xed, 0xb0, 0x80]), bytes.subarray(i + needle.length - 1)]))
+  assertFails(verifySh(r.dir), /manifest\.json is not valid UTF-8/)
+  const cli = spawnSync(process.execPath, [CLI, 'verify', r.dir], { encoding: 'utf8', env: { PATH: process.env.PATH } })
+  assert.notEqual(cli.status, 0)
+  assert.match(cli.stderr, /cannot read manifest\.json/)
 })

@@ -146,6 +146,17 @@ test('fresh v0.2 receipt verifies, as a zipped dir and as the CLI\'s own receipt
   }
 })
 
+// The page cannot be handed trusted keys, so an OAI receipt that passes against
+// its own public_keys.json must say so, as the CLI does: without the warning a
+// forger's receipt with a forged keys file reads as plainly verified.
+test('an OAI receipt checked against its own keys carries the CLI\'s warning', { skip: skipFresh }, async () => {
+  const cli = cliVerify(fresh.out)
+  assert.ok(cli.warnings?.length, 'the CLI warns')
+  const v = await viewer.verifyZip(zipDir(fresh.out))
+  assert.equal(v.result.ok, true, v.result.reason)
+  assert.deepEqual([...v.result.warnings], cli.warnings) // spread: the page's array is from the vm realm
+})
+
 // The viewer's verdict on a tampered dir must carry the CLI's exact reason.
 async function sameReasonAsCli(dir, expect) {
   const cli = cliVerify(dir)
@@ -215,6 +226,38 @@ test('code_crew events dropped from files[] are still checked, present or delete
   assert.equal(v.status, 'done')
   assert.equal(v.result.ok, false)
   assert.match(v.result.reason, /witness_events\.json/)
+})
+
+// A null manifest or a null files[] entry gets the CLI's verdict word for
+// word, not a TypeError message as the reason.
+test('a null manifest or a null files[] entry fails with the CLI\'s reason', { skip: skipFresh }, async () => {
+  await sameReasonAsCli(await resigned('nullentry', files => [null, ...files]), /manifest\.files\[0\] is not \{path, sha256\}/)
+  const dir = join(fresh.dir, 'nullmanifest')
+  cpSync(fresh.out, dir, { recursive: true })
+  writeFileSync(join(dir, 'manifest.json'), 'null')
+  await sameReasonAsCli(dir, /manifest\.json is not an object/)
+})
+
+// Signed "a���b", re-written with the raw bytes ED B0 80 (three
+// U+FFFD under a lossy decode): the page read it as the signed text and
+// passed it. It now decodes strict UTF-8 and refuses it, as the CLI does.
+test('invalid UTF-8 standing in for a signed U+FFFD is refused', { skip: skipFresh }, async () => {
+  const { canonicalizeBytes } = await import(ATAP_JS)
+  const dir = join(fresh.dir, 'lossy')
+  cpSync(fresh.out, dir, { recursive: true })
+  const { witness_signature: _, ...rcpt } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
+  rcpt.note = 'a���b'
+  const sig = sign(null, canonicalizeBytes(rcpt), fresh.privateKey).toString('hex')
+  const honest = Buffer.from(JSON.stringify({ ...rcpt, witness_signature: `ed25519:0x${sig}` }))
+  writeFileSync(join(dir, 'manifest.json'), honest)
+  assert.equal((await viewer.verifyZip(zipDir(dir))).result.ok, true, 'the honest U+FFFD manifest verifies')
+  const needle = Buffer.from('a���b')
+  const i = honest.indexOf(needle)
+  writeFileSync(join(dir, 'manifest.json'), Buffer.concat([honest.subarray(0, i + 1), Buffer.from([0xed, 0xb0, 0x80]), honest.subarray(i + needle.length - 1)]))
+  const v = await viewer.verifyZip(zipDir(dir))
+  assert.equal(v.status, 'done')
+  assert.equal(v.result.ok, false)
+  assert.match(v.result.reason, /cannot read manifest\.json/)
 })
 
 test('hostile ZIP: a ../ entry is refused', async () => {
