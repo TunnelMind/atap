@@ -35,3 +35,25 @@ export {
   type VerifyResult,
 } from './verify.js'
 export { toSignedStatement, verifySignedStatement, cborDecode, CborTag } from './scitt.js'
+export {
+  CS_VERSION,
+  signConstraintSet,
+  signConstraintRescind,
+  statementProblem,
+  statementHash,
+  ruleProblem,
+  foldConstraints,
+  inForceHash,
+  evaluateCall,
+  renderConstraints,
+  globToRegExp,
+  commandSegments,
+  type ConstraintRule,
+  type ConstraintSetStatement,
+  type ConstraintRescindStatement,
+  type ConstraintStatement,
+  type FoldResult,
+  type ToolCall,
+  type EvalContext,
+  type Decision,
+} from './constraints.js'

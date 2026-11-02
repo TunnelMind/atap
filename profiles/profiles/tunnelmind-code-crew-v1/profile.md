@@ -94,6 +94,35 @@ for example a `code_crew:merged` with no preceding owner `code_crew:approval`
 under `autonomy_class: gated`, or a `code_crew:qa_verdict` whose `attempt`
 exceeds `max_iterations`.
 
+### 5.1 Operator constraints
+
+The AIT `constraints` are fixed for the AIT's life and signed by the witness.
+**Operator constraints** are separate: the owner signs them, at any time, with
+an Ed25519 did:key of their own, and a harness enforces them before each tool
+call (the Claude Code plugin's PreToolUse hook). A Constraint Statement is a
+JSON object signed over its RFC 8785 bytes minus `operator_signature`:
+
+| Field | Meaning |
+|---|---|
+| `cs_version` | `"0.1"` |
+| `type` | `constraint_set` or `constraint_rescind` |
+| `id` | UUIDv7 |
+| `constraint_id` | `^[a-z0-9][a-z0-9_.-]{0,63}$`; a newer set with the same id replaces the older one |
+| `operator` | the signing key as a did:key |
+| `issued_at` | RFC 3339 UTC; statements apply in this order |
+| `scope` | `"*"` or the AIT id it binds to |
+| `prose` (set) | 1–400 characters the agent is shown |
+| `rules` (set) | up to 32 rules: `id`, `effect` (`forbid` \| `require_approval`), `tools` globs, and optionally `commands` (Bash segments), `paths` (relative to the project root), `outside_project: true`, `hosts` (WebFetch) |
+| `operator_signature` | `ed25519:0x` + 128 hex |
+
+A rescind counts only when the trusted operator signed it. A statement that
+fails its signature, names another operator or another AIT is a tamper
+signal: the harness denies every call until the owner repairs the store. The
+statements stay out of witness events (their prose is the owner's words); the
+events carry `statement_sha256`, so a holder of a statement can prove it is
+the one recorded. The in-force set is named by `in_force_sha256`: SHA-256 of
+the RFC 8785 bytes of `{"constraints": [sorted statement hashes]}`.
+
 ## 6. Witness event types
 
 A conformant Witness Event MUST validate against **both** the ATAP v0.1 base
@@ -114,6 +143,12 @@ event types, so each carries the `code_crew:` prefix. Every payload requires
 | `code_crew:merged` (PR merge) | `merge_kind` (`pr`, or absent), `repo` (`owner/repo`), `pr_number` (≥ 1), `merge_commit_sha`; `evidence` = `anchored` |
 | `code_crew:merged` (local merge) | `merge_kind` = `local`, `repo` (repo basename, no owner), `merge_commit_sha`; no `pr_number`; `evidence` = `asserted` |
 | `code_crew:deployed` | `target`, `version_id` |
+| `code_crew:constraint_set` | `constraint_id`, `statement_sha256`, `operator` (did:key), `in_force_sha256` (after); `evidence` = `witnessed` |
+| `code_crew:constraint_rescind` | same as `constraint_set`; `evidence` = `witnessed` |
+| `code_crew:tool_gate` | `tool`, `decision` (`deny` \| `ask`), `constraint_id`, `rule_id`, `input_sha256` (RFC 8785 bytes of the tool input), `in_force_sha256`; `evidence` = `witnessed`. Allowed calls are not recorded. |
+
+`code_crew:change_committed` and `code_crew:verify_run` MAY carry
+`in_force_sha256`: the operator constraints in force when the action ran.
 
 Commands, outputs and approval texts are recorded as sha256 digests only: the
 text may carry user communications (ATAP §7.6), while the digest still lets a
@@ -207,6 +242,11 @@ are re-verified in CI (`npm run verify`). Repos, shas and OAIs are illustrative.
 
 - **v1 (2026-10-08)** — initial draft profile.
 - **v1 (2026-10-08)** — §9 defines `profile_artifacts/witness_events.json`.
+- **v1 (2026-11-02)** — operator constraints (§5.1): event types
+  `code_crew:constraint_set`, `code_crew:constraint_rescind` and
+  `code_crew:tool_gate`, and an optional `in_force_sha256` on
+  `change_committed` and `verify_run`. Additive: every existing event
+  validates unchanged, so the identifier stays `v1`.
 - **v1 (2026-10-12)** — `code_crew:merged` also accepts a local merge
   (`merge_kind: "local"`) for a repo with no PR; §3 and §6 updated. Additive:
   every existing event validates unchanged, so the identifier stays `v1`.

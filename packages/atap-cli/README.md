@@ -114,6 +114,24 @@ Flags:
 
 Errors go to stderr as one line of `{"error": "..."}` with a non-zero exit.
 
+## Operator constraints
+
+`atap-witness constraints` signs, folds and checks operator constraints
+(code_crew profile, section 5.1). The operator key is separate from the
+witness key and belongs outside the project.
+
+| Command | Does |
+|---|---|
+| `constraints keygen --out FILE [--force]` | Writes an Ed25519 key (0600); prints its did:key. |
+| `constraints set --operator-key K < {constraint_id, prose, rules, scope?}` | Signs a set, appends it to the store, records `code_crew:constraint_set`. The first set pins its key as `constraints_operator` in config.json. |
+| `constraints rescind --operator-key K --id ID` | Signs a rescind; records `code_crew:constraint_rescind`. |
+| `constraints status` | The store, the trusted operator, what is in force, and any rejected statement. |
+| `constraints context` | The text a harness puts back into the context. |
+| `constraints check [--record] < PreToolUse JSON` | `{decision: allow, deny or ask, constraint_id, rule_id, reason, in_force_sha256}`; `--record` writes `code_crew:tool_gate` for deny and ask. |
+
+`ATAP_OPERATOR`, `ATAP_CONSTRAINTS`, `ATAP_CONSTRAINTS_REQUIRED` and
+`ATAP_OPERATOR_KEY` override the config; see the Claude Code plugin's README.
+
 ## Records in git
 
 The store's records can live in the project's own git repo, on an orphan

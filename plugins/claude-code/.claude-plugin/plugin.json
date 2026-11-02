@@ -1,6 +1,6 @@
 {
   "name": "atap",
-  "version": "0.1.0",
-  "description": "Records the commits and test runs Claude Code makes in an ATAP-initialised project as ATAP witness events, stored locally in .atap/",
+  "version": "0.2.0",
+  "description": "Records the commits and test runs Claude Code makes in an ATAP-initialised project as ATAP witness events, and enforces operator-signed constraints before every tool call",
   "author": { "name": "TunnelMind" }
 }

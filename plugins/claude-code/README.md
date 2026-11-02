@@ -5,6 +5,10 @@ makes in a project as ATAP witness events, through the
 [`atap-witness`](../../packages/atap-cli/) CLI. The events and blocks are
 stored locally in the project's `.atap/`.
 
+It can also enforce **operator constraints**: rules the owner signs with their
+own key, checked before every tool call and put back into the context after
+every compaction. See [Operator constraints](#operator-constraints).
+
 ## Requirements
 
 - Node 20 or later. The plugin has no dependencies.
@@ -28,7 +32,8 @@ One script, `scripts/atap-hook.mjs`, runs on three hooks
 
 | Hook | What happens |
 |---|---|
-| `SessionStart` | Nothing. |
+| `SessionStart` | Nothing, unless operator constraints exist: then they go into the context (startup, resume, clear and compact). |
+| `PreToolUse` (every tool) | Nothing, unless operator constraints exist: then the call is checked, below. |
 | `PostToolUse` (matcher `Bash`) | A commit or a test run becomes one event, below. Other commands record nothing. |
 | `SessionEnd` | Closes one attestation block over the AIT's pending events. |
 
@@ -72,10 +77,97 @@ No event or summary holds commit messages, command text (only its sha256),
 command output (only its sha256), file paths, file contents, prompts, model
 output or token counts.
 
+## Operator constraints
+
+Context compaction drops instructions an agent was given, and a forged
+"the owner lifted that rule" in recent context can still talk an agent out of
+one ([Chen, arXiv 2606.22528](https://arxiv.org/pdf/2606.22528)). Operator
+constraints move the rule out of the context: the owner signs it, the hook
+enforces it before the call runs, and only a rescind the owner signs lifts it.
+
+```sh
+# once, as the owner, with the key outside any project the agent can write
+atap-witness constraints keygen --out ~/.atap-operator/operator.pem
+
+# in the project (after atap-witness init)
+atap-witness constraints set --operator-key ~/.atap-operator/operator.pem <<'JSON'
+{"constraint_id": "no-prod",
+ "prose": "Never deploy to production or touch infra/prod.",
+ "rules": [
+   {"id": "deploy", "effect": "forbid", "tools": ["Bash"], "commands": ["wrangler deploy*", "terraform apply*"]},
+   {"id": "prod-files", "effect": "forbid", "tools": ["Write", "Edit"], "paths": ["infra/prod/**"]},
+   {"id": "fetch", "effect": "require_approval", "tools": ["WebFetch"]}]}
+JSON
+atap-witness constraints status
+atap-witness constraints rescind --operator-key ~/.atap-operator/operator.pem --id no-prod
+```
+
+What the hook does once a store exists:
+
+- **PreToolUse** runs `atap-witness constraints check --record`. A `forbid`
+  match answers `deny`, a `require_approval` match answers `ask`, and the
+  reason names the constraint and its prose. An allowed call prints nothing,
+  so Claude Code's own permission rules still decide it. Denials and asks are
+  recorded as `code_crew:tool_gate` events (tool name and a hash of its input,
+  never the input).
+- **SessionStart** prints the constraints in force as `additionalContext`. It
+  fires with source `compact` too, so the constraints come back after every
+  compaction instead of being summarised away.
+- **Fails closed.** If the store holds a statement that fails its signature,
+  one from another key, or has lost a statement a witness event recorded,
+  every call is denied until the owner repairs it. If the CLI cannot answer
+  (missing, killed, bad output), the call is denied.
+- **Self-protection.** No tool may touch the operator key (reads included,
+  when `ATAP_OPERATOR_KEY` names it). No tool but a read-only one (Read, Grep,
+  Glob, LS) may touch the store, any `.atap/` directory in the project (so a
+  nested one cannot re-root the guard), or the project's and the user's
+  `.claude/settings*.json` (where a hook could be switched off). Paths are
+  resolved through symlinks, and compared case-insensitively on macOS and
+  Windows. Any MCP tool argument that looks like a path is checked too. No
+  Bash command may name any of them.
+- **Pinned root.** The hook finds `.atap/` from `CLAUDE_PROJECT_DIR` and
+  passes that root to the CLI, so the agent `cd`-ing somewhere else changes
+  nothing.
+
+Where trust comes from. The repo's `.atap/config.json` is written by whoever
+wrote the repo, so for a crew set these in the **user's environment**, which
+the agent cannot change:
+
+| Variable | Effect |
+|---|---|
+| `ATAP_OPERATOR` | The operator did:key to trust; beats the config's `constraints_operator`. |
+| `ATAP_CONSTRAINTS` | The store file; put it outside the project (default `.atap/constraints.jsonl`). |
+| `ATAP_CONSTRAINTS_REQUIRED=1` | No store, or nothing in force, denies every call instead of allowing it. |
+| `ATAP_OPERATOR_KEY` | The operator key's path, so the built-in rule keeps every tool off it. |
+| `ATAP_AIT` | The AIT to cross-check witness events under; beats the config's `ait`. |
+
+**The operator key must not be readable by the OS user the agent runs as.**
+Anything that user can read, a Bash command can eventually read, and whoever
+holds the key can sign a rescind. Keep it on another account, a hardware key
+or another machine; the self-protection rule only catches the obvious tries.
+
+Known limits, on purpose: Bash rules match command text, so a command built
+from variables, `eval`, aliases or base64 can get past a `commands` glob and
+past the name tripwire. The guard is the second line; OS permissions (the
+agent's user cannot write the store or read the key) are the first.
+
+Rules are globs: `*` stays inside a path segment and `**` crosses them;
+`commands` match each shell segment (split on `&&`, `||`, `;`, `|`, `&`,
+newlines, parentheses, backticks and `$(`, with leading `VAR=value` and
+wrappers such as `sudo` and `env` stripped); every matcher in a rule must
+match. `forbid` beats `require_approval`. A `paths` rule on Grep, Glob or LS
+also covers a search with no path or of any ancestor directory (searching `.`
+reaches `secrets/`). A rule is only as good as its globs: a command it does
+not name runs. The statement format is in the
+[code_crew profile, section 5.1](../../profiles/profiles/tunnelmind-code-crew-v1/profile.md).
+
+The compaction eval that measures whether this works on a real crew is in
+[`eval/`](eval/).
+
 ## Behavior
 
-The hook never blocks or breaks a session. It always exits 0 and writes
-nothing to stdout or stderr. Problems (CLI not found, CLI failed, no
+The hook never breaks a session. It always exits 0 and writes nothing to
+stderr. It writes to stdout only for operator constraints (above). Problems (CLI not found, CLI failed, no
 `owner/repo`, malformed hook input) are appended as one line to
 `.atap/hook.log`, which stops growing at 1 MB. Each hook has a 10 s timeout;
 the `atap-witness` call is killed after 8 s.

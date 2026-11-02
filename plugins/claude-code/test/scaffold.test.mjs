@@ -38,11 +38,14 @@ test('plugin.json names the plugin atap', () => {
   assert.ok(m.version)
 })
 
-test('hooks.json wires the three events to the script, each within 10 s', () => {
+test('hooks.json wires the four events to the script, each within 10 s', () => {
   const { hooks } = readJson(join(root, 'hooks', 'hooks.json'))
-  assert.deepEqual(Object.keys(hooks).sort(), ['PostToolUse', 'SessionEnd', 'SessionStart'])
+  assert.deepEqual(Object.keys(hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart'])
   assert.equal(hooks.PostToolUse[0].matcher, 'Bash')
-  const args = { SessionStart: 'session-start', PostToolUse: 'post-tool-use', SessionEnd: 'session-end' }
+  // The guard sees every tool, and SessionStart every source (compact included): no matchers.
+  assert.equal(hooks.PreToolUse[0].matcher, undefined)
+  assert.equal(hooks.SessionStart[0].matcher, undefined)
+  const args = { SessionStart: 'session-start', PreToolUse: 'pre-tool-use', PostToolUse: 'post-tool-use', SessionEnd: 'session-end' }
   for (const [event, groups] of Object.entries(hooks)) {
     for (const h of groups.flatMap((g) => g.hooks)) {
       assert.equal(h.type, 'command')

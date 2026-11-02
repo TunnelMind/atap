@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 // The one hook script for the ATAP Claude Code plugin. hooks/hooks.json runs it
-// as `atap-hook.mjs <session-start|post-tool-use|session-end>` with the hook's
-// JSON on stdin.
+// as `atap-hook.mjs <session-start|pre-tool-use|post-tool-use|session-end>`
+// with the hook's JSON on stdin.
 //
 // The rule above all: never break a session. The script always exits 0 and
-// never writes to stdout or stderr (SessionStart stdout lands in Claude's
-// context, PostToolUse stderr is shown to Claude). Anything that goes wrong is
+// writes nothing to stderr. It writes to stdout in exactly two cases, both only
+// when operator constraints exist (see "Operator constraints" in README.md):
+// SessionStart prints the constraints in force as additionalContext (it also
+// fires after a compaction, which is how they survive one), and PreToolUse
+// prints a deny or ask decision for a call they cover. With no constraint store
+// the plugin records and says nothing, as before. Anything that goes wrong is
 // appended to the project's .atap/hook.log instead. A project without .atap/,
 // or ATAP_OFF=1, makes the script a silent no-op.
+//
+// The guard fails closed: when a constraint store exists and the decision
+// cannot be made (CLI missing, killed, unreadable output), the call is denied.
 //
 // Node built-ins only: the plugin ships with no dependencies.
 
@@ -118,6 +125,49 @@ async function witness(atap, cwd, event, args, input) {
 
 const emit = (atap, cwd, event_type, payload) => witness(atap, cwd, 'post-tool-use', ['event'], { event_type, payload })
 
+// ---------------------------------------------------------------- operator constraints
+
+// The store the CLI reads: ATAP_CONSTRAINTS (the user's environment), else .atap/constraints.jsonl.
+const constraintStore = (atap) => (process.env.ATAP_CONSTRAINTS ? resolve(process.env.ATAP_CONSTRAINTS) : join(atap.dir, 'constraints.jsonl'))
+// On when anything says constraints exist: a required flag, a trusted operator (environment or
+// config), or a non-empty store. An operator with no store still runs the check, so a store the
+// agent deleted is caught by the CLI's witness-event cross-check instead of switching the guard off.
+const constraintsOn = async (atap) =>
+  process.env.ATAP_CONSTRAINTS_REQUIRED === '1' ||
+  Boolean(process.env.ATAP_OPERATOR) ||
+  typeof atap.config.constraints_operator === 'string' ||
+  (await stat(constraintStore(atap)).then((s) => s.size > 0, () => false))
+
+// `atap-witness constraints <args>` -> parsed stdout, or null when it cannot answer.
+async function constraintsCli(atap, cwd, event, args, input) {
+  const bin = process.env.ATAP_WITNESS || 'atap-witness'
+  // The project root is pinned to the .atap/ this hook found, never re-found from the agent's cwd.
+  const root = resolve(atap.dir, '..')
+  const p = run(bin, ['constraints', ...args], { cwd: root, timeout: 8000, env: { ...process.env, ATAP_PROJECT_DIR: root } })
+  p.child.stdin.on('error', () => {})
+  p.child.stdin.end(input === undefined ? '' : JSON.stringify(input))
+  try {
+    return (await p).stdout
+  } catch (e) {
+    await log(atap, event, e?.code === 'ENOENT' ? 'atap-witness not found' : `atap-witness constraints ${args[0]} failed: exit ${Number.isInteger(e?.code) ? e.code : 'killed'}`)
+    return null
+  }
+}
+
+const say = (obj) => process.stdout.write(JSON.stringify(obj))
+
+// The in-force hash for a commit or test-run event, when constraints exist.
+async function inForce(atap, cwd) {
+  if (!(await constraintsOn(atap))) return {}
+  const out = await constraintsCli(atap, cwd, 'post-tool-use', ['status'])
+  try {
+    const h = JSON.parse(out ?? '').in_force_sha256
+    return /^[0-9a-f]{64}$/.test(h) ? { in_force_sha256: h } : {}
+  } catch {
+    return {}
+  }
+}
+
 // A .atap/*.jsonl store as records; a missing file is empty. A bad line throws
 // fixed text (the parse error would quote the line) for the handler's log.
 async function readJsonl(atap, name) {
@@ -142,8 +192,37 @@ async function pendingEvents(atap, ait) {
 // Per-event handlers: (input, atap) where input is the parsed hook JSON and
 // atap is { dir, config } from findAtap.
 const handlers = {
-  // Nothing to record at start: session-end rolls up whatever is pending then.
-  'session-start': async () => {},
+  // Nothing to record at start: session-end rolls up whatever is pending then. With operator
+  // constraints, put them in the context. SessionStart also fires with source "compact", so the
+  // constraints come back after every compaction instead of being summarised away.
+  'session-start': async (input, atap) => {
+    if (!(await constraintsOn(atap))) return
+    const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd()
+    const text = await constraintsCli(atap, cwd, 'session-start', ['context'])
+    if (text && text.trim()) say({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text.trim() } })
+  },
+  // The guard. Allowed calls print nothing, so Claude Code's own permission rules still apply;
+  // only deny and ask are ever returned.
+  'pre-tool-use': async (input, atap) => {
+    if (!(await constraintsOn(atap))) return
+    const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd()
+    const out = await constraintsCli(atap, cwd, 'pre-tool-use', ['check', '--record'], input)
+    let d = null
+    try {
+      d = JSON.parse(out ?? '')
+    } catch {}
+    if (!d || !['allow', 'deny', 'ask'].includes(d.decision)) {
+      return say({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'ATAP: the operator constraint check could not run, so the call is blocked (see .atap/hook.log).' } })
+    }
+    if (d.decision === 'allow') return
+    const where = `${d.constraint_id}/${d.rule_id}`
+    const why = String(d.reason ?? '').trim()
+    d.reason = why && !/[.!?]$/.test(why) ? `${why}.` : why
+    const reason = d.decision === 'deny'
+      ? `ATAP operator constraint ${where} forbids this call: ${d.reason ?? ''} Only the owner can lift it, with a signed rescind.`
+      : `ATAP operator constraint ${where} needs the owner's approval for this call: ${d.reason ?? ''}`
+    say({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.decision, permissionDecisionReason: reason.slice(0, 900) } })
+  },
   'post-tool-use': async (input, atap) => {
     const command = input.tool_input?.command
     if (input.tool_name !== 'Bash' || typeof command !== 'string') return
@@ -167,7 +246,7 @@ const handlers = {
         if (/^[0-9a-f]{40}$/.test(root)) repo = `local/${root.slice(0, 12)}`
       }
       if (!repo) return log(atap, 'post-tool-use', 'no owner/repo')
-      return emit(atap, cwd, 'code_crew:change_committed', { timestamp, evidence: 'anchored', repo, commit_sha })
+      return emit(atap, cwd, 'code_crew:change_committed', { timestamp, evidence: 'anchored', repo, commit_sha, ...(await inForce(atap, cwd)) })
     }
 
     const configured = atap.config.test_commands
@@ -180,6 +259,7 @@ const handlers = {
       command_sha256: sha256(command),
       exit_code: Math.max(-255, Math.min(255, exit_code)),
       output_sha256: sha256(outputOf(result)),
+      ...(await inForce(atap, cwd)),
     })
   },
   // Close a block over the pending events, i.e. this session's (plus any an
@@ -206,8 +286,10 @@ export async function main(event = process.argv[2]) {
     input = JSON.parse(raw)
   } catch {}
   const valid = input && typeof input === 'object' && !Array.isArray(input)
-  // The hook's `cwd` is the session's project; fall back to our own cwd when stdin is unusable.
-  const atap = await findAtap(valid && typeof input.cwd === 'string' ? input.cwd : process.cwd())
+  // The project is CLAUDE_PROJECT_DIR when Claude Code sets it (fixed for the session, so a nested
+  // .atap/ under a directory the agent cd's into cannot re-root the guard), else the hook's `cwd`.
+  const from = process.env.CLAUDE_PROJECT_DIR || (valid && typeof input.cwd === 'string' ? input.cwd : process.cwd())
+  const atap = await findAtap(from)
   if (!atap) return
   // Fixed text, not the parse error: JSON.parse messages quote the input.
   if (!valid) return log(atap, event, 'malformed stdin')

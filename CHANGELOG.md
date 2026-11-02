@@ -4,6 +4,29 @@ All notable changes to ATAP are recorded here.
 
 ## Unreleased
 
+### Added
+
+- **Operator-signed constraints** (`tunnelmind:code_crew:v1` §5.1). The
+  owner signs constraints with their own Ed25519 did:key
+  (`atap-witness constraints keygen | set | rescind`); the Claude Code plugin
+  checks every tool call against them in a new PreToolUse hook and re-injects
+  them at every SessionStart, including the one after a compaction. A rescind
+  counts only when the operator signed it, so text claiming a constraint was
+  lifted changes nothing. A store with a statement that fails verification,
+  or that lost a statement a witness event recorded, blocks every call.
+  Denials and asks are recorded as `code_crew:tool_gate` events; commits and
+  test runs carry the in-force hash. Library: `signConstraintSet`,
+  `foldConstraints`, `evaluateCall` and friends in `@tunnelmindai/atap`.
+  Hardened after an internal review: the whole `.atap/` (nested ones too),
+  `.claude/settings*.json` and the operator key are off limits to write tools
+  and MCP tools, paths resolve through symlinks (and fold case on macOS and
+  Windows), the hook pins the project root from `CLAUDE_PROJECT_DIR`, search
+  rules cover ancestor directories, Bash splitting handles `&`, subshells,
+  `$(…)`, assignments and wrappers, hosts drop a trailing dot, and a statement
+  reaches the store only after its witness event passes the profile check.
+- **Plugin e2e test** runs the repo's trusted `verify.sh` on the receipt; the
+  receipt's own copy refuses to vouch for itself since the §8.2 hardening.
+
 ### Security
 
 Verdict changes from the 2026-10-21/22 review. No receipt the witness writes

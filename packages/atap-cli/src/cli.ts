@@ -64,6 +64,19 @@ import {
 import { Profiles } from './profile.js'
 import { DirStorage, readJsonl, withLock } from './storage.js'
 import { gitRestore, gitSync } from './gitstore.js'
+import {
+  appendStatement,
+  changePayload,
+  contextText,
+  decide,
+  gatePayload,
+  keygen,
+  loadOperatorKey,
+  loadState,
+  signStatement,
+  statusOf,
+  type ConstraintEnv,
+} from './constraints.js'
 
 // The reference verifier ships in the repo root. From dist/cli.js that is
 // three levels up (dist -> atap-cli -> packages -> root).
@@ -101,6 +114,11 @@ const USAGE = `usage:
   atap-witness scitt export DIR --key K [--issuer ISS]
   atap-witness scitt verify DIR
   atap-witness scitt register DIR --service URL
+  atap-witness constraints keygen --out FILE [--force]   (the operator's key; keep it outside the project)
+  atap-witness constraints set --operator-key K  < {"constraint_id","prose","rules":[…],"scope"?}
+  atap-witness constraints rescind --operator-key K --id CONSTRAINT_ID
+  atap-witness constraints status | context            (what is in force; the text a harness re-injects)
+  atap-witness constraints check [--record]  < PreToolUse hook JSON   (allow | deny | ask)
 
 Global: --dir (store, default ./.atap-witness), --strength (default self-asserted),
 --profiles-dir (profile registry + schemas, default the repo's profiles/).
@@ -125,6 +143,9 @@ type Values = {
   git?: boolean
   store?: boolean
   keys?: string
+  'operator-key'?: string
+  record?: boolean
+  id?: string
 }
 
 async function readStdin(): Promise<string> {
@@ -833,6 +854,9 @@ async function main(argv: string[]): Promise<number> {
       git: { type: 'boolean' },
       store: { type: 'boolean' },
       keys: { type: 'string' },
+      'operator-key': { type: 'string' },
+      record: { type: 'boolean' },
+      id: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   }) as { values: Values; positionals: string[] }
@@ -850,6 +874,12 @@ async function main(argv: string[]): Promise<number> {
   // stdin read, key load or lock.
   if (process.env.ATAP_OFF === '1' && (cmd === 'event' || cmd === 'block')) {
     process.stderr.write(`atap-witness: ATAP_OFF=1, ignoring ${cmd}\n`)
+    return 0
+  }
+
+  // The operator's key never touches a store, so keygen needs no project.
+  if (cmd === 'constraints' && pos[1] === 'keygen') {
+    process.stdout.write(json(await keygen(v.out, v.force === true)))
     return 0
   }
 
@@ -924,6 +954,23 @@ async function main(argv: string[]): Promise<number> {
   }
   // A did:key witness is its own issuer, so export can sign as it unasked.
   if (cmd === 'scitt' && atap && isDidKey(atap.config.witness_oai)) v.issuer ??= atap.config.witness_oai
+
+  if (cmd === 'constraints') {
+    // The harness pins the project root (ATAP_PROJECT_DIR, or Claude Code's CLAUDE_PROJECT_DIR), so a
+    // nested .atap/ under the agent's cwd cannot re-root the guard.
+    const pinned = process.env.ATAP_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR
+    const root = pinned ? await findAtap(pinned) : atap
+    if (root && root.dir !== atap?.dir) {
+      const s = (x: unknown) => (typeof x === 'string' ? x : undefined)
+      v.dir = root.dir
+      v.ait = s(root.config.ait)
+      v['witness-oai'] = process.env.ATAP_WITNESS_OAI ?? s(root.config.witness_oai)
+      const k = s(root.config.key)
+      if (k) v.key = configKeyPath(root.dir, k)
+    }
+    if (process.env.ATAP_AIT) v.ait = process.env.ATAP_AIT
+    return constraintsCmd(pos[1], v, root)
+  }
 
   // Like verify, scitt reads only the receipt dir: no witness, stdin or lock.
   if (cmd === 'scitt') {
@@ -1041,6 +1088,102 @@ async function main(argv: string[]): Promise<number> {
     await gitSync(dir).catch((e: unknown) => process.stderr.write(`git sync failed: ${(e as Error).message ?? String(e)}\n`))
   }
   process.stdout.write(json(result))
+  return 0
+}
+
+// `constraints <set | rescind | status | context | check>` inside an init'd project. set, rescind and
+// a recorded check write one witness event each, under the store lock, with the witness's own key.
+async function constraintsCmd(sub: string | undefined, v: Values, atap: { dir: string; config: Record<string, unknown> } | null): Promise<number> {
+  if (!['set', 'rescind', 'status', 'context', 'check'].includes(sub ?? '')) {
+    throw new Error('usage: atap-witness constraints <keygen | set | rescind | status | context | check>')
+  }
+  if (!atap) {
+    if (sub === 'check') {
+      process.stdout.write(json({ decision: 'allow', reason: 'no .atap here' }))
+      return 0
+    }
+    throw new Error('no .atap/config.json here or in any parent dir; run atap-witness init')
+  }
+  const env: ConstraintEnv = { atapDir: atap.dir, config: atap.config }
+  const dir = atap.dir
+  const projectRoot = resolve(dir, '..')
+  const aitId = v.ait as AIT_ID | undefined
+  const input = sub === 'set' || sub === 'check' ? await stdinJson(false) : null
+  const readOnly = new DirStorage(dir, {})
+  const events = aitId ? await readOnly.eventsOf(aitId) : []
+
+  // One witness event under the AIT, checked against its profile like `event`.
+  type Payload = Record<string, unknown> | (() => Promise<Record<string, unknown>>)
+  // `after` runs once the event has passed its profile check and before it is signed: a statement
+  // reaches the store only when its witness event is sure to be written with it.
+  const record = async (event_type: string, payload: Payload, after?: () => Promise<void>) => {
+    if (!aitId) throw new Error('no AIT in .atap/config.json')
+    const witness = (v['witness-oai'] ?? process.env.ATAP_WITNESS_OAI) as OAI | DidKey | undefined
+    if (!witness) throw new Error('--witness-oai <OAI> (or ATAP_WITNESS_OAI) is required')
+    const privateKey = await loadKey(v.key)
+    const profiles = await Profiles.load(resolve(v['profiles-dir'] ?? PROFILES_DIR))
+    const storage = new DirStorage(dir, profiles.coreGuards())
+    const svc = new WitnessService({ witnessOAI: witness, privateKey, storage, attestationStrength: parseStrength(v.strength) })
+    return withLock(dir, async () => {
+      const ait = await storage.loadAit(aitId)
+      if (!ait) throw new Error(`unknown AIT ${aitId}`)
+      const p = typeof payload === 'function' ? await payload() : payload
+      await profiles.checkEvent(ait.profile, { event_type, payload: p })
+      if (after) await after()
+      return svc.witness(aitId, event_type, p)
+    })
+  }
+
+  if (sub === 'status') {
+    process.stdout.write(json(statusOf(await loadState(env, events))))
+    return 0
+  }
+  if (sub === 'context') {
+    process.stdout.write(contextText(await loadState(env, events)))
+    return 0
+  }
+  if (sub === 'check') {
+    if (!isObject(input)) throw new Error('stdin must be the PreToolUse hook JSON object')
+    const st = await loadState(env, events)
+    const d = decide(st, input, projectRoot, dir)
+    let recorded: string | null = null
+    if (v.record && d.decision !== 'allow') {
+      // A failed record never changes the decision: the gate is the point, the event is the evidence.
+      recorded = await record('code_crew:tool_gate', gatePayload(st, input, d)).then(
+        (ev) => ev.id as string,
+        () => null,
+      )
+    }
+    process.stdout.write(json({ ...d, in_force_sha256: st.fold.in_force.replace(/^0x/, ''), recorded }))
+    return 0
+  }
+  // set | rescind
+  const key = await loadOperatorKey(v['operator-key'] ?? process.env.ATAP_OPERATOR_KEY)
+  let body: Record<string, unknown>
+  if (sub === 'set') {
+    if (!isObject(input)) throw new Error('stdin must be {"constraint_id","prose","rules"}')
+    body = input
+  } else {
+    if (!v.id) throw new Error('--id <constraint_id> is required')
+    body = { constraint_id: v.id }
+  }
+  const written = await signStatement(env, key, sub as 'set' | 'rescind', body)
+  const ev = await record(
+    sub === 'set' ? 'code_crew:constraint_set' : 'code_crew:constraint_rescind',
+    () => changePayload(env, written.statement),
+    () => appendStatement(env, written.statement),
+  )
+  const after = await loadState(env, await readOnly.eventsOf(aitId!))
+  process.stdout.write(json({
+    statement: written.statement,
+    event: ev.id,
+    in_force_sha256: after.fold.in_force.replace(/^0x/, ''),
+    active: after.fold.active.map((c) => c.constraint_id),
+    configured_operator: written.configured_operator,
+  }))
+  if (written.configured_operator) {
+    process.stderr.write(`trusted operator written to .atap/config.json; for a crew also export ATAP_OPERATOR=${written.statement.operator} outside the repo\n`)
+  }
   return 0
 }
 
