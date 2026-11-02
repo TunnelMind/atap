@@ -1,10 +1,10 @@
 # @tunnelmindai/eat
 
-> **Part of TunnelMind — the intelligence layer agents call before they trust the internet.**
-> Three lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker Data API** (*who is watching?*).
-> This package serves: **the EAT verifier.** Apache-2.0. See [tunnelmind.ai/eat/profile/v0.1](https://tunnelmind.ai/eat/profile/v0.1).
+> **Part of TunnelMind — a research house. Facts, not verdicts.**
+> Four lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker** (*who is watching?*) · **GhostRoute** (*where does traffic actually go?*). Exhibits return as Ed25519-signed receipts (RFC 8785 JCS) that verify offline without trusting TunnelMind; the same receipt is the foundation of the accountability kit for agents that spend money (public demo: [tunnelmind.ai/weather](https://tunnelmind.ai/weather)).
+> This package serves: **the EAT verifier.** Apache-2.0. Spec: [`eat/EAT-PROFILE-v0.1.md`](../../eat/EAT-PROFILE-v0.1.md).
 
-Reference TypeScript verifier for the [TunnelMind EAT Profile v0.1](https://tunnelmind.ai/eat/profile/v0.1) — an IETF RATS ([RFC 9711]) Entity Attestation Token serialization carrying TunnelMind ATAP receipts and Scry cross-lens enrichments.
+Reference TypeScript verifier for the [TunnelMind EAT Profile v0.1](../../eat/EAT-PROFILE-v0.1.md) — an IETF RATS ([RFC 9711]) Entity Attestation Token serialization carrying TunnelMind ATAP receipts and Scry cross-lens enrichments.
 
 ## Status
 

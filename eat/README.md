@@ -1,10 +1,10 @@
 # TunnelMind EAT Profile
 
-> **Part of TunnelMind — the intelligence layer agents call before they trust the internet.**
-> Three lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker Data API** (*who is watching?*).
+> **Part of TunnelMind — a research house. Facts, not verdicts.**
+> Four lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker** (*who is watching?*) · **GhostRoute** (*where does traffic actually go?*). Exhibits return as Ed25519-signed receipts (RFC 8785 JCS) that verify offline without trusting TunnelMind; the same receipt is the foundation of the accountability kit for agents that spend money (public demo: [tunnelmind.ai/weather](https://tunnelmind.ai/weather)).
 > This repo serves: **the open protocol layer.** EAT Profile is CC-BY-4.0 (spec) + Apache-2.0 (reference code). See [tunnelmind.ai](https://tunnelmind.ai).
 
-This repo holds the **TunnelMind EAT Profile v0.1** — an IETF RATS-aligned ([RFC 9711]) Entity Attestation Token serialization for TunnelMind [ATAP receipts](https://tunnelmind.ai/atap/standard) and their cross-lens enrichments.
+This repo holds the **TunnelMind EAT Profile v0.1** — an IETF RATS-aligned ([RFC 9711]) Entity Attestation Token serialization for TunnelMind [ATAP receipts](../ATAP-v0.1.md) and their cross-lens enrichments.
 
 The profile is a **serialization over ATAP, not a replacement**: ATAP v0.1.2 remains the canonical receipt format on `data.tunnelmind.ai`. This profile exists so that any relying party already speaking EAT — every confidential-computing platform, TEE vendor, and enterprise security stack that adopts the RATS architecture — can consume a TunnelMind attestation natively without learning ATAP first.
 
@@ -12,7 +12,7 @@ The profile is a **serialization over ATAP, not a replacement**: ATAP v0.1.2 rem
 
 **DRAFT** — published 2026-05-31. Public-comment window closes **2026-08-29**.
 
-Canonical spec: <https://tunnelmind.ai/eat/profile/v0.1>
+Canonical spec: [`EAT-PROFILE-v0.1.md`](./EAT-PROFILE-v0.1.md) in this repo (the site page `tunnelmind.ai/eat/profile/v0.1` was retired on 2026-08-02 and redirects to `/standards`; the URL stays the profile's identifier inside tokens).
 Raw markdown:  [EAT-PROFILE-v0.1.md](./EAT-PROFILE-v0.1.md)
 Reference verifier: planned at `packages/eat-js` inside [`TunnelMind/atap`](https://github.com/TunnelMind/atap) (npm `@tunnelmindai/eat`).
 
@@ -47,7 +47,7 @@ Open protocol layer per [TunnelMind open-protocol policy](https://tunnelmind.ai/
 
 ## Related
 
-- [ATAP v0.1.2](https://tunnelmind.ai/atap/standard) — the receipt format this profile serializes.
+- [ATAP v0.1.2](../ATAP-v0.1.md) — the receipt format this profile serializes.
 - [TunnelMind Receipt Format v1.0](https://tunnelmind.ai/standards/receipt-format/v1) — the JSON serialization of the same claim set.
 - [OAI v1.0](https://tunnelmind.ai/oai/standard) — the identifier standard for the entities EAT tokens describe.
 - [RFC 9711](https://www.rfc-editor.org/rfc/rfc9711.html) — IETF RATS EAT.

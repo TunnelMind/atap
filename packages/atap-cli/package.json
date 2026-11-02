@@ -27,7 +27,7 @@
   ],
   "author": "TunnelMind",
   "license": "Apache-2.0",
-  "homepage": "https://tunnelmind.ai/atap/standard",
+  "homepage": "https://github.com/TunnelMind/atap",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/TunnelMind/atap.git",

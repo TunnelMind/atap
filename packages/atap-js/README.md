@@ -2,7 +2,7 @@
 
 Reference TypeScript wrapper for **ATAP v0.1/v0.2** — the Agent Trust Attestation Protocol.
 
-- **Standard:** https://tunnelmind.ai/atap/standard
+- **Standard:** [`ATAP-v0.1.md`](../../ATAP-v0.1.md) (the site's spec page was retired 2026-08-02)
 - **Verifier (bash):** https://tunnelmind.ai/atap/verify.sh
 - **JSON Schemas:** [`schemas/v0.1/`](../../schemas/v0.1/)
 - **License:** Apache-2.0

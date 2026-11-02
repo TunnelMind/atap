@@ -2,7 +2,7 @@
   "name": "atap-profiles",
   "version": "0.1.0",
   "private": true,
-  "description": "ATAP v0.1 application profile registry — source of truth for https://tunnelmind.ai/atap/profiles",
+  "description": "ATAP v0.1 application profile registry (the profiles/ directory of github.com/TunnelMind/atap is the published registry)",
   "type": "module",
   "scripts": {
     "generate": "node profiles/sigil-media-buyer-v1/scripts/generate-examples.mjs && node profiles/tunnelmind-code-crew-v1/scripts/generate-examples.mjs && node profiles/tunnelmind-crew-ops-v1/scripts/generate-examples.mjs && node profiles/tunnelmind-agent-tools-v1/scripts/generate-examples.mjs",
