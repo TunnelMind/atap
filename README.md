@@ -1,8 +1,8 @@
 # ATAP — Agent Trust Attestation Protocol
 
-> **Part of TunnelMind — the intelligence layer agents call before they trust the internet.**
-> Three lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker Data API** (*who is watching?*).
-> This repo serves: **the open protocol layer.** ATAP is Apache-2.0 / CC-BY-4.0; its witness signatures back the cross-lens verdicts emitted by all three lenses. See [tunnelmind.ai](https://tunnelmind.ai).
+> **Part of TunnelMind — a research house. Facts, not verdicts.**
+> Four lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker** (*who is watching?*) · **GhostRoute** (*where does traffic actually go?*). Exhibits return as Ed25519-signed receipts (RFC 8785 JCS) that verify offline without trusting TunnelMind; the same receipt is the foundation of the accountability kit for agents that spend money (public demo: [tunnelmind.ai/weather](https://tunnelmind.ai/weather)).
+> This repo serves: **the open protocol layer.** ATAP is Apache-2.0 / CC-BY-4.0; its witness-signed hash chains are a dialect of their own, beside Receipt v1, and back the cross-lens verdicts the Data API emits. See [tunnelmind.ai](https://tunnelmind.ai).
 
 **ATAP v0.1** is an open protocol for **agent behavioral attestation**: a
 canonical receipt format that lets the principal of an agentic system —
@@ -10,8 +10,8 @@ the advertiser, the compliance officer, the regulator, the auditor —
 cryptographically verify what an agent actually did, in chronological
 order, without trusting the agent's self-report.
 
-- **Standard:** [tunnelmind.ai/atap/standard](https://tunnelmind.ai/atap/standard) · raw markdown: [`ATAP-v0.1.md`](./ATAP-v0.1.md)
-- **Status:** v0.1 — Public comment through **2026-08-12**
+- **Standard:** [`ATAP-v0.1.md`](./ATAP-v0.1.md) in this repo is the canonical text. The site's spec pages were retired on 2026-08-02 (`tunnelmind.ai/atap/standard` now redirects to `/standards`); `tunnelmind.ai/atap/keys`, the schemas, `context.jsonld` and `verify.sh` stay served so issued receipts verify forever.
+- **Status:** v0.1 in force. The public comment window closed **2026-08-12**.
 - **License:** CC BY 4.0 (spec — `ATAP-v0.1.md`) · Apache-2.0 (code, schemas, verifier)
 - **Editor:** TunnelMind
 
@@ -163,5 +163,5 @@ deferred). The big ones:
   standards-text norm.
 
 You may cite, redistribute, fork, and build on ATAP without asking. The
-only ask is attribution — link to [tunnelmind.ai/atap/standard](https://tunnelmind.ai/atap/standard)
+only ask is attribution — link to [github.com/TunnelMind/atap](https://github.com/TunnelMind/atap)
 when you reference the standard.

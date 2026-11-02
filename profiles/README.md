@@ -1,11 +1,12 @@
 # ATAP application profiles
 
-> **Part of TunnelMind — the intelligence layer agents call before they trust the internet.**
-> Three lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker Data API** (*who is watching?*).
-> This repo serves: **the open protocol layer.** Profile registry for ATAP; consumed by lens-specific witnesses across all three. See [tunnelmind.ai](https://tunnelmind.ai).
+> **Part of TunnelMind — a research house. Facts, not verdicts.**
+> Four lenses on one signed corpus: **Scry** (*who is attacking?*) · **Sigil** (*who can you trust?*) · **Tracker** (*who is watching?*) · **GhostRoute** (*where does traffic actually go?*). Exhibits return as Ed25519-signed receipts (RFC 8785 JCS) that verify offline without trusting TunnelMind; the same receipt is the foundation of the accountability kit for agents that spend money (public demo: [tunnelmind.ai/weather](https://tunnelmind.ai/weather)).
+> This repo serves: **the open protocol layer.** Profile registry for ATAP; consumed by lens witnesses. See [tunnelmind.ai](https://tunnelmind.ai).
 
-Source-of-truth registry for [ATAP v0.1](https://tunnelmind.ai/atap/standard)
-application profiles. Published at <https://tunnelmind.ai/atap/profiles>.
+Source-of-truth registry for [ATAP v0.1](../ATAP-v0.1.md) application
+profiles. This directory is the published registry; the rendered page at
+`tunnelmind.ai/atap/profiles` was retired on 2026-08-02 and redirects to `/standards`.
 
 ATAP — the Agent Trust Attestation Protocol — is a structural envelope: it
 defines Agent Identity Tokens, Witness Events, Attestation Blocks, Receipts,
