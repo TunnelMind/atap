@@ -1,0 +1,15 @@
+{
+  "keys": [
+    {
+      "witness": "OAI-2026-0010012",
+      "key_id": "example-key-1",
+      "algorithm": "ed25519",
+      "public_key": "0xd19b697056084403add43b85c5a9ad22b10b9cb119847b842a23a9b8de35666f",
+      "valid_from": "2026-11-03T00:00:00Z",
+      "valid_until": "2027-11-03T00:00:00Z",
+      "status": "active",
+      "attestation_strength": "software"
+    }
+  ],
+  "updated_at": "2026-11-03T12:00:00Z"
+}

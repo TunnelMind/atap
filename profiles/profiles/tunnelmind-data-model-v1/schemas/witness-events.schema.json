@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-data-model-v1/witness-events.schema.json",
+  "title": "tunnelmind:data_model:v1 — Witness Event payloads",
+  "description": "Binds each profile event_type to its payload schema. A conformant Witness Event MUST validate against BOTH the ATAP v0.1 base witness-event schema AND this schema. Every payload sets additionalProperties:false, which is how this profile encodes the ATAP §7.6 no-PII prohibition: a payload carrying a person's name, email, IP address, key identifier or free text has no permitted key for it and fails validation. Assessors are recorded by kind, tier and a per-version nullifier digest, never by identity. Questions and queries are recorded as sha256 digests only.",
+  "type": "object",
+  "required": ["event_type", "payload"],
+  "properties": {
+    "event_type": {
+      "enum": [
+        "data_model:drafted",
+        "data_model:schema_pinned",
+        "data_model:gate_run",
+        "data_model:published",
+        "data_model:coverage_changed",
+        "data_model:assessment_received",
+        "data_model:assessment_resolved",
+        "data_model:retired"
+      ]
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "const": "data_model:drafted" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/drafted" } } } },
+    { "if": { "properties": { "event_type": { "const": "data_model:schema_pinned" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/schema_pinned" } } } },
+    { "if": { "properties": { "event_type": { "const": "data_model:gate_run" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/gate_run" } } } },
+    { "if": { "properties": { "event_type": { "const": "data_model:published" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/published" } } } },
+    { "if": { "properties": { "event_type": { "const": "data_model:coverage_changed" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/coverage_changed" } } } },
+    { "if": { "properties": { "event_type": { "const": "data_model:assessment_received" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/assessment_received" } } } },
+    { "if": { "properties": { "event_type": { "const": "data_model:assessment_resolved" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/assessment_resolved" } } } },
+    { "if": { "properties": { "event_type": { "const": "data_model:retired" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/retired" } } } }
+  ],
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "evidence": {
+      "enum": ["asserted", "anchored", "witnessed"],
+      "description": "asserted: the reporter says so. anchored: bound to something a verifier can look up (a published model artifact, a pinned fixture by hash). witnessed: the witness observed it itself, e.g. the witness ran the gate."
+    },
+    "opaque_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
+      "description": "Opaque token (model id, source id, source version). No `@` or whitespace."
+    },
+    "field_ref": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63}){0,7}$",
+      "description": "Dotted path to a semantic-model element, e.g. ise.auth_events.failure_rate. Lower-case identifiers only."
+    },
+    "model": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$" },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "we_id": {
+      "type": "string",
+      "pattern": "^ATAP-WE-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The id of an earlier Witness Event in the same chain."
+    },
+    "tier": { "enum": ["self-asserted", "software", "tee-tpm", "silicon-root"] },
+    "coverage_state": { "enum": ["observed_clean", "never_observed", "degraded"] },
+    "count": { "type": "integer", "minimum": 0 },
+
+    "drafted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "model_id", "version", "model_sha256", "format", "format_version", "drafter_model", "prompt_sha256", "inputs"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "enum": ["asserted", "anchored"], "description": "anchored once the model artifact is retrievable by model_sha256; otherwise asserted." },
+        "model_id": { "$ref": "#/$defs/opaque_id" },
+        "version": { "$ref": "#/$defs/semver" },
+        "model_sha256": { "$ref": "#/$defs/sha256", "description": "SHA-256 of the RFC 8785 canonical bytes of the model document parsed to JSON. Whitespace and key order in the YAML do not change it." },
+        "format": { "const": "apache-ossie" },
+        "format_version": { "$ref": "#/$defs/opaque_id" },
+        "drafter_model": { "$ref": "#/$defs/model" },
+        "prompt_sha256": { "$ref": "#/$defs/sha256" },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_id", "kind", "sha256"],
+            "properties": {
+              "source_id": { "$ref": "#/$defs/opaque_id" },
+              "kind": { "enum": ["vendor_doc", "vendor_api_schema", "observed_dataset", "agent_demand", "prior_model"] },
+              "sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        }
+      }
+    },
+
+    "schema_pinned": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "source_id", "source_version", "schema_fingerprint_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "enum": ["asserted", "witnessed"], "description": "witnessed only if the witness read the schema from the source itself." },
+        "source_id": { "$ref": "#/$defs/opaque_id" },
+        "source_version": { "$ref": "#/$defs/opaque_id" },
+        "schema_fingerprint_sha256": { "$ref": "#/$defs/sha256", "description": "SHA-256 of the canonical (RFC 8785) list of tables, columns and types plus source_id and source_version." }
+      }
+    },
+
+    "gate_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "model_sha256", "gate", "phase", "trigger", "target", "schema_fingerprint_sha256", "result", "checks", "output_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "enum": ["asserted", "witnessed"], "description": "witnessed only if the witness ran the gate itself." },
+        "model_sha256": { "$ref": "#/$defs/sha256" },
+        "gate": { "enum": ["compile", "structural", "golden", "reconcile"] },
+        "phase": { "enum": ["pre_publish", "post_publish"] },
+        "trigger": { "enum": ["build", "scheduled", "assessment"] },
+        "target": { "enum": ["fixture", "live"] },
+        "schema_fingerprint_sha256": { "$ref": "#/$defs/sha256" },
+        "fixture_sha256": { "$ref": "#/$defs/sha256", "description": "Required when target is fixture: the hash of the frozen source extract the gate ran on." },
+        "golden_source": {
+          "enum": ["human_sql", "vendor_ui", "second_source", "confirmed_assessment"],
+          "description": "Required when gate is golden: where the expected answers came from. The drafting crew is not a permitted source."
+        },
+        "result": { "enum": ["pass", "fail"] },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "passed", "failed", "refused"],
+          "properties": {
+            "total": { "$ref": "#/$defs/count" },
+            "passed": { "$ref": "#/$defs/count" },
+            "failed": { "$ref": "#/$defs/count" },
+            "refused": { "$ref": "#/$defs/count", "description": "Questions the model correctly declined as out of scope." }
+          }
+        },
+        "output_sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "allOf": [
+        { "if": { "properties": { "target": { "const": "fixture" } }, "required": ["target"] },
+          "then": { "required": ["fixture_sha256"] },
+          "else": { "not": { "required": ["fixture_sha256"] } } },
+        { "if": { "properties": { "gate": { "const": "golden" } }, "required": ["gate"] },
+          "then": { "required": ["golden_source"] },
+          "else": { "not": { "required": ["golden_source"] } } },
+        { "if": { "properties": { "phase": { "const": "pre_publish" } }, "required": ["phase"] },
+          "then": { "properties": { "trigger": { "const": "build" } } },
+          "else": { "properties": { "trigger": { "enum": ["scheduled", "assessment"] } } } }
+      ]
+    },
+
+    "published": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "model_id", "version", "model_sha256", "supersedes_sha256", "coverage", "coverage_sha256", "golden_count"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "enum": ["asserted", "anchored"] },
+        "model_id": { "$ref": "#/$defs/opaque_id" },
+        "version": { "$ref": "#/$defs/semver" },
+        "model_sha256": { "$ref": "#/$defs/sha256" },
+        "supersedes_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }],
+          "description": "model_sha256 of the version this one replaces, or null for a first version."
+        },
+        "diff_sha256": { "$ref": "#/$defs/sha256", "description": "Required when supersedes_sha256 is set: hash of the diff artifact (fields added, changed, removed, regressed)." },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observed_clean", "never_observed", "degraded"],
+          "properties": {
+            "observed_clean": { "$ref": "#/$defs/count" },
+            "never_observed": { "$ref": "#/$defs/count" },
+            "degraded": { "$ref": "#/$defs/count" }
+          },
+          "description": "Field counts per coverage state at publication. The per-field map is the coverage artifact."
+        },
+        "coverage_sha256": { "$ref": "#/$defs/sha256" },
+        "golden_count": { "$ref": "#/$defs/count" }
+      },
+      "if": { "properties": { "supersedes_sha256": { "type": "string" } }, "required": ["supersedes_sha256"] },
+      "then": { "required": ["diff_sha256"] },
+      "else": { "not": { "required": ["diff_sha256"] } }
+    },
+
+    "coverage_changed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "model_sha256", "field_ref", "from", "to", "cause_event"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "enum": ["asserted", "witnessed"] },
+        "model_sha256": { "$ref": "#/$defs/sha256" },
+        "field_ref": { "$ref": "#/$defs/field_ref" },
+        "from": { "$ref": "#/$defs/coverage_state" },
+        "to": { "$ref": "#/$defs/coverage_state" },
+        "cause_event": { "$ref": "#/$defs/we_id", "description": "The gate_run that justifies the change." }
+      }
+    },
+
+    "assessment_received": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "model_sha256", "field_ref", "verdict", "assessor_kind", "assessor_tier", "assessor_nullifier_sha256", "evidence_kind"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "const": "asserted", "description": "An assessment is the assessor's claim until a resolution re-runs it." },
+        "model_sha256": { "$ref": "#/$defs/sha256" },
+        "field_ref": { "$ref": "#/$defs/field_ref" },
+        "verdict": { "enum": ["accurate", "inaccurate"] },
+        "assessor_kind": { "enum": ["agent", "human"] },
+        "assessor_tier": { "$ref": "#/$defs/tier" },
+        "assessor_nullifier_sha256": {
+          "$ref": "#/$defs/sha256",
+          "description": "SHA-256 of the assessor's Ed25519 signature over model_sha256. Ed25519 is deterministic, so a key yields one nullifier per model version (one assessment per key per version); only the key holder can produce it, so it cannot be recomputed from a public key to link an assessor across versions."
+        },
+        "evidence_kind": { "enum": ["bare", "reproducible"] },
+        "query_sha256": { "$ref": "#/$defs/sha256", "description": "Required when reproducible: hash of the structured query artifact (metric, dimensions, filters, time range)." },
+        "expected": { "type": "number", "description": "Required when reproducible: the value the assessor says is correct." },
+        "observed": { "type": "number", "description": "Required when reproducible: the value the model produced." }
+      },
+      "if": { "properties": { "evidence_kind": { "const": "reproducible" } }, "required": ["evidence_kind"] },
+      "then": { "required": ["query_sha256", "expected", "observed"] },
+      "else": { "not": { "anyOf": [{ "required": ["query_sha256"] }, { "required": ["expected"] }, { "required": ["observed"] }] } }
+    },
+
+    "assessment_resolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "assessment_event", "outcome", "golden_added"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "enum": ["asserted", "witnessed"], "description": "witnessed when the witness ran the re-run itself." },
+        "assessment_event": { "$ref": "#/$defs/we_id" },
+        "rerun_event": { "$ref": "#/$defs/we_id", "description": "Required unless outcome is out_of_scope: the post_publish gate_run that decided it." },
+        "outcome": { "enum": ["confirmed", "not_reproduced", "out_of_scope"] },
+        "golden_added": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "outcome": { "const": "out_of_scope" } }, "required": ["outcome"] },
+          "then": { "not": { "required": ["rerun_event"] } },
+          "else": { "required": ["rerun_event"] } },
+        { "if": { "properties": { "outcome": { "enum": ["not_reproduced", "out_of_scope"] } }, "required": ["outcome"] },
+          "then": { "properties": { "golden_added": { "const": false } } } }
+      ]
+    },
+
+    "retired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "model_sha256", "reason"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "enum": ["asserted", "anchored"] },
+        "model_sha256": { "$ref": "#/$defs/sha256" },
+        "reason": { "enum": ["superseded", "failed_rerun", "source_retired"] },
+        "superseded_by_sha256": { "$ref": "#/$defs/sha256" },
+        "cause_event": { "$ref": "#/$defs/we_id" }
+      },
+      "allOf": [
+        { "if": { "properties": { "reason": { "const": "superseded" } }, "required": ["reason"] },
+          "then": { "required": ["superseded_by_sha256"] },
+          "else": { "not": { "required": ["superseded_by_sha256"] } } },
+        { "if": { "properties": { "reason": { "const": "failed_rerun" } }, "required": ["reason"] },
+          "then": { "required": ["cause_event"] } }
+      ]
+    }
+  }
+}

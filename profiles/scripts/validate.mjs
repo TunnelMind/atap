@@ -108,12 +108,16 @@ for (const profile of readdirSync(profilesDir)) {
     }
   }
 
-  // payload-shape cases (e.g. code_crew:merged PR vs local): must_accept
-  // validates, must_reject fails the profile schema
-  const shapesPath = join(pdir, 'tests', 'merged-shapes.json');
-  if (existsSync(shapesPath)) {
+  // payload-shape cases (e.g. code_crew:merged PR vs local, data_model gate
+  // rules): every tests/*-shapes.json file — must_accept validates,
+  // must_reject fails the profile schema
+  const testsDir = join(pdir, 'tests');
+  const shapeFiles = existsSync(testsDir)
+    ? readdirSync(testsDir).filter((f) => f.endsWith('-shapes.json')).sort()
+    : [];
+  for (const shapeFile of shapeFiles) {
     const v = compiled['witness-events'];
-    const shapes = readJson(shapesPath);
+    const shapes = readJson(join(testsDir, shapeFile));
     for (const c of shapes.must_accept) {
       v(c.event) ? pass(`shape case "${c.name}" correctly accepted`) : fail(`shape case "${c.name}" was REJECTED — must be accepted: ${errs(v)}`);
     }

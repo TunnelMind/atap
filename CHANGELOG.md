@@ -102,6 +102,18 @@ changes verdict; each line names the inputs that do.
 
 ### Added
 
+- **Profile `tunnelmind:data_model:v1` (draft, 2026-11-03).** Witness vocabulary
+  for one semantic-model lineage: drafts from hashed inputs, schema pins, four
+  correctness gates (compile, structural, golden, reconcile) on pinned fixtures,
+  publication, and signed accuracy assessments by agents and people with
+  re-runs and resolutions. Golden answers cannot come from the drafting crew;
+  assessors appear only as kind, tier and a per-version nullifier; published
+  versions are never edited (§14.1) — status is derived from later events.
+  Eight PII-rejection cases and thirteen gate-shape cases; signed examples
+  round-trip. Profile registry README now also lists `tunnelmind:code_crew:v1`,
+  which `registry.json` already carried.
+- Profile CI: `scripts/validate.mjs` runs every `tests/*-shapes.json` file, not
+  only `merged-shapes.json`. Existing cases unchanged.
 - `atap-witness git sync` / `git restore [--into DIR]` / `init --git` — the
   witness store's records (`aits.jsonl`, `blocks.jsonl`, `cleared.jsonl`,
   `events.jsonl`; never the key or `config.json`) committed to the orphan

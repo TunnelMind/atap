@@ -1,0 +1,130 @@
+{
+  "description": "ATAP v0.1 §9.4(2) acceptance evidence: each case is a Witness Event whose payload smuggles a person-resolvable or free-text field forbidden by ATAP §7.6 and §4. Every case MUST FAIL validation against witness-events.schema.json — every payload sets additionalProperties:false, assessors are recorded by kind, tier and nullifier only, identifiers are opaque tokens, and questions and queries are sha256 digests. A case that validates is a profile defect.",
+  "must_reject": [
+    {
+      "name": "assessor_email",
+      "reason": "email address of the person assessing (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "inaccurate",
+          "assessor_kind": "human", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare",
+          "assessor_email": "jane@example.com"
+        }
+      }
+    },
+    {
+      "name": "assessor_name",
+      "reason": "named natural person (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "accurate",
+          "assessor_kind": "human", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare",
+          "assessor_name": "Jane Doe"
+        }
+      }
+    },
+    {
+      "name": "person_name_as_assessor_kind",
+      "reason": "named natural person in place of the assessor kind (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "accurate",
+          "assessor_kind": "Jane Doe", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare"
+        }
+      }
+    },
+    {
+      "name": "assessor_key_id",
+      "reason": "linkable assessor identifier; only the per-version nullifier is permitted (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "accurate",
+          "assessor_kind": "agent", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare",
+          "key_id": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+        }
+      }
+    },
+    {
+      "name": "free_text_question",
+      "reason": "free-text question that may carry user communications; only query_sha256 is permitted (ATAP §7.6, §4)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "inaccurate",
+          "assessor_kind": "agent", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "reproducible",
+          "query_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "expected": 0.031, "observed": 0,
+          "question": "What was the EAP-TLS failure rate for the user jane@example.com on Oct 30?"
+        }
+      }
+    },
+    {
+      "name": "email_in_field_ref",
+      "reason": "email address smuggled into an identifier field (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:coverage_changed",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "users.jane@example.com",
+          "from": "observed_clean", "to": "degraded",
+          "cause_event": "ATAP-WE-019a4c00-0000-7000-8000-000000000001"
+        }
+      }
+    },
+    {
+      "name": "client_ip_in_schema_pin",
+      "reason": "end-user IP address (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:schema_pinned",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "witnessed",
+          "source_id": "cisco-ise-3.3", "source_version": "3.3-patch4",
+          "schema_fingerprint_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "client_ip": "203.0.113.7"
+        }
+      }
+    },
+    {
+      "name": "email_as_source_id",
+      "reason": "email address in an opaque identifier (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:drafted",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_id": "cisco-network", "version": "0.3.1",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "format": "apache-ossie", "format_version": "1.0",
+          "drafter_model": "claude-opus-5-5",
+          "prompt_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "inputs": [{ "source_id": "jane@example.com", "kind": "vendor_doc",
+            "sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c" }]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-data-model-v1/constraints.schema.json",
+  "title": "tunnelmind:data_model:v1 — AIT constraints",
+  "description": "Validates the `constraints` object of an ATAP v0.1 AIT declared under the tunnelmind:data_model:v1 profile. The canonical-byte serialization of `constraints` MUST NOT exceed 4096 bytes (ATAP v0.1 §6.2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "model_id",
+    "allowed_sources",
+    "required_gates",
+    "fixture_policy",
+    "max_live_reruns_per_day",
+    "min_assessor_tier_for_rerun",
+    "models"
+  ],
+  "properties": {
+    "model_id": {
+      "$ref": "#/$defs/opaque_id",
+      "description": "The one model lineage this AIT witnesses. Every drafted, published and assessed version in the chain carries this model_id, so one receipt is the full life story of one model."
+    },
+    "allowed_sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/opaque_id"
+      },
+      "description": "Source identifiers the models may be built from or compiled against (e.g. cisco-ise-3.3, meraki-dashboard-api-v1, tunnelmind-scry). A drafted event citing any other source breaks the constraint."
+    },
+    "required_gates": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "compile",
+          "structural",
+          "golden",
+          "reconcile"
+        ]
+      },
+      "description": "The gates a version must pass, in this chain, before a `published` event. Fixed at all four in v1."
+    },
+    "fixture_policy": {
+      "enum": [
+        "fixture_only",
+        "fixture_then_live"
+      ],
+      "description": "fixture_only: every gate and re-run executes against a pinned, hashed fixture. fixture_then_live: fixture runs are required; live runs are permitted in addition, within max_live_reruns_per_day."
+    },
+    "max_live_reruns_per_day": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "description": "Ceiling on gate runs against a live source per UTC day, across all triggers. Protects vendor API rate limits and the operator's spend."
+    },
+    "min_assessor_tier_for_rerun": {
+      "enum": [
+        "self-asserted",
+        "software",
+        "tee-tpm",
+        "silicon-root"
+      ],
+      "description": "Lowest assessor attestation tier whose reproducible assessment triggers a free re-run. Assessments below it are recorded and may trigger a paid re-run only."
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "drafter": {
+          "$ref": "#/$defs/model"
+        },
+        "reviewer": {
+          "$ref": "#/$defs/model"
+        },
+        "coordinator": {
+          "$ref": "#/$defs/model"
+        }
+      },
+      "description": "The model each agent role runs on. Keys are agent roles; human roles run no model."
+    }
+  },
+  "$defs": {
+    "opaque_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
+      "description": "Opaque token. No `@` or whitespace."
+    },
+    "model": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$",
+      "description": "Model identifier, e.g. claude-opus-5-5."
+    }
+  }
+}

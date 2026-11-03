@@ -1,0 +1,204 @@
+{
+  "description": "data_model payload rules that make correctness structural: golden expected answers cannot come from the drafting crew; a fixture run names its fixture hash; a pre-publish run is a build run; a superseding publication carries a diff; a reproducible assessment carries its query hash and values; a not-confirmed assessment adds no golden; a superseded retirement names its successor. CI asserts every must_accept case validates and every must_reject case fails the profile schema.",
+  "must_accept": [
+    {
+      "name": "golden_gate_from_human_sql_on_fixture",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "golden", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "golden_source": "human_sql", "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "live_scheduled_reconcile_rerun",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "reconcile", "phase": "post_publish", "trigger": "scheduled", "target": "live",
+          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "result": "fail",
+          "checks": { "total": 12, "passed": 11, "failed": 1, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "bare_accurate_assessment",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "meraki.clients.count", "verdict": "accurate",
+          "assessor_kind": "human", "assessor_tier": "self-asserted",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare"
+        }
+      }
+    },
+    {
+      "name": "first_publication_without_diff",
+      "event": {
+        "event_type": "data_model:published",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "anchored",
+          "model_id": "cisco-network", "version": "0.3.1",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "supersedes_sha256": null,
+          "coverage": { "observed_clean": 31, "never_observed": 6, "degraded": 0 },
+          "coverage_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "golden_count": 40
+        }
+      }
+    }
+  ],
+  "must_reject": [
+    {
+      "name": "golden_answers_from_the_crew",
+      "reason": "the drafting crew is not an independent source of expected answers",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "golden", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "golden_source": "crew", "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "golden_gate_without_source",
+      "reason": "a golden run must say where its expected answers came from",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "golden", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "fixture_run_without_fixture_hash",
+      "reason": "a fixture run must pin the extract it ran on",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "pre_publish_run_triggered_by_assessment",
+      "reason": "assessments only exist for published versions",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "compile", "phase": "pre_publish", "trigger": "assessment", "target": "live",
+          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "superseding_publication_without_diff",
+      "reason": "a new version must say what changed",
+      "event": {
+        "event_type": "data_model:published",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "anchored",
+          "model_id": "cisco-network", "version": "0.3.2",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "supersedes_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "coverage": { "observed_clean": 31, "never_observed": 6, "degraded": 0 },
+          "coverage_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "golden_count": 41
+        }
+      }
+    },
+    {
+      "name": "reproducible_assessment_without_query",
+      "reason": "a reproducible assessment must carry its query hash and both values",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "inaccurate",
+          "assessor_kind": "agent", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "reproducible", "expected": 0.031, "observed": 0
+        }
+      }
+    },
+    {
+      "name": "assessment_claiming_witnessed",
+      "reason": "an assessment is the assessor's claim until resolved",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "accurate",
+          "assessor_kind": "agent", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare"
+        }
+      }
+    },
+    {
+      "name": "unconfirmed_assessment_adds_golden",
+      "reason": "only a confirmed assessment becomes a golden question",
+      "event": {
+        "event_type": "data_model:assessment_resolved",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "assessment_event": "ATAP-WE-019a4c00-0000-7000-8000-000000000001",
+          "rerun_event": "ATAP-WE-019a4c00-0000-7000-8000-000000000002",
+          "outcome": "not_reproduced", "golden_added": true
+        }
+      }
+    },
+    {
+      "name": "superseded_retirement_without_successor",
+      "reason": "a superseded version must name its successor",
+      "event": {
+        "event_type": "data_model:retired",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "anchored",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "reason": "superseded"
+        }
+      }
+    }
+  ]
+}

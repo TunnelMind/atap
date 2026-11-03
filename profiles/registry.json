@@ -39,6 +39,15 @@
       "path": "profiles/tunnelmind-agent-tools-v1",
       "atap_version": "0.1",
       "summary": "Witness vocabulary for any agent's sessions, tool calls, model calls, handoffs and human decisions — names as identifiers, prompts and results as sha256 only, each with an evidence tier."
+    },
+    {
+      "id": "tunnelmind:data_model:v1",
+      "title": "Semantic data models as code",
+      "maintainer": "TunnelMind",
+      "status": "draft",
+      "path": "profiles/tunnelmind-data-model-v1",
+      "atap_version": "0.1",
+      "summary": "Witness vocabulary for one semantic model lineage — drafts from hashed inputs, pinned schemas, four correctness gates on pinned fixtures, publication, and signed accuracy assessments by agents and people with re-runs and resolutions, each with an evidence tier."
     }
   ],
   "reserved": [
