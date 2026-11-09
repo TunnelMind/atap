@@ -8,6 +8,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { generateKeyPairSync, createPublicKey } from 'node:crypto'
+import { signConstraintSet, foldConstraints, evaluateCall, didKeyFromPublicKey } from '../../../packages/atap-js/dist/index.js'
 
 const script = fileURLToPath(new URL('../scripts/atap-hook.mjs', import.meta.url))
 const CLI = fileURLToPath(new URL('../../../packages/atap-cli/dist/cli.js', import.meta.url))
@@ -101,4 +103,39 @@ test('A002 control: no .atap/ and neither flag set prints nothing', (t) => {
 test('A002 control: malformed stdin with .atap/ and neither flag set prints nothing', noCli, (t) => {
   const { hook } = setup(t)
   assert.equal(hook('pre-tool-use', 'not json'), null)
+})
+
+// ---------------------------------------------------------------- A003 other shells
+// evaluateCall rows: a rule keyed on a shell command applies to any tool with a string
+// `command` or `script`, not only tool_name Bash.
+
+const ROOT = '/work/proj'
+const ctx = { projectRoot: ROOT, protectedPaths: [`${ROOT}/.atap`, `${ROOT}/.claude/settings.json`] }
+const call = (tool_name, tool_input) => ({ tool_name, tool_input, cwd: ROOT })
+const opKey = generateKeyPairSync('ed25519').privateKey
+const opDid = didKeyFromPublicKey(new Uint8Array(Buffer.from(createPublicKey(opKey).export({ format: 'jwk' }).x, 'base64url')))
+const rules = (...r) => foldConstraints([signConstraintSet({ constraint_id: 'a003', scope: '*', prose: 'A003 probe.', rules: r }, opKey)], opDid, '*').active
+
+test('A003: PowerShell Remove-Item .atap/constraints.jsonl denies', () => {
+  assert.equal(evaluateCall([], call('PowerShell', { command: 'Remove-Item .atap/constraints.jsonl' }), ctx).decision, 'deny')
+})
+
+test('A003: mcp__wsl__run rm .atap/constraints.jsonl denies', () => {
+  assert.equal(evaluateCall([], call('mcp__wsl__run', { command: 'rm .atap/constraints.jsonl' }), ctx).decision, 'deny')
+})
+
+test('A003: {tools:["mcp__*"], commands:["git push*"]} denies mcp__wsl__run git push', () => {
+  const active = rules({ id: 'push', effect: 'forbid', tools: ['mcp__*'], commands: ['git push*'] })
+  assert.equal(evaluateCall(active, call('mcp__wsl__run', { command: 'git push' }), ctx).decision, 'deny')
+})
+
+test('A003: a tool with {script: "git push"} under commands git push* denies', () => {
+  const active = rules({ id: 'push', effect: 'forbid', tools: ['*'], commands: ['git push*'] })
+  assert.equal(evaluateCall(active, call('RunScript', { script: 'git push' }), ctx).decision, 'deny')
+})
+
+test('A003: a non-shell MCP tool with a path arg is still path-checked', () => {
+  const active = rules({ id: 'secrets', effect: 'forbid', tools: ['mcp__*'], paths: ['secrets/**'] })
+  assert.equal(evaluateCall(active, call('mcp__fs__read_file', { path: 'secrets/k.txt' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('mcp__fs__read_file', { path: 'src/a.ts' }), ctx).decision, 'allow')
 })

@@ -127,7 +127,9 @@ What the hook does once a store exists:
   `.claude/settings*.json` (where a hook could be switched off). Paths are
   resolved through symlinks, and compared case-insensitively on macOS and
   Windows. Any MCP tool argument that looks like a path is checked too. No
-  Bash command may name any of them.
+  shell command may name any of them (any tool whose input has a string
+  `command` or `script`: Bash, PowerShell, an MCP shell such as
+  `mcp__wsl__run`).
 - **Pinned root.** The hook finds `.atap/` from `CLAUDE_PROJECT_DIR` and
   passes that root to the CLI, so the agent `cd`-ing somewhere else changes
   nothing.
@@ -149,13 +151,14 @@ Anything that user can read, a Bash command can eventually read, and whoever
 holds the key can sign a rescind. Keep it on another account, a hardware key
 or another machine; the self-protection rule only catches the obvious tries.
 
-Known limits, on purpose: Bash rules match command text, so a command built
+Known limits, on purpose: `commands` rules match command text, so a command built
 from variables, `eval`, aliases or base64 can get past a `commands` glob and
 past the name tripwire. The guard is the second line; OS permissions (the
 agent's user cannot write the store or read the key) are the first.
 
 Rules are globs: `*` stays inside a path segment and `**` crosses them;
-`commands` match each shell segment (split on `&&`, `||`, `;`, `|`, `&`,
+`commands` apply to any tool whose input has a string `command` (else
+`script`), not only Bash, and match each shell segment (split on `&&`, `||`, `;`, `|`, `&`,
 newlines, parentheses, backticks and `$(`, with leading `VAR=value` and
 wrappers such as `sudo` and `env` stripped); every matcher in a rule must
 match. `forbid` beats `require_approval`. A `paths` rule on Grep, Glob or LS

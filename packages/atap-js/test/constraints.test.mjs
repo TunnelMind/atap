@@ -214,6 +214,28 @@ test('review: background jobs, subshells, assignments and wrappers are split out
   assert.equal(evaluateCall(active, call('WebFetch', { url: 'https://a.evil.com./' }), keyCtx).decision, 'deny')
 })
 
+test('A003: every shell tool gets the commands rules and the name tripwire, not only Bash', () => {
+  const s = signConstraintSet(
+    { constraint_id: 'shells', scope: '*', prose: 'No pushes from any shell; stay out of secrets/.', rules: [
+      { id: 'push', effect: 'forbid', tools: ['mcp__*', 'PowerShell', 'RunScript'], commands: ['git push*'] },
+      { id: 'secrets', effect: 'forbid', tools: ['mcp__*'], paths: ['secrets/**'] }] },
+    op.privateKey,
+  )
+  const { active } = foldConstraints([s], op.did, AIT)
+  const tripped = (d) => d.decision === 'deny' && d.rule_id === 'store-command'
+  assert.ok(tripped(evaluateCall([], call('PowerShell', { command: 'Remove-Item .atap/constraints.jsonl' }), keyCtx)))
+  assert.ok(tripped(evaluateCall([], call('mcp__wsl__run', { command: 'rm .atap/constraints.jsonl' }), keyCtx)))
+  assert.ok(tripped(evaluateCall([], call('RunScript', { script: 'cat /home/op/.atap-operator/operator.pem' }), keyCtx)))
+  assert.equal(evaluateCall(active, call('mcp__wsl__run', { command: 'git push' }), keyCtx).rule_id, 'push')
+  assert.equal(evaluateCall(active, call('RunScript', { script: 'git push origin' }), keyCtx).rule_id, 'push')
+  assert.equal(evaluateCall(active, call('mcp__wsl__run', { command: 'git status' }), keyCtx).decision, 'allow')
+  // A non-shell MCP tool: no command, so no commands match, but its path argument is still checked.
+  assert.equal(evaluateCall(active, call('mcp__fs__read_file', { path: 'secrets/k.txt' }), keyCtx).rule_id, 'secrets')
+  assert.equal(evaluateCall(active, call('mcp__fs__read_file', { path: 'src/a.ts' }), keyCtx).decision, 'allow')
+  // A shell tool's path arguments stay path-checked too.
+  assert.equal(evaluateCall([], call('mcp__x__run', { command: 'ls', file_path: '.atap/constraints.jsonl' }), keyCtx).rule_id, 'store-write')
+})
+
 test('glob: * stays in a path segment, ** crosses them, regex characters are literal', () => {
   assert.ok(globToRegExp('src/*.ts', true).test('src/a.ts'))
   assert.ok(!globToRegExp('src/*.ts', true).test('src/a/b.ts'))

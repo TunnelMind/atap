@@ -43,7 +43,7 @@ export interface ConstraintRule {
   effect: RuleEffect
   /** Tool-name globs, e.g. "Bash", "Write", "mcp__github__*". Required. */
   tools: string[]
-  /** Bash only: globs over each shell segment of the command. */
+  /** Any shell tool (input has a string `command` or `script`): globs over each shell segment of it. */
   commands?: string[]
   /** Globs over the tool's file path, relative to the project root ("**" crosses "/"). */
   paths?: string[]
@@ -378,6 +378,16 @@ function callPaths(call: ToolCall): string[] {
   return raw
 }
 
+/**
+ * The command a shell tool runs: a string `command` (Bash, PowerShell, mcp__wsl__run, ...), else a string
+ * `script`; null for a tool that runs no shell. Keyed on the input, not the tool name, so a new shell tool
+ * cannot slip past a `commands` rule or the name tripwire.
+ */
+function shellCommand(call: ToolCall): string | null {
+  const { command, script } = call.tool_input
+  return typeof command === 'string' ? command : typeof script === 'string' ? script : null
+}
+
 /** Every string in the tool input (two levels deep, capped): MCP tools name paths under any key. */
 function inputStrings(v: unknown, depth = 0, out: string[] = []): string[] {
   if (out.length > 256) return out
@@ -397,8 +407,8 @@ function staticDir(glob: string): string {
 function ruleMatches(rule: ConstraintRule, call: ToolCall, ctx: EvalContext): boolean {
   if (!matchAny(rule.tools, call.tool_name, false)) return false
   if (rule.commands) {
-    const cmd = call.tool_input.command
-    if (call.tool_name !== 'Bash' || typeof cmd !== 'string') return false
+    const cmd = shellCommand(call)
+    if (cmd === null) return false
     if (!commandSegments(cmd).some((seg) => matchAny(rule.commands as string[], seg, false))) return false
   }
   if (rule.paths || rule.outside_project) {
@@ -435,7 +445,7 @@ function ruleMatches(rule: ConstraintRule, call: ToolCall, ctx: EvalContext): bo
 /**
  * The built-in rule. No tool may touch the operator key; no tool but a read-only one may touch the
  * store, the .atap/ directory (any .atap/ in the project, so a nested one cannot re-root the guard)
- * or the agent's settings; and no Bash command may name them.
+ * or the agent's settings; and no shell command (see shellCommand) may name them.
  */
 function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   const deny = (rule_id: string, reason: string): Decision => ({ decision: 'deny', constraint_id: 'atap.self-protect', rule_id, reason })
@@ -443,8 +453,8 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   const secrets = (ctx.secretPaths ?? []).map((p) => canon(ctx, '/', p))
   const guarded = ctx.protectedPaths.map((p) => canon(ctx, '/', p))
   const strings = inputStrings(call.tool_input).filter((x) => x.length > 0 && x.length < 4096)
-  if (call.tool_name === 'Bash') {
-    const cmd = typeof call.tool_input.command === 'string' ? call.tool_input.command : ''
+  const cmd = shellCommand(call)
+  if (cmd !== null) {
     const folded = ctx.caseInsensitive ? cmd.toLowerCase() : cmd
     const names = new Set<string>(['.atap', '.claude/settings'])
     for (const t of [...secrets, ...guarded]) {
@@ -459,7 +469,8 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
     if ([...names].some((n) => folded.includes(ctx.caseInsensitive ? n.toLowerCase() : n))) {
       return deny('store-command', 'names the operator constraint store, key, .atap/ or agent settings in a command')
     }
-    return null
+    // No early return: an MCP shell tool may carry path arguments beside its command, and those were
+    // path-checked below before every shell tool got the tripwire; keep them checked.
   }
   const reads = READ_TOOLS.has(call.tool_name)
   for (const raw of strings) {
