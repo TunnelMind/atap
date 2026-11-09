@@ -1,6 +1,12 @@
-// The probe table: one row per "got" case from the owner's review of the
-// constraints guard, each with the result it should have, run through the real
-// hook script and the real CLI (harness as in constraints.test.mjs).
+// GATE F probe table for atap-constraints-1: one row per "got" case from the
+// owner's review of the constraints guard, each with the result it should have,
+// run through the real hook script and the real CLI (harness as in
+// constraints.test.mjs), or through evaluateCall directly. Covers:
+//   A002 fail-open (strict mode)      A003 other shells
+//   A004 Windows paths                A005 the guard cannot edit itself
+//   A006 command forms                A007 paths on shells / search reach
+//   A008 false denials
+// Rows are top-level test() calls plus the loop-generated ones (A006, A007, A008).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'

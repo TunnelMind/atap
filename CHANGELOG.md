@@ -24,6 +24,24 @@ All notable changes to ATAP are recorded here.
   rules cover ancestor directories, Bash splitting handles `&`, subshells,
   `$(…)`, assignments and wrappers, hosts drop a trailing dot, and a statement
   reaches the store only after its witness event passes the profile check.
+- **Constraints guard, owner's review** (atap-constraints-1). Fail-open
+  fixed: in strict mode (`ATAP_CONSTRAINTS_REQUIRED=1` or `ATAP_OPERATOR`
+  set) the PreToolUse hook denies when no `.atap/` is found, stdin is
+  malformed or the handler throws; with neither set it stays a silent no-op.
+  `commands` rules and the self-protection tripwire apply to every shell tool
+  (any call with a string `command` or `script`, e.g. PowerShell or an MCP
+  shell), not only Bash. Drive-letter (`C:\`, `c:/`) and backslash paths are
+  understood in Windows mode (CLI on win32 or a drive-letter project root).
+  The guard cannot edit itself: the plugin root (passed as `ATAP_PLUGIN_ROOT`),
+  the resolved `atap-witness` path and `~/.claude.json` are protected. Command
+  forms no longer hide a `git push`: shell keywords and `{ } !`, wrappers and
+  their flags, `/usr/bin/git`, `\git`, git global options (`git -C .`),
+  `sh|bash|zsh|dash -c` (3 deep), `xargs` and empty quotes. A `paths` rule
+  naming a shell tool sees the path-like words of each command, and a search
+  of a directory below a glob's static prefix reaches it when the rest has
+  `**`. False denials removed: strings outside path fields, settings files by
+  bare base name, quoted `git commit -m` text. Commands and paths on shells
+  remain a tripwire, not a boundary (see the plugin README's Known limits).
 - **Plugin e2e test** runs the repo's trusted `verify.sh` on the receipt; the
   receipt's own copy refuses to vouch for itself since the §8.2 hardening.
 
