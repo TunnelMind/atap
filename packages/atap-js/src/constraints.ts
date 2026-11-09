@@ -334,6 +334,11 @@ export interface EvalContext {
   realpath?: (abs: string) => string
   /** Compare paths case-insensitively (macOS, Windows file systems). */
   caseInsensitive?: boolean
+  /**
+   * Windows paths: `\` is a separator, `X:\`/`X:/` and `\\server` are absolute, drive and case fold.
+   * Also on when projectRoot is a drive-letter path. Off (POSIX), a backslash is an ordinary filename character.
+   */
+  windows?: boolean
 }
 
 export interface Decision {
@@ -343,25 +348,50 @@ export interface Decision {
   reason?: string
 }
 
-function normalise(p: string): string {
+const DRIVE = /^[A-Za-z]:[\\/]/
+const isWindows = (ctx: EvalContext) => ctx.windows === true || DRIVE.test(ctx.projectRoot)
+
+/**
+ * `/a/b` with `.`/`..` resolved. In windows mode `\` is a separator and a path is kept in the same shape
+ * with its drive as the first segment, lower-cased and pinned (`C:\p\..\..` -> `/c:`), so prefix
+ * checks work unchanged. `w` off is the POSIX path, byte-for-byte as before.
+ */
+function normalise(p: string, w = false): string {
+  // Win32 device/extended-length prefixes: `\\?\C:\x` and `\\.\C:\x` are `C:\x`; `\\?\UNC\srv\x` is `\\srv\x`.
+  if (w) p = p.replace(/\\/g, '/').replace(/^\/\/[?.]\/(UNC\/)?/i, (_m, unc) => (unc ? '//' : ''))
   const parts: string[] = []
+  let floor = 0
   for (const seg of p.split('/')) {
     if (seg === '' || seg === '.') continue
-    if (seg === '..') parts.pop()
-    else parts.push(seg)
+    if (w && parts.length === 0 && /^[A-Za-z]:$/.test(seg)) {
+      parts.push(seg.toLowerCase())
+      floor = 1
+    } else if (seg === '..') {
+      if (parts.length > floor) parts.pop()
+    } else parts.push(seg)
   }
   return '/' + parts.join('/')
 }
 
-/** An absolute, normalised, symlink-resolved (when the context can) and case-folded (when asked) path. */
+/** An absolute, normalised, symlink-resolved (when the context can) and case-folded (when asked, or windows) path. */
 function canon(ctx: EvalContext, cwd: string, p: string): string {
-  let abs = normalise(p.startsWith('/') ? p : `${cwd}/${p}`)
+  const w = isWindows(ctx)
+  // Windows absolute: `X:\`, `X:/`, `\\server\share` (or any leading separator). `C:x` (drive-relative) is not:
+  // it is resolved against cwd (`C:\p` + `C:x` -> `c:/p/c:x`), not drive C's own current directory.
+  const absolute = w ? DRIVE.test(p) || /^[\\/]/.test(p) : p.startsWith('/')
+  let full = absolute ? p : `${cwd}/${p}`
+  // Windows: `\p\x` (one leading separator, not UNC) is rooted on the current drive, normally the
+  // project's; take projectRoot's drive. With no drive on the root (only `windows: true`), leave it.
+  const drive = /^([A-Za-z]:)[\\/]/.exec(ctx.projectRoot)
+  if (w && drive && /^[\\/](?![\\/])/.test(full)) full = drive[1] + full
+  let abs = normalise(full, w)
   if (ctx.realpath) {
     try {
-      abs = normalise(ctx.realpath(abs))
+      // Hand realpath a native path: `/c:/p` -> `c:/p` (Node accepts forward slashes on Windows).
+      abs = normalise(ctx.realpath(w && /^\/[a-z]:/.test(abs) ? abs.slice(1) : abs), w)
     } catch {}
   }
-  return ctx.caseInsensitive ? abs.toLowerCase() : abs
+  return ctx.caseInsensitive || w ? abs.toLowerCase() : abs
 }
 
 function relativeTo(root: string, abs: string): string | null {
@@ -413,7 +443,7 @@ function ruleMatches(rule: ConstraintRule, call: ToolCall, ctx: EvalContext): bo
   }
   if (rule.paths || rule.outside_project) {
     const root = canon(ctx, '/', ctx.projectRoot)
-    const fold = (g: string) => (ctx.caseInsensitive ? g.toLowerCase() : g)
+    const fold = (g: string) => (ctx.caseInsensitive || isWindows(ctx) ? g.toLowerCase() : g)
     const hit = callPaths(call).some((raw) => {
       const rel = relativeTo(root, canon(ctx, call.cwd, raw))
       if (rule.outside_project) return rel === null
@@ -454,11 +484,15 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   const guarded = ctx.protectedPaths.map((p) => canon(ctx, '/', p))
   const strings = inputStrings(call.tool_input).filter((x) => x.length > 0 && x.length < 4096)
   const cmd = shellCommand(call)
+  const w = isWindows(ctx)
+  const fold = ctx.caseInsensitive || w
   if (cmd !== null) {
-    const folded = ctx.caseInsensitive ? cmd.toLowerCase() : cmd
+    // Windows: `C:\P\.ATAP` and `c:/p/.atap` name the same thing; compare in the canonical shape.
+    const folded = w ? cmd.replace(/\\/g, '/').toLowerCase() : fold ? cmd.toLowerCase() : cmd
     const names = new Set<string>(['.atap', '.claude/settings'])
     for (const t of [...secrets, ...guarded]) {
       names.add(t)
+      if (w && /^\/[a-z]:/.test(t)) names.add(t.slice(1))
       const rel = relativeTo(root, t)
       if (rel) names.add(rel)
       const base = t.split('/').pop()
@@ -466,7 +500,7 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
     }
     // ponytail: substring match, so an obfuscated name (variables, globs, base64) is not caught. Keep the
     // store and key outside the agent's reach (ATAP_CONSTRAINTS, OS permissions); this is a tripwire.
-    if ([...names].some((n) => folded.includes(ctx.caseInsensitive ? n.toLowerCase() : n))) {
+    if ([...names].some((n) => folded.includes(fold ? n.toLowerCase() : n))) {
       return deny('store-command', 'names the operator constraint store, key, .atap/ or agent settings in a command')
     }
     // No early return: an MCP shell tool may carry path arguments beside its command, and those were
@@ -475,7 +509,7 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   const reads = READ_TOOLS.has(call.tool_name)
   for (const raw of strings) {
     // Only strings that could be paths: a field the tool reads as a path, or anything with a slash or .atap in it.
-    if (!(PATH_FIELDS.some((k) => call.tool_input[k] === raw) || raw.includes('/') || raw.includes('.atap'))) continue
+    if (!(PATH_FIELDS.some((k) => call.tool_input[k] === raw) || raw.includes('/') || (w && raw.includes('\\')) || raw.includes('.atap'))) continue
     const abs = canon(ctx, call.cwd, raw)
     if (secrets.some((t) => within(abs, t))) return deny('key-access', 'touches the operator key')
     if (reads) continue

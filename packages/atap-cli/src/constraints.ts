@@ -15,7 +15,7 @@ import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject 
 import { appendFile, chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { existsSync, realpathSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import {
   canonicalizeBytes,
   didKeyFromPublicKey,
@@ -133,6 +133,9 @@ export function secretPaths(): string[] {
 
 /** realpath of the longest existing prefix, with the rest appended: resolves a symlinked parent of a new file. */
 export function realpathPrefix(abs: string): string {
+  // A path this platform does not call absolute (a drive-letter path off Windows) would resolve against
+  // the process cwd below; leave it as it is.
+  if (!isAbsolute(abs)) return abs
   let head = abs
   const tail: string[] = []
   for (;;) {
@@ -147,19 +150,26 @@ export function realpathPrefix(abs: string): string {
   }
 }
 
+const DRIVE = /^[A-Za-z]:[\\/]/
+
 /** The hook's question: may this tool call run? Input is the PreToolUse hook JSON. */
 export function decide(st: StoreState, input: Record<string, unknown>, projectRoot: string, atapDir: string = join(projectRoot, '.atap')): Decision {
   const verdict = storeVerdict(st)
   if (verdict) return verdict
   const tool_name = typeof input.tool_name === 'string' ? input.tool_name : ''
   const tool_input = isObject(input.tool_input) ? (input.tool_input as Record<string, unknown>) : {}
-  const cwd = typeof input.cwd === 'string' && input.cwd.startsWith('/') ? input.cwd : projectRoot
+  // An absolute cwd: POSIX `/…`, or in windows mode (win32, or a drive-letter root, as atap-js decides) a
+  // drive-letter `C:\…` / `C:/…`; anything else falls back to the root.
+  const windows = process.platform === 'win32'
+  const abs = windows || DRIVE.test(projectRoot) ? /^(\/|[A-Za-z]:[\\/])/ : /^\//
+  const cwd = typeof input.cwd === 'string' && abs.test(input.cwd) ? input.cwd : projectRoot
   return evaluateCall(st.fold.active, { tool_name, tool_input, cwd }, {
     projectRoot,
     protectedPaths: protectedPaths(st, atapDir),
     secretPaths: secretPaths(),
     realpath: realpathPrefix,
     caseInsensitive: process.platform === 'darwin' || process.platform === 'win32',
+    windows,
   })
 }
 

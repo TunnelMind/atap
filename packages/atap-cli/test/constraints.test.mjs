@@ -113,3 +113,26 @@ test('a receipt over set, gate and rescind events verifies in both verifiers', (
   assert.ok(!all.includes('Never deploy') && !all.includes('wrangler'))
   assert.ok(readFileSync(join(repo, '.atap', 'constraints.jsonl'), 'utf8').includes('Never deploy'))
 })
+
+// decide() on Windows paths, driven in-process (this host is POSIX): a drive-letter project root turns
+// windows mode on, and a drive-letter cwd is taken as absolute instead of falling back to the root.
+test('decide: a drive-letter root and cwd judge Windows paths; a POSIX root keeps `\\` literal', async () => {
+  const { decide } = await import('../dist/constraints.js')
+  const { generateKeyPairSync, createPublicKey } = await import('node:crypto')
+  const { signConstraintSet, foldConstraints, didKeyFromPublicKey } = await import('@tunnelmindai/atap')
+  const key = generateKeyPairSync('ed25519').privateKey
+  const did = didKeyFromPublicKey(new Uint8Array(Buffer.from(createPublicKey(key).export({ format: 'jwk' }).x, 'base64url')))
+  const set = signConstraintSet({ constraint_id: 'sec', scope: '*', prose: 'No secrets.', rules: [{ id: 'sec', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] }] }, key)
+  const fold = foldConstraints([set], did, '*')
+  const st = { path: 'C:\\p\\.atap\\constraints.jsonl', exists: true, operator: did, fold, missing: [] }
+  const win = (file_path, cwd = 'C:\\p') => decide(st, { tool_name: 'Write', tool_input: { file_path }, cwd }, 'C:\\p', 'C:\\p\\.atap')
+  assert.equal(win('C:\\p\\.atap\\constraints.jsonl').rule_id, 'store-write')
+  assert.equal(win('C:\\p\\secrets\\k').rule_id, 'sec')
+  assert.equal(win('c:/P/Secrets/k').rule_id, 'sec')
+  assert.equal(win('secrets\\k').rule_id, 'sec')
+  assert.equal(win('..\\secrets\\k', 'C:\\p\\docs').rule_id, 'sec')
+  assert.equal(win('C:\\p\\docs\\a').decision, 'allow')
+  const posix = { ...st, path: '/work/proj/.atap/constraints.jsonl' }
+  const d = decide(posix, { tool_name: 'Write', tool_input: { file_path: 'secrets/a\\..\\..\\b' }, cwd: '/work/proj' }, '/work/proj')
+  assert.equal(d.rule_id, 'sec')
+})

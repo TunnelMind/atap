@@ -126,10 +126,15 @@ What the hook does once a store exists:
   nested one cannot re-root the guard), or the project's and the user's
   `.claude/settings*.json` (where a hook could be switched off). Paths are
   resolved through symlinks, and compared case-insensitively on macOS and
-  Windows. Any MCP tool argument that looks like a path is checked too. No
-  shell command may name any of them (any tool whose input has a string
-  `command` or `script`: Bash, PowerShell, an MCP shell such as
-  `mcp__wsl__run`).
+  Windows. On Windows (or with a drive-letter project root) `\` is a path
+  separator, `C:\…`, `c:/…` and `\\server\…` are absolute, drive letter and
+  case fold, and a relative path resolves against a drive-letter `cwd`: so
+  `secrets\k` and `c:/P/Secrets/k` both match `secrets/**` under `C:\p`
+  (unit-tested with Windows paths on Linux, not on a Windows host). Elsewhere
+  `\` is an ordinary filename character. Any MCP tool argument that looks
+  like a path is checked too. No shell command may name any of them (any
+  tool whose input has a string `command` or `script`: Bash, PowerShell, an
+  MCP shell such as `mcp__wsl__run`).
 - **Pinned root.** The hook finds `.atap/` from `CLAUDE_PROJECT_DIR` and
   passes that root to the CLI, so the agent `cd`-ing somewhere else changes
   nothing.

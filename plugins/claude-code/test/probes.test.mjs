@@ -139,3 +139,22 @@ test('A003: a non-shell MCP tool with a path arg is still path-checked', () => {
   assert.equal(evaluateCall(active, call('mcp__fs__read_file', { path: 'secrets/k.txt' }), ctx).decision, 'deny')
   assert.equal(evaluateCall(active, call('mcp__fs__read_file', { path: 'src/a.ts' }), ctx).decision, 'allow')
 })
+
+// ---------------------------------------------------------------- A004 Windows paths
+// evaluateCall rows (Windows behaviour is proven on this POSIX host): a drive-letter project root turns
+// windows mode on, so `\` separates, drive and case fold, and a relative path resolves against a Windows cwd.
+
+const WIN = 'C:\\p'
+const winCtx = { projectRoot: WIN, protectedPaths: [`${WIN}\\.atap`, `${WIN}\\.claude\\settings.json`] }
+const winCall = (tool_name, tool_input) => ({ tool_name, tool_input, cwd: WIN })
+
+test('A004: Write C:\\p\\.atap\\constraints.jsonl denies', () => {
+  assert.equal(evaluateCall([], winCall('Write', { file_path: `${WIN}\\.atap\\constraints.jsonl` }), winCtx).decision, 'deny')
+})
+
+test('A004: secrets\\k and c:/P/Secrets/k under secrets/** deny', () => {
+  const active = rules({ id: 'secrets', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] })
+  assert.equal(evaluateCall(active, winCall('Write', { file_path: 'secrets\\k' }), winCtx).decision, 'deny')
+  assert.equal(evaluateCall(active, winCall('Write', { file_path: 'c:/P/Secrets/k' }), winCtx).decision, 'deny')
+  assert.equal(evaluateCall(active, winCall('Write', { file_path: `${WIN}\\docs\\a` }), winCtx).decision, 'allow')
+})

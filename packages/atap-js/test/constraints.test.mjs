@@ -253,3 +253,45 @@ test('render: the re-injected text names each constraint and how a rescind is ma
   assert.equal(renderConstraints(foldConstraints([], op.did, AIT), op.did), '')
   assert.match(statementHash(noProdDeploy()), /^0x[0-9a-f]{64}$/)
 })
+
+test('windows paths: drive letters and backslashes fold; POSIX keeps a backslash literal', () => {
+  const secrets = foldConstraints(
+    [signConstraintSet({ constraint_id: 'sec', scope: '*', prose: 'No secrets.', rules: [{ id: 'sec', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  ).active
+  // Windows mode from the drive-letter root alone (no `windows` flag), and with the flag set.
+  for (const extra of [{}, { windows: true }]) {
+    const w = { projectRoot: 'C:\\p', protectedPaths: ['C:\\p\\.atap\\constraints.jsonl'], ...extra }
+    const at = (file_path, cwd = 'C:\\p') => evaluateCall(secrets, call('Write', { file_path }, cwd), w)
+    assert.equal(at('C:\\p\\.atap\\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('c:/P/.ATAP/constraints.jsonl').decision, 'deny')
+    assert.equal(at('C:\\p\\secrets\\k').rule_id, 'sec')
+    assert.equal(at('c:/P/Secrets/k').rule_id, 'sec')
+    assert.equal(at('secrets\\k').rule_id, 'sec')
+    assert.equal(at('..\\secrets\\k', 'C:\\p\\docs').rule_id, 'sec')
+    assert.equal(at('C:\\p\\docs\\a').decision, 'allow')
+    // A drive-less rooted path takes the project's drive.
+    assert.equal(at('\\p\\.atap\\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('\\p\\secrets\\k').rule_id, 'sec')
+    assert.equal(at('/p/secrets/k').rule_id, 'sec')
+    assert.equal(at('\\\\srv\\x').decision, 'allow')
+    // Extended-length and device prefixes are stripped; `\\?\UNC\` stays UNC, outside the project.
+    assert.equal(at('\\\\?\\C:\\p\\.atap\\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('\\\\?\\C:\\p\\secrets\\k').rule_id, 'sec')
+    assert.equal(at('\\\\.\\C:\\p\\secrets\\k').rule_id, 'sec')
+    assert.equal(at('\\\\?\\UNC\\srv\\x').decision, 'allow')
+    // A UNC path is absolute, so it is outside the project rather than under C:\p.
+    const outside = foldConstraints([signConstraintSet({ constraint_id: 'out', scope: '*', prose: 'Stay in.', rules: [{ id: 'out', effect: 'forbid', tools: ['*'], outside_project: true }] }, op.privateKey)], op.did, AIT).active
+    assert.equal(evaluateCall(outside, call('Read', { file_path: '\\\\srv\\share\\k' }, 'C:\\p'), w).rule_id, 'out')
+    assert.equal(evaluateCall(outside, call('Read', { file_path: 'docs\\a' }, 'C:\\p'), w).decision, 'allow')
+    assert.equal(evaluateCall(outside, call('Read', { file_path: '\\\\?\\UNC\\srv\\x' }, 'C:\\p'), w).rule_id, 'out')
+    // The tripwire sees a backslashed, re-cased store path in a command.
+    assert.equal(evaluateCall([], call('PowerShell', { command: 'Remove-Item C:\\P\\.ATAP\\Constraints.jsonl' }, 'C:\\p'), w).decision, 'deny')
+  }
+  // POSIX: `\` is a filename character, so `secrets/a\..\..\b` is a file under secrets/, not an escape.
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: 'secrets/a\\..\\..\\b' }), ctx).rule_id, 'sec')
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: `${ROOT}/secrets/a\\..\\..\\b` }), ctx).rule_id, 'sec')
+  // POSIX: an extended-length prefix is just a filename (relative, in the project root, not under secrets/).
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: '\\\\?\\C:\\p\\secrets\\k' }), ctx).decision, 'allow')
+})
