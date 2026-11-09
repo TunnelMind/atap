@@ -328,6 +328,11 @@ export interface EvalContext {
   projectRoot: string
   /** Absolute paths no tool but a read-only one may touch, and no command may name: the store, .atap/, settings. */
   protectedPaths: string[]
+  /**
+   * Entries of protectedPaths the command tripwire matches by absolute path only, without the
+   * project-relative and base-name forms (the guard's own files, whose short names are common words).
+   */
+  absoluteOnlyPaths?: string[]
   /** Absolute paths no tool may touch at all, reads included: the operator key. */
   secretPaths?: string[]
   /** Resolves symlinks in an absolute path (the longest existing prefix). Pure callers leave it out. */
@@ -490,9 +495,11 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
     // Windows: `C:\P\.ATAP` and `c:/p/.atap` name the same thing; compare in the canonical shape.
     const folded = w ? cmd.replace(/\\/g, '/').toLowerCase() : fold ? cmd.toLowerCase() : cmd
     const names = new Set<string>(['.atap', '.claude/settings'])
+    const absOnly = new Set((ctx.absoluteOnlyPaths ?? []).map((p) => canon(ctx, '/', p)))
     for (const t of [...secrets, ...guarded]) {
       names.add(t)
       if (w && /^\/[a-z]:/.test(t)) names.add(t.slice(1))
+      if (absOnly.has(t)) continue
       const rel = relativeTo(root, t)
       if (rel) names.add(rel)
       const base = t.split('/').pop()

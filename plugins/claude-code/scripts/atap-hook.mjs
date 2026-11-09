@@ -26,8 +26,8 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFile, readFile, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { delimiter, dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
 const LOG_CAP = 1024 * 1024 // hook.log stops growing at 1 MB
@@ -148,7 +148,11 @@ async function constraintsCli(atap, cwd, event, args, input) {
   const bin = process.env.ATAP_WITNESS || 'atap-witness'
   // The project root is pinned to the .atap/ this hook found, never re-found from the agent's cwd.
   const root = resolve(atap.dir, '..')
-  const p = run(bin, ['constraints', ...args], { cwd: root, timeout: 8000, env: { ...process.env, ATAP_PROJECT_DIR: root } })
+  // The plugin's own files are guarded too (the CLI adds them to its protected paths): the root Claude
+  // Code says it loaded the plugin from, and the one this script sits in, in case they differ.
+  const plugin = [...new Set([process.env.CLAUDE_PLUGIN_ROOT, resolve(dirname(fileURLToPath(import.meta.url)), '..')].filter(Boolean))]
+  const env = { ...process.env, ATAP_PROJECT_DIR: root, ATAP_PLUGIN_ROOT: plugin.join(delimiter) }
+  const p = run(bin, ['constraints', ...args], { cwd: root, timeout: 8000, env })
   p.child.stdin.on('error', () => {})
   p.child.stdin.end(input === undefined ? '' : JSON.stringify(input))
   try {

@@ -295,3 +295,13 @@ test('windows paths: drive letters and backslashes fold; POSIX keeps a backslash
   // POSIX: an extended-length prefix is just a filename (relative, in the project root, not under secrets/).
   assert.equal(evaluateCall(secrets, call('Write', { file_path: '\\\\?\\C:\\p\\secrets\\k' }), ctx).decision, 'allow')
 })
+
+test('absoluteOnlyPaths: guarded for writes, but the tripwire matches only their absolute path', () => {
+  const plugin = `${ROOT}/plugins/claude-code`
+  const c = { ...keyCtx, protectedPaths: [...keyCtx.protectedPaths, plugin], absoluteOnlyPaths: [plugin] }
+  assert.equal(evaluateCall([], call('Edit', { file_path: `${plugin}/scripts/atap-hook.mjs` }), c).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('Bash', { command: `rm ${plugin}/scripts/atap-hook.mjs` }), c).rule_id, 'store-command')
+  assert.equal(evaluateCall([], call('Bash', { command: 'npm --prefix plugins/claude-code test' }), c).decision, 'allow')
+  // Without the mark the same entry gets its project-relative name in the tripwire, as before.
+  assert.equal(evaluateCall([], call('Bash', { command: 'npm --prefix plugins/claude-code test' }), { ...c, absoluteOnlyPaths: [] }).rule_id, 'store-command')
+})

@@ -136,3 +136,21 @@ test('decide: a drive-letter root and cwd judge Windows paths; a POSIX root keep
   const d = decide(posix, { tool_name: 'Write', tool_input: { file_path: 'secrets/a\\..\\..\\b' }, cwd: '/work/proj' }, '/work/proj')
   assert.equal(d.rule_id, 'sec')
 })
+
+// A005: the guard's own files. Driven through the real CLI, the way the hook calls it.
+test('the guard cannot edit itself: plugin root, ATAP_WITNESS, ~/.claude.json; commands match by absolute path only', (t) => {
+  const { root, repo, ok } = project(t)
+  const plugin = join(repo, 'plugins', 'claude-code')
+  const witness = join(root, 'atap-witness')
+  writeFileSync(witness, '#!/bin/sh\n')
+  const home = join(root, 'home')
+  const env = { ATAP_PLUGIN_ROOT: plugin, ATAP_WITNESS: witness, HOME: home }
+  const tool = (tool_name, tool_input) => ok(['constraints', 'check'], { tool_name, tool_input }, env)
+  assert.equal(tool('Edit', { file_path: join(plugin, 'scripts', 'atap-hook.mjs'), old_string: 'a', new_string: 'b' }).decision, 'deny')
+  assert.equal(tool('Write', { file_path: join(home, '.claude.json'), content: '{}' }).decision, 'deny')
+  assert.equal(tool('Write', { file_path: witness, content: '' }).decision, 'deny')
+  assert.equal(tool('Write', { file_path: CLI, content: '' }).decision, 'deny')
+  assert.equal(tool('Bash', { command: `rm ${join(plugin, 'scripts', 'atap-hook.mjs')}` }).decision, 'deny')
+  assert.equal(tool('Bash', { command: 'npm --prefix plugins/claude-code test' }).decision, 'allow')
+  assert.equal(tool('Bash', { command: 'node scripts/atap-hook.mjs --help' }).decision, 'allow')
+})

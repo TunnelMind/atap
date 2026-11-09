@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -53,7 +53,7 @@ function setup(t) {
   assert.equal(r.status, 0, r.stderr)
   const raw = (input) => JSON.stringify({ session_id: 's', cwd: repo, ...input })
   const hook = (event, stdin, extra = {}) => spawn([script, event], repo, stdin, { ATAP_WITNESS: wrapper, ...extra })
-  return { repo, raw, hook }
+  return { repo, raw, hook, wrapper }
 }
 
 const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } })
@@ -157,4 +157,46 @@ test('A004: secrets\\k and c:/P/Secrets/k under secrets/** deny', () => {
   assert.equal(evaluateCall(active, winCall('Write', { file_path: 'secrets\\k' }), winCtx).decision, 'deny')
   assert.equal(evaluateCall(active, winCall('Write', { file_path: 'c:/P/Secrets/k' }), winCtx).decision, 'deny')
   assert.equal(evaluateCall(active, winCall('Write', { file_path: `${WIN}\\docs\\a` }), winCtx).decision, 'allow')
+})
+
+// ---------------------------------------------------------------- A005 the guard cannot edit itself
+// Through the real hook: a copy of the hook inside the project (a project that contains the plugin),
+// so the plugin root it passes the CLI is <repo>/plugins/claude-code.
+
+function withPlugin(t) {
+  const s = setup(t)
+  const scripts = join(s.repo, 'plugins', 'claude-code', 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  const own = join(scripts, 'atap-hook.mjs')
+  copyFileSync(script, own)
+  const home = join(s.repo, '..', 'home')
+  mkdirSync(home)
+  // ATAP_OPERATOR turns the guard on with no store; HOME moves ~/.claude.json into the sandbox.
+  const pre = (input) => spawn([own, 'pre-tool-use'], s.repo, s.raw(input), { ATAP_WITNESS: s.wrapper, ATAP_OPERATOR: opDid, HOME: home })
+  return { ...s, own, home, pre }
+}
+const selfDeny = (d) => {
+  assert.equal(d?.hookSpecificOutput?.permissionDecision, 'deny', JSON.stringify(d))
+  assert.match(d.hookSpecificOutput.permissionDecisionReason, /atap\.self-protect\/store-write/)
+}
+
+test('A005: Edit of the plugin\'s scripts/atap-hook.mjs denies', noCli, (t) => {
+  const { own, pre } = withPlugin(t)
+  selfDeny(pre({ tool_name: 'Edit', tool_input: { file_path: own, old_string: 'a', new_string: 'b' } }))
+})
+
+test('A005: Write ~/.claude.json denies', noCli, (t) => {
+  const { home, pre } = withPlugin(t)
+  selfDeny(pre({ tool_name: 'Write', tool_input: { file_path: join(home, '.claude.json'), content: '{}' } }))
+})
+
+test('A005: Write of the ATAP_WITNESS file denies', noCli, (t) => {
+  const { wrapper, pre } = withPlugin(t)
+  selfDeny(pre({ tool_name: 'Write', tool_input: { file_path: wrapper, content: '' } }))
+})
+
+test('A005: Bash npm --prefix plugins/claude-code test in a project containing the plugin is allowed', noCli, (t) => {
+  const { pre } = withPlugin(t)
+  // The hook prints nothing on allow.
+  assert.equal(pre(bash('npm --prefix plugins/claude-code test')), null)
 })

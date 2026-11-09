@@ -15,7 +15,7 @@ import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject 
 import { appendFile, chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { existsSync, realpathSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import {
   canonicalizeBytes,
   didKeyFromPublicKey,
@@ -123,7 +123,20 @@ export function protectedPaths(st: StoreState, atapDir: string): string[] {
   const root = dirname(atapDir)
   // The user's own ~/.claude settings too: a hook can be switched off from there as well as from the project's.
   const settings = [root, homedir()].flatMap((d) => [join(d, '.claude', 'settings.json'), join(d, '.claude', 'settings.local.json')])
-  return [st.path, atapDir, ...settings]
+  return [st.path, atapDir, ...settings, ...guardPaths()]
+}
+
+/**
+ * The guard's own files, which protectedPaths also covers: the plugin root(s) the hook passes as
+ * ATAP_PLUGIN_ROOT, the ATAP_WITNESS binary, this CLI's entry, and ~/.claude.json (where Claude Code keeps
+ * per-project settings). The command tripwire matches these by absolute path only: their base and
+ * project-relative names (`scripts`, `plugins/claude-code`) are too common to forbid in a command.
+ */
+export function guardPaths(): string[] {
+  const plugins = (process.env.ATAP_PLUGIN_ROOT ?? '').split(delimiter).filter((p) => p.length > 0)
+  const witness = process.env.ATAP_WITNESS ? [realpathPrefix(resolve(process.env.ATAP_WITNESS))] : []
+  const entry = process.argv[1] ? [realpathPrefix(resolve(process.argv[1]))] : []
+  return [...plugins, ...witness, ...entry, join(homedir(), '.claude.json')]
 }
 
 /** What no tool may touch at all: the operator key, when its path is known. */
@@ -166,6 +179,7 @@ export function decide(st: StoreState, input: Record<string, unknown>, projectRo
   return evaluateCall(st.fold.active, { tool_name, tool_input, cwd }, {
     projectRoot,
     protectedPaths: protectedPaths(st, atapDir),
+    absoluteOnlyPaths: guardPaths(),
     secretPaths: secretPaths(),
     realpath: realpathPrefix,
     caseInsensitive: process.platform === 'darwin' || process.platform === 'win32',

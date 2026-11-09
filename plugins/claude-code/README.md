@@ -124,7 +124,12 @@ What the hook does once a store exists:
   when `ATAP_OPERATOR_KEY` names it). No tool but a read-only one (Read, Grep,
   Glob, LS) may touch the store, any `.atap/` directory in the project (so a
   nested one cannot re-root the guard), or the project's and the user's
-  `.claude/settings*.json` (where a hook could be switched off). Paths are
+  `.claude/settings*.json` (where a hook could be switched off), or the guard
+  itself: the plugin's own files (`CLAUDE_PLUGIN_ROOT` and the directory the
+  hook script runs from, passed to the CLI as `ATAP_PLUGIN_ROOT`), the
+  `ATAP_WITNESS` binary, the CLI's own entry script, and `~/.claude.json`.
+  A shell command trips on these four only by their absolute path, so
+  `npm --prefix plugins/claude-code test` still runs. Paths are
   resolved through symlinks, and compared case-insensitively on macOS and
   Windows. On Windows (or with a drive-letter project root) `\` is a path
   separator, `C:\…`, `c:/…` and `\\server\…` are absolute, drive letter and
