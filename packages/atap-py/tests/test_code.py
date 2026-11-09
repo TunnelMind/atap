@@ -40,11 +40,13 @@ def resolve(spec):
 
 
 def check(test, name, payload):
-    """payload against $defs[name]: exactly the required keys, and each value
-    within its pattern/enum/const/range. No jsonschema: stdlib only."""
+    """payload against $defs[name]: all required keys, no keys outside
+    properties, and each value within its pattern/enum/const/range. Optional
+    properties (e.g. in_force_sha256) may be absent: atap-py has no in-force
+    set to report. No jsonschema: stdlib only."""
     schema = DEFS[name]
-    test.assertEqual(set(payload), set(schema["required"]))
-    test.assertEqual(set(payload), set(schema["properties"]))
+    test.assertLessEqual(set(schema["required"]), set(payload))
+    test.assertLessEqual(set(payload), set(schema["properties"]))
     for key, value in payload.items():
         spec = resolve(schema["properties"][key])
         if "pattern" in spec:
@@ -94,6 +96,14 @@ class CodeTest(unittest.TestCase):
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
         return subprocess.run(["git", "-c", "commit.gpgsign=false", *args], cwd=self.root, env=env,
                               check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_check_rejects_unknown_key(self):
+        GOOD["verify_run"]()
+        good = self.sent()[-1]["payload"]
+        check(self, "verify_run", good)  # clean payload passes, so only "bogus" can fail it
+        payload = {**good, "bogus": "x"}
+        with self.assertRaises(AssertionError):
+            check(self, "verify_run", payload)
 
     def test_change_committed_names_local_repo_by_root_commit(self):
         self.git("init", "-q")
