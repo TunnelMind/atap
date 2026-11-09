@@ -406,3 +406,25 @@ test('A006 part 2: long flag runs and repeated git options stay fast (no regex b
     assert.ok(t < 200, `${cmd.slice(0, 30)}... (${cmd.length} chars): ${t} ms`)
   }
 })
+
+test('A007: a paths rule on Bash matches the path-like words of each shell segment', () => {
+  const sign = (rule) => foldConstraints([signConstraintSet({ constraint_id: rule.id, scope: '*', prose: 'Rule.', rules: [rule] }, op.privateKey)], op.did, AIT).active
+  const secrets = sign({ id: 'sec', effect: 'forbid', tools: ['Bash'], paths: ['secrets/**'] })
+  const bash = (command, cwd) => evaluateCall(secrets, call('Bash', { command }, cwd), ctx)
+  assert.equal(bash('cat secrets/x').rule_id, 'sec')
+  assert.equal(bash('cat docs/x').decision, 'allow')
+  assert.equal(bash('cat "secrets/x"').rule_id, 'sec')
+  assert.equal(bash("cat 'secrets/x'").rule_id, 'sec')
+  assert.equal(bash('echo hi && cat "secrets/x"').rule_id, 'sec')
+  assert.equal(bash('echo hi >secrets/x').rule_id, 'sec')
+  assert.equal(bash('cat ../secrets/x', `${ROOT}/docs`).rule_id, 'sec')
+  assert.equal(bash(`cat ${ROOT}/secrets/x`).rule_id, 'sec')
+  assert.equal(bash('ls -la secrets').decision, 'allow') // no slash: not a path-like word (tripwire)
+  // No path field and no path-like word: unaffected.
+  assert.equal(evaluateCall(secrets, call('Bash', { command: 'echo hi' }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(sign({ id: 'w', effect: 'forbid', tools: ['WebFetch'], paths: ['secrets/**'] }), call('WebFetch', { url: 'https://x/secrets/a' }), ctx).decision, 'allow')
+  // outside_project keeps judging the declared path fields only: shell words trip nothing new.
+  const outside = sign({ id: 'out', effect: 'forbid', tools: ['*'], outside_project: true })
+  assert.equal(evaluateCall(outside, call('Bash', { command: 'cat /etc/passwd > /dev/null' }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(outside, call('Read', { file_path: '/etc/passwd' }), ctx).rule_id, 'out')
+})

@@ -486,6 +486,23 @@ function callPaths(call: ToolCall): string[] {
 }
 
 /**
+ * The path-like words of a shell call's segments, for `paths` rules only (outside_project keeps judging the
+ * declared fields, so `/dev/null` or `/usr/bin/x` trip nothing new). A word is split on whitespace, has its
+ * quote characters and a leading redirection (`>`, `2>>`, `<`) stripped, is skipped if it is a flag, and
+ * is kept if it contains `/` (or `\` in windows mode) or starts with `.` or `~`.
+ * ponytail: a tripwire over command words, not a parser: variables, globs the shell expands and paths built
+ * at runtime are not followed; a bare `secrets` (no slash) is not seen.
+ */
+function shellPaths(call: ToolCall, w: boolean): string[] {
+  const cmd = shellCommand(call)
+  if (cmd === null) return []
+  return commandSegments(cmd)
+    .flatMap((seg) => seg.split(' '))
+    .map((t) => t.replace(/^\d*[<>]+&?/, '').replace(/["']/g, ''))
+    .filter((t) => t.length > 0 && !t.startsWith('-') && (t.includes('/') || (w && t.includes('\\')) || /^[.~]/.test(t)))
+}
+
+/**
  * The command a shell tool runs: a string `command` (Bash, PowerShell, mcp__wsl__run, ...), else a string
  * `script`; null for a tool that runs no shell. Keyed on the input, not the tool name, so a new shell tool
  * cannot slip past a `commands` rule or the name tripwire.
@@ -521,7 +538,8 @@ function ruleMatches(rule: ConstraintRule, call: ToolCall, ctx: EvalContext): bo
   if (rule.paths || rule.outside_project) {
     const root = canon(ctx, '/', ctx.projectRoot)
     const fold = (g: string) => (ctx.caseInsensitive || isWindows(ctx) ? g.toLowerCase() : g)
-    const hit = callPaths(call).some((raw) => {
+    const raws = rule.outside_project ? callPaths(call) : [...callPaths(call), ...shellPaths(call, isWindows(ctx))]
+    const hit = raws.some((raw) => {
       const rel = relativeTo(root, canon(ctx, call.cwd, raw))
       if (rule.outside_project) return rel === null
       if (rel === null) return false

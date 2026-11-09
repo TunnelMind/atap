@@ -187,7 +187,15 @@ stripped). The quoted string of `sh|bash|zsh|dash [-flags] -c '...'` is split
 the same way, up to 3 shells deep, so `bash -c 'git push'` and `git -C . push`
 both meet a `git push*` glob. That makes `commands` a tripwire for the obvious
 spellings, not a boundary (see Known limits); every matcher in a rule must
-match. `forbid` beats `require_approval`. A `paths` rule on Grep, Glob or LS
+match. A `paths` rule also matches a shell call (any tool `commands` applies to)
+whose segments hold a path-like word: quotes and a leading redirection
+stripped, flags skipped, a word kept if it has a `/` (or `\` on Windows) or
+starts with `.` or `~`, so `cat secrets/x` and `echo hi && cat "secrets/x"`
+meet `secrets/**`. **Shell `paths` matching is a tripwire over command words,
+not a boundary:** it catches the obvious forms, not variables (`cat $F`), globs
+the shell expands (`cat secr*/x`), a bare word with no slash (`ls secrets`), or
+paths built at runtime. `outside_project` judges only the declared path fields,
+not command words. `forbid` beats `require_approval`. A `paths` rule on Grep, Glob or LS
 also covers a search with no path or of any ancestor directory (searching `.`
 reaches `secrets/`). A rule is only as good as its globs: a command it does
 not name runs. The statement format is in the

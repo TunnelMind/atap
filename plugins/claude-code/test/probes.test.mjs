@@ -243,3 +243,12 @@ test('A006 control: {commands:["git push*"]} allows Bash git status and echo git
   assert.equal(evaluateCall(active, call('Bash', { command: 'git status' }), ctx).decision, 'allow')
   assert.equal(evaluateCall(active, call('Bash', { command: 'echo git push' }), ctx).decision, 'allow')
 })
+
+// ---------------------------------------------------------------- A007 paths on shell calls
+// A `paths` rule naming Bash sees the path-like words of each command segment (a tripwire, not a parser).
+for (const [command, want] of [['cat secrets/x', 'deny'], ['cat docs/x', 'allow'], ['echo hi && cat "secrets/x"', 'deny']]) {
+  test(`A007: {tools:["Bash"], paths:["secrets/**"]} ${want === 'deny' ? 'denies' : 'allows'} Bash ${command}`, () => {
+    const active = rules({ id: 'sec', effect: 'forbid', tools: ['Bash'], paths: ['secrets/**'] })
+    assert.equal(evaluateCall(active, call('Bash', { command }), ctx).decision, want)
+  })
+}
