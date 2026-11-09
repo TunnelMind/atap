@@ -587,3 +587,23 @@ test('T012 (e): guarded files under home trip in their ~/ form; a trailing-slash
   // Known limit: a bare `secrets` (no slash) is not a path word.
   assert.equal(evaluateCall(secrets, call('Bash', { command: 'cp a secrets' }), ctx).decision, 'allow')
 })
+
+test('R003: input the guard cannot fully check denies for a non-read tool instead of being skipped', () => {
+  const padded = `${ROOT}/` + './'.repeat(2100) + '.atap/constraints.jsonl'
+  assert.ok(padded.length >= 4096)
+  // Length: a padded path is still canonicalised and judged.
+  assert.equal(evaluateCall([], call('Write', { file_path: padded, content: '' }), ctx).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__fs__move_file', { source: `${ROOT}/a`, destination: padded }), ctx).rule_id, 'store-write')
+  // Count: the guarded path is string 300, past the 256-string cap.
+  const many = Object.fromEntries(Array.from({ length: 299 }, (_, i) => [`k${i}`, `v${i}`]))
+  many.k299 = `${ROOT}/.atap/constraints.jsonl`
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', many), ctx).rule_id, 'store-write')
+  // Depth: the path sits at depth 4, under an object the walk does not descend.
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { a: { b: { c: { d: `${ROOT}/.atap/constraints.jsonl` } } } }), ctx).rule_id, 'store-write')
+  // Controls: long file text on an edit tool, and a long string on a read tool (even past the caps), allow.
+  assert.equal(evaluateCall([], call('Write', { file_path: `${ROOT}/src/a.txt`, content: 'x'.repeat(10000) }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('Grep', { pattern: 'x'.repeat(10000), path: `${ROOT}/src` }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('Read', { file_path: padded }), ctx).decision, 'allow')
+  // A read past the caps still gets the key check on what it walked.
+  assert.equal(evaluateCall([], call('Read', { file_path: '/home/op/.atap-operator/operator.pem', x: { a: { b: { c: 'y' } } } }), keyCtx).rule_id, 'key-access')
+})

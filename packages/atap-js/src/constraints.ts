@@ -526,11 +526,22 @@ function shellCommand(call: ToolCall): string | null {
   return typeof command === 'string' ? command : typeof script === 'string' ? script : null
 }
 
-/** Every string in the tool input (two levels deep, capped): MCP tools name paths under any key. */
-function inputStrings(v: unknown, depth = 0, out: string[] = []): string[] {
-  if (out.length > 256) return out
+/**
+ * Every string in the tool input (three levels deep, capped): MCP tools name paths under any key. `cut.hit`
+ * is set when the walk left something unseen (past 256 strings or past depth 3), so the caller can refuse
+ * input it could not fully check instead of letting a path hide past a limit.
+ */
+function inputStrings(v: unknown, cut: { hit: boolean }, depth = 0, out: string[] = []): string[] {
+  if (out.length > 256) {
+    cut.hit = true
+    return out
+  }
   if (typeof v === 'string') out.push(v)
-  else if (depth < 3 && v && typeof v === 'object') for (const x of Object.values(v as object)) inputStrings(x, depth + 1, out)
+  else if (v && typeof v === 'object') {
+    const xs = Object.values(v as object)
+    if (depth >= 3) cut.hit ||= xs.length > 0
+    else for (const x of xs) inputStrings(x, cut, depth + 1, out)
+  }
   return out
 }
 
@@ -675,7 +686,9 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   const root = canon(ctx, '/', ctx.projectRoot)
   const secrets = (ctx.secretPaths ?? []).map((p) => canon(ctx, '/', p))
   const guarded = ctx.protectedPaths.map((p) => canon(ctx, '/', p))
-  const strings = inputStrings(call.tool_input).filter((x) => x.length > 0 && x.length < 4096)
+  // No length cap: canon is linear, and a cap let a padded path (`/p/./././…/.atap/x`) skip the check.
+  const cut = { hit: false }
+  const strings = inputStrings(call.tool_input, cut).filter((x) => x.length > 0)
   const cmd = shellCommand(call)
   const w = isWindows(ctx)
   const fold = ctx.caseInsensitive || w
@@ -709,6 +722,9 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
     // path-checked below before every shell tool got the tripwire; keep them checked.
   }
   const reads = READ_TOOLS.has(call.tool_name)
+  // Input past the walk's count or depth cap was not all seen; for a tool that can write, refuse it rather
+  // than let a guarded path hide past the cap. A read tool still gets the key check on what was walked.
+  if (cut.hit && !reads) return deny('store-write', 'tool input is too large or too deep to check for the operator constraint store, .atap/ or agent settings')
   for (const raw of strings) {
     // Only strings that could be paths: a field the tool reads as a path, or (not for an edit tool, whose
     // other fields are file text) a token with a slash or .atap in it. One holding whitespace counts only

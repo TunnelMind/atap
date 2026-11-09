@@ -6,6 +6,7 @@
 //   A004 Windows paths                A005 the guard cannot edit itself
 //   A006 command forms                A007 paths on shells / search reach
 //   A008 false denials
+//   R003 input past the guard's length, count or depth limit denies (non-read tools)
 // Rows are top-level test() calls plus the loop-generated ones (A006, A007, A008).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -428,6 +429,27 @@ for (const [command, want] of [["bash -euxo pipefail -c 'git push'", 'deny'], ["
   test(`T014 (d): {commands:["git push*"]} ${want === 'deny' ? 'denies' : 'allows'} Bash ${command}`, () => {
     const active = rules({ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] })
     assert.equal(evaluateCall(active, call('Bash', { command }), ctx).decision, want)
+  })
+}
+
+// ---------------------------------------------------------------- R003 input past a limit
+// evaluateCall rows: a path the guard cannot fully check (padded past 4096 chars, past the 256-string
+// cap, or nested past depth 3) denies for a tool that can write; long file text and reads still allow.
+const R003_PADDED = `${ROOT}/` + './'.repeat(2100) + '.atap/constraints.jsonl'
+const R003_MANY = Object.fromEntries([...Array.from({ length: 299 }, (_, i) => [`k${i}`, `v${i}`]), ['k299', `${ROOT}/.atap/constraints.jsonl`]])
+for (const [what, tool, input, want] of [
+  ['Write file_path padded to 4226 chars', 'Write', { file_path: R003_PADDED, content: '' }, 'store-write'],
+  ['mcp__fs__move_file destination padded to 4226 chars', 'mcp__fs__move_file', { source: `${ROOT}/a`, destination: R003_PADDED }, 'store-write'],
+  ['mcp__fs__write_file with the guarded path as string 300 (past the 256 cap)', 'mcp__fs__write_file', R003_MANY, 'store-write'],
+  ['mcp__fs__write_file with the guarded path at depth 4 (past the depth-3 cap)', 'mcp__fs__write_file', { a: { b: { c: { d: `${ROOT}/.atap/constraints.jsonl` } } } }, 'store-write'],
+  ['Write src/a.txt with a 10000-char content (control)', 'Write', { file_path: `${ROOT}/src/a.txt`, content: 'x'.repeat(10000) }, 'allow'],
+  ['Grep with a 10000-char pattern (control)', 'Grep', { pattern: 'x'.repeat(10000), path: `${ROOT}/src` }, 'allow'],
+]) {
+  test(`R003: ${what} ${want === 'allow' ? 'allows' : 'denies'}`, () => {
+    if (want !== 'allow') assert.ok(R003_PADDED.length > 4096 && Object.keys(R003_MANY).length > 256)
+    const d = evaluateCall([], call(tool, input), ctx)
+    if (want === 'allow') assert.equal(d.decision, 'allow')
+    else assert.equal(d.rule_id, want)
   })
 }
 
