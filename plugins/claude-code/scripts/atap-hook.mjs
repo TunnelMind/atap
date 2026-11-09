@@ -307,12 +307,14 @@ export async function main(event = process.argv[2]) {
     input = JSON.parse(raw)
   } catch {}
   const valid = input && typeof input === 'object' && !Array.isArray(input)
-  // The project is found from CLAUDE_PROJECT_DIR when Claude Code sets it (fixed for the session, so a
-  // nested .atap/ under a directory the agent cd's into cannot re-root a guard the pinned root already
-  // has), else from the hook's `cwd`. When the pinned root finds no .atap/ (a session started in /work,
-  // working in /work/repo/.atap), a non-strict hook falls back to the `cwd` lookup so witness events keep
-  // recording as before; strict mode never falls back, it fails closed on the pinned root alone.
-  const pinned = process.env.CLAUDE_PROJECT_DIR
+  // The guard events (pre-tool-use, session-start), and every event when strict, find the project from
+  // CLAUDE_PROJECT_DIR when Claude Code sets it (fixed for the session, so a nested .atap/ under a
+  // directory the agent cd's into cannot re-root a guard the pinned root already has). When the pinned
+  // root finds no .atap/ (a session started in /work, working in /work/repo/.atap), a non-strict guard
+  // event falls back to the `cwd` lookup; strict mode never falls back, it fails closed on the pinned root
+  // alone. Non-strict witness events (post-tool-use, session-end) keep the `cwd` lookup, so a commit in
+  // /mono/child is recorded in /mono/child/.atap, not in the pinned /mono's store.
+  const pinned = strict || event === 'pre-tool-use' || event === 'session-start' ? process.env.CLAUDE_PROJECT_DIR : undefined
   const cwdFrom = valid && typeof input.cwd === 'string' ? input.cwd : process.cwd()
   const atap = pinned ? ((await findAtap(pinned)) ?? (!strict ? await findAtap(cwdFrom) : null)) : await findAtap(cwdFrom)
   // Not strict: no .atap/ is a silent no-op and nothing is logged (there is nowhere to log).

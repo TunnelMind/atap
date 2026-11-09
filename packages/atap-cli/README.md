@@ -131,9 +131,13 @@ witness key and belongs outside the project.
 
 `ATAP_OPERATOR`, `ATAP_CONSTRAINTS`, `ATAP_CONSTRAINTS_REQUIRED` and
 `ATAP_OPERATOR_KEY` override the config; see the Claude Code plugin's README.
+Set `ATAP_OPERATOR` only in the crew's or agent's own environment (its unit
+or launcher), not a global shell profile: with it set, the hook blocks every
+call in a project without `.atap/`.
 `check` also protects the guard's own files: the plugin root(s) in
-`ATAP_PLUGIN_ROOT` (the Claude Code hook sets it), the `ATAP_WITNESS` binary
-or this CLI's entry, and `~/.claude.json`. It reads drive-letter and backslash
+`ATAP_PLUGIN_ROOT` (the Claude Code hook sets it), the `ATAP_WITNESS` binary,
+this CLI's package directory (`packages/atap-cli`), the `@tunnelmindai/atap`
+package directory (`packages/atap-js`), and `~/.claude.json`. It reads drive-letter and backslash
 paths (`C:\p\.atap`, `c:/p`) on win32 or when the project root has a drive
 letter. With `ATAP_CONSTRAINTS_REQUIRED=1`, `check` denies when no
 constraints are in force. The hook's strict mode (that, or `ATAP_OPERATOR`

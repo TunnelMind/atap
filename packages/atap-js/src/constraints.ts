@@ -314,8 +314,10 @@ const GIT_GLOBAL = /^git (?:(?:-[Cc] \S+|--(?:git-dir|work-tree)(?:=\S*| \S+)|--
 // `sh|bash|zsh|dash [-flags] -c '<string>'` (or "<string>"), the shell word anywhere a command can start,
 // with or without a directory. Group 1 is a single-quoted body, group 2 a double-quoted one. Each flag word
 // must match one way only: `--?[A-Za-z-]+` let `--x` split two ways and a failed match took 2^n tries.
+// A `-o NAME` / `+o NAME` option (`-euxo pipefail`, `+o posix`) is its own alternative: its second word
+// starts with a letter, and a plain flag word must start with `-`, so the two never match the same text.
 const SHELL_C =
-  /(?<![^\s;&|(`])(?:[^\s'"]*\/)?(?:sh|bash|zsh|dash)\s+(?:-{1,2}[A-Za-z][A-Za-z-]*\s+)*?-[A-Za-z]*c[A-Za-z]*\s*(?:'([^']*)'|"((?:[^"\\]|\\.)*)")/g
+  /(?<![^\s;&|(`])(?:[^\s'"]*\/)?(?:sh|bash|zsh|dash)\s+(?:[-+][A-Za-z]*o\s+[A-Za-z]+\s+|-{1,2}[A-Za-z][A-Za-z-]*\s+)*?-[A-Za-z]*c[A-Za-z]*\s*(?:'([^']*)'|"((?:[^"\\]|\\.)*)")/g
 /** How many `sh -c` strings deep commandSegments follows; a command nested deeper is not looked at. */
 const SHELL_C_DEPTH = 3
 
@@ -711,10 +713,14 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
     // Only strings that could be paths: a field the tool reads as a path, or (not for an edit tool, whose
     // other fields are file text) a token with a slash or .atap in it. One holding whitespace counts only
     // when it is a single line absolute in shape (`/Users/Josh Moore/…`, `~/…`, `C:\…`, `\\srv\…`), so
-    // prose such as `see foo/.atap/config.json` is not judged as a path. A shell command went through the tripwire above.
+    // prose such as `see foo/.atap/config.json` is not judged as a path. Bash's `description` is prose (it
+    // says what the command does), so it never gets the absolute-shape pass: `/proj/.atap/x is mentioned`
+    // is a sentence. Bash only: the walk sees values, not keys, so on another tool a description copied
+    // from a path field would unguard that field too; Bash's command went through the tripwire above.
     if (!PATH_FIELDS.some((k) => call.tool_input[k] === raw)) {
       if (EDIT_TOOLS.has(call.tool_name)) continue
-      if (/\s/.test(raw) && (/[\r\n]/.test(raw) || !/^(?:\/|~[\\/]|[A-Za-z]:[\\/]|\\\\)/.test(raw))) continue
+      const bashProse = call.tool_name === 'Bash' && call.tool_input.description === raw
+      if (/\s/.test(raw) && (/[\r\n]/.test(raw) || bashProse || !/^(?:\/|~[\\/]|[A-Za-z]:[\\/]|\\\\)/.test(raw))) continue
       if (!(raw.includes('/') || (w && raw.includes('\\')) || raw.includes('.atap'))) continue
     }
     const abs = canon(ctx, call.cwd, raw)

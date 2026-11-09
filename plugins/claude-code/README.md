@@ -127,8 +127,11 @@ What the hook does once a store exists:
   `.claude/settings*.json` (where a hook could be switched off), or the guard
   itself: the plugin's own files (`CLAUDE_PLUGIN_ROOT` and the directory the
   hook script runs from, passed to the CLI as `ATAP_PLUGIN_ROOT`), the
-  `ATAP_WITNESS` binary, the CLI's own entry script, and `~/.claude.json`.
-  A shell command trips on these four only by their absolute path, so
+  `ATAP_WITNESS` binary, the CLI's package directory (`packages/atap-cli`,
+  the one holding its entry script), the `@tunnelmindai/atap` package
+  directory it loads (`packages/atap-js`, where the evaluation lives), and
+  `~/.claude.json`.
+  A shell command trips on these only by their absolute path, so
   `npm --prefix plugins/claude-code test` still runs. Paths are
   resolved through symlinks, and compared case-insensitively on macOS and
   Windows. On Windows (or with a drive-letter project root) `\` is a path
@@ -147,9 +150,13 @@ What the hook does once a store exists:
   (`-am`, `--message`) is not read when it is single-quoted, or
   double-quoted with no `$` or backtick, so `git commit -m "ignore .atap"`
   runs while `git commit -m "$(rm .atap/x)"` is denied.
-- **Pinned root.** The hook finds `.atap/` from `CLAUDE_PROJECT_DIR` and
-  passes that root to the CLI, so the agent `cd`-ing somewhere else changes
-  nothing.
+- **Pinned root.** The guard events (PreToolUse, SessionStart), and every
+  event when strict, find `.atap/` from `CLAUDE_PROJECT_DIR` and pass that
+  root to the CLI, so the agent `cd`-ing somewhere else changes nothing.
+  Not strict, a guard event whose pinned root holds no `.atap/` falls back
+  to the hook's `cwd` lookup, and PostToolUse and SessionEnd use the `cwd`
+  lookup, so a commit in `/mono/child` is recorded in `/mono/child/.atap`.
+  Strict never falls back: no `.atap/` at the pinned root denies.
 
 Where trust comes from. The repo's `.atap/config.json` is written by whoever
 wrote the repo, so for a crew set these in the **user's environment**, which
@@ -157,7 +164,7 @@ the agent cannot change:
 
 | Variable | Effect |
 |---|---|
-| `ATAP_OPERATOR` | The operator did:key to trust; beats the config's `constraints_operator`. |
+| `ATAP_OPERATOR` | The operator did:key to trust; beats the config's `constraints_operator`. Set it only in the crew's or agent's own environment (its unit or launcher), not a global shell profile: with it set, a project without `.atap/` blocks every call. |
 | `ATAP_CONSTRAINTS` | The store file; put it outside the project (default `.atap/constraints.jsonl`). |
 | `ATAP_CONSTRAINTS_REQUIRED=1` | No store, or nothing in force, denies every call instead of allowing it. |
 | `ATAP_OPERATOR_KEY` | The operator key's path, so the built-in rule keeps every tool off it. |

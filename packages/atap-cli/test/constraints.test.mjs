@@ -44,7 +44,11 @@ test('the first set pins its operator; another key is refused', (t) => {
   const a = join(root, 'a.pem'), b = join(root, 'b.pem')
   const opA = ok(['constraints', 'keygen', '--out', a]).operator
   ok(['constraints', 'keygen', '--out', b])
-  assert.equal(ok(['constraints', 'set', '--operator-key', a], SET).configured_operator, true)
+  const first = run(['constraints', 'set', '--operator-key', a], SET)
+  assert.equal(first.status, 0, first.stderr)
+  assert.equal(JSON.parse(first.stdout).configured_operator, true)
+  // The hint points ATAP_OPERATOR at the crew's own environment: in a global profile it blocks every call without .atap/.
+  assert.match(first.stderr, /in the crew's or agent's own environment \(its unit or launcher\), not a global shell profile/)
   assert.equal(JSON.parse(readFileSync(join(repo, '.atap', 'config.json'), 'utf8')).constraints_operator, opA)
   const r = run(['constraints', 'set', '--operator-key', b], SET)
   assert.notEqual(r.status, 0)

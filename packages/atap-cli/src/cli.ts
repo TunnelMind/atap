@@ -1182,7 +1182,10 @@ async function constraintsCmd(sub: string | undefined, v: Values, atap: { dir: s
     configured_operator: written.configured_operator,
   }))
   if (written.configured_operator) {
-    process.stderr.write(`trusted operator written to .atap/config.json; for a crew also export ATAP_OPERATOR=${written.statement.operator} outside the repo\n`)
+    // Not a global shell profile: with ATAP_OPERATOR set, every hook in a project without .atap/ blocks every call.
+    process.stderr.write(
+      `trusted operator written to .atap/config.json; for a crew also set ATAP_OPERATOR=${written.statement.operator} in the crew's or agent's own environment (its unit or launcher), not a global shell profile: with it set, a project without .atap/ blocks every call\n`,
+    )
   }
   return 0
 }

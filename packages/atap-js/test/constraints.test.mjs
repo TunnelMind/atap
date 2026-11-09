@@ -461,10 +461,30 @@ test('A006 part 2: long flag runs and repeated git options stay fast (no regex b
   const [d, ms] = timed(() => evaluateCall(active, call('Bash', { command: 'echo bash ' + '--x '.repeat(40) + '-c; git push' }), ctx).decision)
   assert.equal(d, 'deny')
   assert.ok(ms < 200, `${ms} ms`)
-  for (const cmd of ['bash ' + '--x '.repeat(40) + "-c 'git push", 'bash ' + '--x '.repeat(20000) + "-c 'git push", 'git ' + '-C . '.repeat(20000) + 'push']) {
+  for (const cmd of ['bash ' + '--x '.repeat(40) + "-c 'git push", 'bash ' + '--x '.repeat(20000) + "-c 'git push", 'bash ' + '-xo a '.repeat(20000) + "-c 'git push", 'bash ' + '-o '.repeat(20000) + "-c 'git push", 'git ' + '-C . '.repeat(20000) + 'push']) {
     const [, t] = timed(() => commandSegments(cmd))
     assert.ok(t < 200, `${cmd.slice(0, 30)}... (${cmd.length} chars): ${t} ms`)
   }
+})
+
+test('T014 (d): a `-o NAME` / `+o NAME` shell option before -c cannot hide a git push', () => {
+  const { active } = foldConstraints(
+    [signConstraintSet({ constraint_id: 'push', scope: '*', prose: 'No push.', rules: [{ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  )
+  const decide = (command) => evaluateCall(active, call('Bash', { command }), ctx).decision
+  for (const cmd of ["bash -euxo pipefail -c 'git push'", "bash +o pipefail -c 'git push'", "sh -o errexit -e -c 'git push'", "bash -e -o pipefail -o nounset -c 'git push'"]) assert.equal(decide(cmd), 'deny', cmd)
+  for (const cmd of ["bash -euxo pipefail -c 'git status'", "bash +o pipefail -c 'git status'"]) assert.equal(decide(cmd), 'allow', cmd)
+})
+
+test('T014 (c): a call\'s description is prose, never judged as an absolute path; a real path field still is', () => {
+  assert.equal(evaluateCall([], call('Bash', { command: 'git status', description: `${ROOT}/.atap/x is mentioned` }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('Write', { file_path: `${ROOT}/.atap/x`, content: '' }), ctx).rule_id, 'store-write')
+  // A non-description field of the same shape is still judged (T012 (a)'s whitespace-holding absolute path).
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { target: `${ROOT}/.atap/x is mentioned` }), ctx).rule_id, 'store-write')
+  // A description copying the path field's value does not unguard it (the skip is Bash's only).
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { target: `${ROOT}/.atap/x y`, description: `${ROOT}/.atap/x y`, content: 'a' }), ctx).rule_id, 'store-write')
 })
 
 test('A007: a paths rule on Bash matches the path-like words of each shell segment', () => {

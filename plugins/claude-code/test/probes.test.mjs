@@ -371,6 +371,66 @@ for (const flag of [{ ATAP_CONSTRAINTS_REQUIRED: '1' }, { ATAP_OPERATOR: 'x' }])
   })
 }
 
+// ---------------------------------------------------------------- T014 (a) which events the pin covers
+// /mono and /mono/child both hold .atap/, CLAUDE_PROJECT_DIR=/mono, the agent works in /mono/child. Which
+// store the hook chose shows in whose hook.log its fixed-text line lands: a `git commit` outside a git
+// repo logs "no commit sha", a session-end with no AIT logs "no ait in config", and a guard event with
+// /mono's constraints on and no CLI logs "atap-witness not found" (and denies).
+function mono(t) {
+  const top = bare(t)
+  const child = join(top, 'child')
+  mkdirSync(join(top, '.atap'), { recursive: true })
+  mkdirSync(join(child, '.atap'), { recursive: true })
+  writeFileSync(join(top, '.atap', 'config.json'), JSON.stringify({ constraints_operator: 'x' }))
+  writeFileSync(join(child, '.atap', 'config.json'), '{}')
+  const logged = (dir) => existsSync(join(dir, '.atap', 'hook.log'))
+  const run = (event, input, extra = {}) =>
+    spawn([script, event], child, JSON.stringify({ session_id: 's', cwd: child, ...input }), { CLAUDE_PROJECT_DIR: top, ATAP_WITNESS: join(top, 'no-such-atap-witness'), ...extra })
+  return { top, child, logged, run }
+}
+
+for (const event of ['post-tool-use', 'session-end']) {
+  test(`T014 (a): non-strict ${event} in /mono/child records in /mono/child/.atap, not the pinned /mono`, (t) => {
+    const { top, child, logged, run } = mono(t)
+    assert.equal(run(event, bash('git commit -m x')), null)
+    assert.ok(logged(child), 'the cwd-found store got the line')
+    assert.ok(!logged(top), 'the pinned store did not')
+  })
+}
+
+test('T014 (a): strict post-tool-use in /mono/child still uses the pinned /mono', (t) => {
+  const { top, child, logged, run } = mono(t)
+  assert.equal(run('post-tool-use', bash('git commit -m x'), { ATAP_CONSTRAINTS_REQUIRED: '1' }), null)
+  assert.ok(logged(top) && !logged(child))
+})
+
+test('T014 (a): pre-tool-use in /mono/child still uses the pinned /mono (its constraints are on)', (t) => {
+  const { top, child, logged, run } = mono(t)
+  assertDeny(run('pre-tool-use', bash('ls')))
+  assert.ok(logged(top) && !logged(child))
+})
+
+// ---------------------------------------------------------------- T014 (c) (d) evaluateCall rows
+test('T014 (c): Bash git status with a description naming /proj/.atap/x is allowed; file_path /proj/.atap/x denies', () => {
+  const proj = { projectRoot: '/proj', protectedPaths: ['/proj/.atap'] }
+  const at = (tool_name, tool_input) => evaluateCall([], { tool_name, tool_input, cwd: '/proj' }, proj).decision
+  assert.equal(at('Bash', { command: 'git status', description: '/proj/.atap/x is mentioned' }), 'allow')
+  assert.equal(at('Write', { file_path: '/proj/.atap/x', content: '' }), 'deny')
+})
+
+test('T014 (c): mcp__fs__write_file {target and description both "/proj/.atap/x y"} denies', () => {
+  const proj = { projectRoot: '/proj', protectedPaths: ['/proj/.atap'] }
+  const d = evaluateCall([], { tool_name: 'mcp__fs__write_file', tool_input: { target: '/proj/.atap/x y', description: '/proj/.atap/x y', content: 'a' }, cwd: '/proj' }, proj)
+  assert.equal(d.rule_id, 'store-write')
+})
+
+for (const [command, want] of [["bash -euxo pipefail -c 'git push'", 'deny'], ["bash +o pipefail -c 'git push'", 'deny'], ["bash -euxo pipefail -c 'git status'", 'allow']]) {
+  test(`T014 (d): {commands:["git push*"]} ${want === 'deny' ? 'denies' : 'allows'} Bash ${command}`, () => {
+    const active = rules({ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] })
+    assert.equal(evaluateCall(active, call('Bash', { command }), ctx).decision, want)
+  })
+}
+
 // ---------------------------------------------------------------- T013 (b) the guard's packages
 const CLI_PKG = fileURLToPath(new URL('../../../packages/atap-cli/', import.meta.url))
 const ATAP_PKG = fileURLToPath(new URL('../../../packages/atap-js/', import.meta.url))
