@@ -285,3 +285,55 @@ for (const [tool_name, tool_input, want] of [
     assert.equal(evaluateCall([], call(tool_name, tool_input), ctx).decision, want)
   })
 }
+
+// ---------------------------------------------------------------- T012 GATE F review rows
+// evaluateCall rows for the review at 9041acb6: (a) whitespace in an absolute path, (b) Win32 name
+// trimming and streams, (e) `~/` forms and trailing-slash directory targets.
+
+test('T012 (a): mcp__fs__write_file {target: "/Users/Josh Moore/proj/.atap/constraints.jsonl"} denies', () => {
+  const mac = { projectRoot: '/Users/Josh Moore/proj', protectedPaths: ['/Users/Josh Moore/proj/.atap'] }
+  const d = evaluateCall([], { tool_name: 'mcp__fs__write_file', tool_input: { target: '/Users/Josh Moore/proj/.atap/constraints.jsonl' }, cwd: '/Users/Josh Moore/proj' }, mac)
+  assert.equal(d.rule_id, 'store-write')
+})
+
+test('T012 (a): Write whose content mentions foo/.atap/config.json, or a multi-line text starting with /, is allowed', () => {
+  assert.equal(evaluateCall([], call('Write', { file_path: 'src/a.md', content: 'see foo/.atap/config.json' }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { path: 'src/a.md', text: `${ROOT}/.atap/x\nis the store` }), ctx).decision, 'allow')
+})
+
+test('T012 (a): mcp__x__note {text: "~ approx 5 /p/.atap/x items"} is allowed (a bare ~ is not a path)', () => {
+  assert.equal(evaluateCall([], call('mcp__x__note', { text: '~ approx 5 /p/.atap/x items' }), ctx).decision, 'allow')
+})
+
+test('T012 (b): a stream on the key (C:\\k\\op.pem::$DATA) denies key-access in windows mode', () => {
+  const d = evaluateCall([], winCall('Write', { file_path: 'C:\\k\\op.pem::$DATA' }), { ...winCtx, secretPaths: ['C:\\k\\op.pem'] })
+  assert.equal(d.rule_id, 'key-access')
+})
+
+test('T012 (b): a stream on a file (C:\\p\\secrets\\a.key:x) denies under secrets/*.key in windows mode', () => {
+  const active = rules({ id: 'keys', effect: 'forbid', tools: ['*'], paths: ['secrets/*.key'] })
+  assert.equal(evaluateCall(active, winCall('Write', { file_path: `${WIN}\\secrets\\a.key:x` }), winCtx).decision, 'deny')
+})
+
+for (const file_path of [`${WIN}\\secrets\\k:x`, `${WIN}\\.atap.\\constraints.jsonl`, `${WIN}\\.atap\\constraints.jsonl::$DATA`, `${WIN}\\secrets.\\k`]) {
+  test(`T012 (b): Write ${file_path} denies in windows mode`, () => {
+    const active = rules({ id: 'secrets', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] })
+    assert.equal(evaluateCall(active, winCall('Write', { file_path }), winCtx).decision, 'deny')
+  })
+}
+
+test('T012 (e): Bash echo x > ~/.claude.json denies', () => {
+  const home = { ...ctx, home: '/home/op', protectedPaths: [...ctx.protectedPaths, '/home/op/.claude.json'], absoluteOnlyPaths: ['/home/op/.claude.json'] }
+  assert.equal(evaluateCall([], call('Bash', { command: 'echo x > ~/.claude.json' }), home).decision, 'deny')
+})
+
+test('T012 (e): Bash echo x > ~/.claude.json denies through the real hook (HOME from the environment)', noCli, (t) => {
+  const { pre } = withPlugin(t)
+  const d = pre(bash('echo x > ~/.claude.json'))
+  assert.equal(d?.hookSpecificOutput?.permissionDecision, 'deny', JSON.stringify(d))
+})
+
+test('T012 (e): Bash cp a secrets/ under secrets/** denies', () => {
+  const active = rules({ id: 'secrets', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] })
+  assert.equal(evaluateCall(active, call('Bash', { command: 'cp a secrets/' }), ctx).decision, 'deny')
+})

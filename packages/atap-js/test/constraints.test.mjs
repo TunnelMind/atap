@@ -488,3 +488,80 @@ test('A007: a paths rule on Bash matches the path-like words of each shell segme
   assert.equal(evaluateCall(outside, call('Bash', { command: 'cat /etc/passwd > /dev/null' }), ctx).decision, 'allow')
   assert.equal(evaluateCall(outside, call('Read', { file_path: '/etc/passwd' }), ctx).rule_id, 'out')
 })
+
+test('T012 (a): a single-line absolute path with spaces under any key is judged; prose and multi-line text are not', () => {
+  const at = (tool_name, tool_input) => evaluateCall([], call(tool_name, tool_input), keyCtx)
+  const mac = { ...keyCtx, projectRoot: '/Users/Josh Moore/proj', protectedPaths: ['/Users/Josh Moore/proj/.atap'], secretPaths: ['/Users/Josh Moore/key.pem'] }
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { target: '/Users/Josh Moore/proj/.atap/constraints.jsonl' }, '/Users/Josh Moore/proj'), mac).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__fs__read_file', { target: '/Users/Josh Moore/key.pem' }, '/Users/Josh Moore/proj'), mac).rule_id, 'key-access')
+  assert.equal(at('Write', { file_path: 'src/a.md', content: 'see foo/.atap/config.json' }).decision, 'allow')
+  assert.equal(at('Write', { file_path: 'src/a.md', content: `${ROOT}/.atap/x is the store` }).decision, 'allow')
+  assert.equal(at('mcp__fs__write_file', { path: 'src/a.md', text: `${ROOT}/.atap/x\nis the store` }).decision, 'allow')
+  assert.equal(at('mcp__fs__write_file', { path: 'src/a.md', text: 'see foo/.atap/config.json' }).decision, 'allow')
+  // A bare `~` is prose, not a home path; `~/…` with spaces is still judged.
+  assert.equal(at('mcp__x__note', { text: '~ approx 5 /p/.atap/x items' }).decision, 'allow')
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { target: '~/my proj/.atap/x' }, '/work/proj'), { ...keyCtx, protectedPaths: ['/work/proj/~/my proj/.atap'] }).rule_id, 'store-write')
+})
+
+test('T012 (b): windows trailing dots/spaces and NTFS streams are stripped; POSIX keeps them', () => {
+  const secrets = foldConstraints(
+    [signConstraintSet({ constraint_id: 'sec', scope: '*', prose: 'No secrets.', rules: [{ id: 'sec', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  ).active
+  const keys = foldConstraints(
+    [signConstraintSet({ constraint_id: 'keys', scope: '*', prose: 'No key files.', rules: [{ id: 'keys', effect: 'forbid', tools: ['*'], paths: ['secrets/*.key'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  ).active
+  for (const extra of [{}, { windows: true }]) {
+    const w = { projectRoot: 'C:\\p', protectedPaths: ['C:\\p\\.atap\\constraints.jsonl'], ...extra }
+    const at = (file_path) => evaluateCall(secrets, call('Write', { file_path }, 'C:\\p'), w)
+    assert.equal(at('C:\\p\\.atap.\\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('C:\\p\\.atap \\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('C:\\p\\.atap\\constraints.jsonl::$DATA').rule_id, 'store-write')
+    assert.equal(at('C:\\p\\.atap\\constraints.jsonl:x').rule_id, 'store-write')
+    assert.equal(at('C:\\p\\secrets.\\k').rule_id, 'sec')
+    assert.equal(at('C:\\p\\secrets. .\\k').rule_id, 'sec')
+    assert.equal(at('C:\\p\\docs\\a.').decision, 'allow')
+    // The stream cut, outside .atap/ (where the .atap segment rule would deny anyway).
+    // `secrets\\k:x` matches `secrets/**` with or without the cut; `*.key` pins it (`a.key:x` is not `*.key`).
+    assert.equal(at('C:\\p\\secrets\\k:x').rule_id, 'sec')
+    assert.equal(evaluateCall(keys, call('Write', { file_path: 'C:\\p\\secrets\\a.key:x' }, 'C:\\p'), w).rule_id, 'keys')
+    const key = { ...w, secretPaths: ['C:\\k\\op.pem'] }
+    assert.equal(evaluateCall([], call('Write', { file_path: 'C:\\k\\op.pem::$DATA' }, 'C:\\p'), key).rule_id, 'key-access')
+  }
+  // POSIX: `.atap.` is its own name, not .atap.
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: `${ROOT}/.atap./x` }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: `${ROOT}/secrets./k` }), ctx).decision, 'allow')
+})
+
+test('T012 (e): guarded files under home trip in their ~/ form; a trailing-slash directory target matches dir/**', () => {
+  const home = { ...ctx, home: '/home/op', protectedPaths: [`${ROOT}/.atap`, '/home/op/.claude.json'], absoluteOnlyPaths: ['/home/op/.claude.json'], secretPaths: ['/home/op/.atap-operator/operator.pem'] }
+  const sh = (command, c = home) => evaluateCall([], call('Bash', { command }), c)
+  assert.equal(sh('echo x > ~/.claude.json').rule_id, 'store-command')
+  assert.equal(sh('cat ~/.atap-operator/operator.pem').rule_id, 'store-command')
+  assert.equal(sh('echo x > ~/.bashrc').decision, 'allow')
+  // Without ctx.home the HOME environment variable is used.
+  const saved = process.env.HOME
+  process.env.HOME = '/home/op'
+  try {
+    assert.equal(sh('echo x > ~/.claude.json', { ...home, home: undefined }).rule_id, 'store-command')
+  } finally {
+    process.env.HOME = saved
+  }
+  // Windows: `~\.claude.json` folds to the same name.
+  const win = { projectRoot: 'C:\\p', home: 'C:\\Users\\op', protectedPaths: ['C:\\Users\\op\\.claude.json'], absoluteOnlyPaths: ['C:\\Users\\op\\.claude.json'] }
+  assert.equal(evaluateCall([], call('PowerShell', { command: 'Set-Content ~\\.Claude.json x' }, 'C:\\p'), win).rule_id, 'store-command')
+
+  const secrets = foldConstraints(
+    [signConstraintSet({ constraint_id: 'sec', scope: '*', prose: 'No secrets.', rules: [{ id: 'sec', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  ).active
+  assert.equal(evaluateCall(secrets, call('Bash', { command: 'cp a secrets/' }), ctx).rule_id, 'sec')
+  assert.equal(evaluateCall(secrets, call('Bash', { command: `cp a ${ROOT}/secrets/` }), ctx).rule_id, 'sec')
+  assert.equal(evaluateCall(secrets, call('Bash', { command: 'cp a docs/' }), ctx).decision, 'allow')
+  // Known limit: a bare `secrets` (no slash) is not a path word.
+  assert.equal(evaluateCall(secrets, call('Bash', { command: 'cp a secrets' }), ctx).decision, 'allow')
+})

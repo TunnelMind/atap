@@ -27,7 +27,7 @@ sent anywhere.
 
 ## What it records
 
-One script, `scripts/atap-hook.mjs`, runs on three hooks
+One script, `scripts/atap-hook.mjs`, runs on four hooks
 (`hooks/hooks.json`):
 
 | Hook | What happens |
@@ -180,6 +180,16 @@ matches command text, not what the shell will run, so these still get past a
 - other quoting (`g'i't push`, `"git" push`), scripts on disk (`sh push.sh`), and
   wrapper or git options this list does not name (`sudo --user me`, `git --exec-path=x`).
 
+The name tripwire also matches a guarded file under the home directory
+(`~/.claude.json`, the key) in its `~/…` form, with home taken from `HOME`
+(or `USERPROFILE`). Other spellings of home still get past it:
+`$HOME/.claude.json`, `${HOME}/.claude.json`, `~user/.claude.json`, and
+`cd ~ && echo x > .claude.json` (a relative name after a `cd`).
+
+A shell word that names a directory with a trailing slash (`cp a secrets/`)
+meets `secrets/**`; the same directory without the slash (`cp a secrets`,
+`mv a secrets`) does not, and neither does `cd secrets && cp ../a .`.
+
 The guard is the second line; OS permissions (the agent's user cannot write
 the store or read the key) are the first.
 
@@ -198,7 +208,8 @@ match. A `paths` rule also matches a shell call (any tool `commands` applies to)
 whose segments hold a path-like word: quotes and a leading redirection
 stripped, flags skipped, a word kept if it has a `/` (or `\` on Windows) or
 starts with `.` or `~`, so `cat secrets/x` and `echo hi && cat "secrets/x"`
-meet `secrets/**`. **Shell `paths` matching is a tripwire over command words,
+meet `secrets/**`, as does a directory target with a trailing slash
+(`cp a secrets/`). **Shell `paths` matching is a tripwire over command words,
 not a boundary:** it catches the obvious forms, not variables (`cat $F`), globs
 the shell expands (`cat secr*/x`), a bare word with no slash (`ls secrets`), or
 paths built at runtime. `outside_project` judges only the declared path fields,
