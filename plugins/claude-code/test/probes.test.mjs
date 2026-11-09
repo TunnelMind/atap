@@ -337,3 +337,46 @@ test('T012 (e): Bash cp a secrets/ under secrets/** denies', () => {
   const active = rules({ id: 'secrets', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] })
   assert.equal(evaluateCall(active, call('Bash', { command: 'cp a secrets/' }), ctx).decision, 'deny')
 })
+
+// ---------------------------------------------------------------- T013 (a) project lookup
+// A session started in a parent with no .atap/ (CLAUDE_PROJECT_DIR=root), working in repo/ that has one.
+
+// setup() plus a signed no-prod constraint in repo/.atap; the root above repo/ has no .atap/.
+function pinnedParent(t) {
+  const s = setup(t)
+  const root = join(s.repo, '..')
+  const key = join(root, 'operator', 'operator.pem')
+  const cli = (args, input) => {
+    const r = spawnSync(process.execPath, [CLI, ...args], { cwd: s.repo, input: JSON.stringify(input ?? ''), encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+  }
+  cli(['constraints', 'keygen', '--out', key])
+  cli(['constraints', 'set', '--operator-key', key], { constraint_id: 'no-prod', prose: 'Never deploy to production.', rules: [{ id: 'deploy', effect: 'forbid', tools: ['Bash'], commands: ['wrangler deploy*'] }] })
+  return { ...s, root }
+}
+
+test('T013 (a) control: CLAUDE_PROJECT_DIR without .atap/, cwd in a repo with one, not strict: the repo\'s guard denies', noCli, (t) => {
+  const { root, raw, hook } = pinnedParent(t)
+  const d = hook('pre-tool-use', raw(bash('wrangler deploy')), { CLAUDE_PROJECT_DIR: root })
+  assert.equal(d?.hookSpecificOutput?.permissionDecision, 'deny', JSON.stringify(d))
+  assert.match(d.hookSpecificOutput.permissionDecisionReason, /no-prod\/deploy/)
+})
+
+for (const flag of [{ ATAP_CONSTRAINTS_REQUIRED: '1' }, { ATAP_OPERATOR: 'x' }]) {
+  test(`T013 (a): the same layout with ${Object.keys(flag)[0]} does not fall back and fails closed`, noCli, (t) => {
+    const { root, raw, hook } = pinnedParent(t)
+    const d = hook('pre-tool-use', raw(bash('ls')), { CLAUDE_PROJECT_DIR: root, ...flag })
+    assertDeny(d)
+    assert.match(d.hookSpecificOutput.permissionDecisionReason, /guard could not run \(no \.atap\/\)/)
+  })
+}
+
+// ---------------------------------------------------------------- T013 (b) the guard's packages
+const CLI_PKG = fileURLToPath(new URL('../../../packages/atap-cli/', import.meta.url))
+const ATAP_PKG = fileURLToPath(new URL('../../../packages/atap-js/', import.meta.url))
+for (const [what, file] of [['the CLI\'s dist/constraints.js beside its entry', join(CLI_PKG, 'dist', 'constraints.js')], ['the atap-js package\'s dist/constraints.js', join(ATAP_PKG, 'dist', 'constraints.js')]]) {
+  test(`T013 (b): Edit of ${what} denies`, noCli, (t) => {
+    const { pre } = withPlugin(t)
+    selfDeny(pre({ tool_name: 'Edit', tool_input: { file_path: file, old_string: 'a', new_string: 'b' } }))
+  })
+}

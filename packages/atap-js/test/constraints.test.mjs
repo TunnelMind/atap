@@ -542,11 +542,13 @@ test('T012 (e): guarded files under home trip in their ~/ form; a trailing-slash
   assert.equal(sh('echo x > ~/.claude.json').rule_id, 'store-command')
   assert.equal(sh('cat ~/.atap-operator/operator.pem').rule_id, 'store-command')
   assert.equal(sh('echo x > ~/.bashrc').decision, 'allow')
-  // Without ctx.home the HOME environment variable is used.
+  // The module reads no environment (T013 c): the caller passes ctx.home (the CLI passes homedir(), and the
+  // real-hook probe in plugins/claude-code covers `~/.claude.json` end to end). HOME alone changes nothing.
   const saved = process.env.HOME
   process.env.HOME = '/home/op'
   try {
-    assert.equal(sh('echo x > ~/.claude.json', { ...home, home: undefined }).rule_id, 'store-command')
+    assert.equal(sh('echo x > ~/.claude.json', { ...home, home: undefined }).decision, 'allow')
+    assert.equal(sh('echo x > /home/op/.claude.json', { ...home, home: undefined }).rule_id, 'store-command')
   } finally {
     process.env.HOME = saved
   }

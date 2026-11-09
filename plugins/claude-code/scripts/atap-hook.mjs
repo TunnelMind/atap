@@ -307,10 +307,14 @@ export async function main(event = process.argv[2]) {
     input = JSON.parse(raw)
   } catch {}
   const valid = input && typeof input === 'object' && !Array.isArray(input)
-  // The project is CLAUDE_PROJECT_DIR when Claude Code sets it (fixed for the session, so a nested
-  // .atap/ under a directory the agent cd's into cannot re-root the guard), else the hook's `cwd`.
-  const from = process.env.CLAUDE_PROJECT_DIR || (valid && typeof input.cwd === 'string' ? input.cwd : process.cwd())
-  const atap = await findAtap(from)
+  // The project is found from CLAUDE_PROJECT_DIR when Claude Code sets it (fixed for the session, so a
+  // nested .atap/ under a directory the agent cd's into cannot re-root a guard the pinned root already
+  // has), else from the hook's `cwd`. When the pinned root finds no .atap/ (a session started in /work,
+  // working in /work/repo/.atap), a non-strict hook falls back to the `cwd` lookup so witness events keep
+  // recording as before; strict mode never falls back, it fails closed on the pinned root alone.
+  const pinned = process.env.CLAUDE_PROJECT_DIR
+  const cwdFrom = valid && typeof input.cwd === 'string' ? input.cwd : process.cwd()
+  const atap = pinned ? ((await findAtap(pinned)) ?? (!strict ? await findAtap(cwdFrom) : null)) : await findAtap(cwdFrom)
   // Not strict: no .atap/ is a silent no-op and nothing is logged (there is nowhere to log).
   if (!atap) return failClosed(null, 'no .atap/')
   // Fixed text, not the parse error: JSON.parse messages quote the input.

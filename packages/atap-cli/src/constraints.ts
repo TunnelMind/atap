@@ -16,6 +16,7 @@ import { appendFile, chmod, mkdir, readFile, rename, writeFile } from 'node:fs/p
 import { homedir } from 'node:os'
 import { existsSync, realpathSync } from 'node:fs'
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   canonicalizeBytes,
   didKeyFromPublicKey,
@@ -128,15 +129,31 @@ export function protectedPaths(st: StoreState, atapDir: string): string[] {
 
 /**
  * The guard's own files, which protectedPaths also covers: the plugin root(s) the hook passes as
- * ATAP_PLUGIN_ROOT, the ATAP_WITNESS binary, this CLI's entry, and ~/.claude.json (where Claude Code keeps
- * per-project settings). The command tripwire matches these by absolute path only: their base and
- * project-relative names (`scripts`, `plugins/claude-code`) are too common to forbid in a command.
+ * ATAP_PLUGIN_ROOT, the ATAP_WITNESS binary, this CLI's package directory (the one holding the entry
+ * file, so dist/constraints.js beside dist/cli.js too), the resolved @tunnelmindai/atap package directory
+ * (where the evaluation itself lives), and ~/.claude.json (where Claude Code keeps per-project settings).
+ * The command tripwire matches these by absolute path only: their base and project-relative names
+ * (`scripts`, `plugins/claude-code`, `atap-cli`, `dist`) are too common to forbid in a command.
  */
 export function guardPaths(): string[] {
   const plugins = (process.env.ATAP_PLUGIN_ROOT ?? '').split(delimiter).filter((p) => p.length > 0)
   const witness = process.env.ATAP_WITNESS ? [realpathPrefix(resolve(process.env.ATAP_WITNESS))] : []
-  const entry = process.argv[1] ? [realpathPrefix(resolve(process.argv[1]))] : []
-  return [...plugins, ...witness, ...entry, join(homedir(), '.claude.json')]
+  const cli = process.argv[1] ? [packageDir(realpathPrefix(resolve(process.argv[1])))] : []
+  let atapJs: string[] = []
+  try {
+    atapJs = [packageDir(realpathPrefix(fileURLToPath(import.meta.resolve('@tunnelmindai/atap'))))]
+  } catch {} // not resolvable (a bundled CLI): the entry's package covers it
+  return [...plugins, ...witness, ...cli, ...atapJs, join(homedir(), '.claude.json')]
+}
+
+/** The nearest directory at or above `file` that holds a package.json; `file` itself when there is none. */
+function packageDir(file: string): string {
+  for (let d = dirname(file); ; ) {
+    if (existsSync(join(d, 'package.json'))) return d
+    const up = dirname(d)
+    if (up === d) return file
+    d = up
+  }
 }
 
 /** What no tool may touch at all: the operator key, when its path is known. */
@@ -182,6 +199,7 @@ export function decide(st: StoreState, input: Record<string, unknown>, projectRo
     absoluteOnlyPaths: guardPaths(),
     secretPaths: secretPaths(),
     realpath: realpathPrefix,
+    home: homedir(),
     caseInsensitive: process.platform === 'darwin' || process.platform === 'win32',
     windows,
   })

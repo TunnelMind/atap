@@ -413,7 +413,7 @@ export interface EvalContext {
   realpath?: (abs: string) => string
   /**
    * The user's home directory, so the command tripwire also matches a guarded path under it in its `~/…`
-   * form. Left out, it falls back to the HOME (or USERPROFILE) environment variable.
+   * form. Left out, `~/…` is not expanded (this module reads no environment; the CLI passes homedir()).
    */
   home?: string
   /** Compare paths case-insensitively (macOS, Windows file systems). */
@@ -683,10 +683,7 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
     const folded = w ? text.replace(/\\/g, '/').toLowerCase() : fold ? text.toLowerCase() : text
     const names = new Set<string>(['.atap', '.claude/settings'])
     const absOnly = new Set((ctx.absoluteOnlyPaths ?? []).map((p) => canon(ctx, '/', p)))
-    // The one environment read in this module: the hook passes no home, and `~/.claude.json` must still trip.
-    const envHome = typeof process === 'undefined' ? undefined : process.env.HOME || process.env.USERPROFILE
-    const homeRaw = ctx.home ?? envHome
-    const home = homeRaw ? canon(ctx, '/', homeRaw) : null
+    const home = ctx.home ? canon(ctx, '/', ctx.home) : null
     for (const t of [...secrets, ...guarded]) {
       names.add(t)
       if (w && /^\/[a-z]:/.test(t)) names.add(t.slice(1))

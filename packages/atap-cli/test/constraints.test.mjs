@@ -154,3 +154,27 @@ test('the guard cannot edit itself: plugin root, ATAP_WITNESS, ~/.claude.json; c
   assert.equal(tool('Bash', { command: 'npm --prefix plugins/claude-code test' }).decision, 'allow')
   assert.equal(tool('Bash', { command: 'node scripts/atap-hook.mjs --help' }).decision, 'allow')
 })
+
+// T013 (b): the guard's whole code, not only the entry file: the CLI's package directory (dist/constraints.js
+// beside dist/cli.js) and the resolved @tunnelmindai/atap package (where evaluateCall lives).
+test('the guard cannot edit its own package or the atap-js package it evaluates with', async (t) => {
+  const { guardPaths } = await import('../dist/constraints.js')
+  const { realpathSync } = await import('node:fs')
+  const cliPkg = realpathSync(fileURLToPath(new URL('..', import.meta.url)))
+  const atapPkg = realpathSync(fileURLToPath(new URL('../node_modules/@tunnelmindai/atap', import.meta.url)))
+  const saved = process.argv[1]
+  process.argv[1] = CLI
+  try {
+    const g = guardPaths()
+    assert.ok(g.includes(cliPkg), JSON.stringify(g))
+    assert.ok(g.includes(atapPkg), JSON.stringify(g))
+  } finally {
+    process.argv[1] = saved
+  }
+  const { ok } = project(t)
+  const edit = (file_path) => ok(['constraints', 'check'], { tool_name: 'Edit', tool_input: { file_path, old_string: 'a', new_string: 'b' } }).decision
+  assert.equal(edit(join(cliPkg, 'dist', 'constraints.js')), 'deny')
+  assert.equal(edit(join(atapPkg, 'dist', 'constraints.js')), 'deny')
+  // Absolute-only: the package's short names stay usable in a command.
+  assert.equal(check(ok, 'ls dist && cat package.json').decision, 'allow')
+})
