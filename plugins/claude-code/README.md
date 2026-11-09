@@ -161,16 +161,32 @@ Anything that user can read, a Bash command can eventually read, and whoever
 holds the key can sign a rescind. Keep it on another account, a hardware key
 or another machine; the self-protection rule only catches the obvious tries.
 
-Known limits, on purpose: `commands` rules match command text, so a command built
-from variables, `eval`, aliases or base64 can get past a `commands` glob and
-past the name tripwire. The guard is the second line; OS permissions (the
-agent's user cannot write the store or read the key) are the first.
+Known limits, on purpose: **`commands` is a tripwire, not a boundary.** It
+matches command text, not what the shell will run, so these still get past a
+`commands` glob and the name tripwire:
+
+- variables: `c=push; git $c`, `$CMD`;
+- `eval` and any program that runs a string it builds (`python -c`, `node -e`, `perl -e`);
+- aliases and shell functions defined earlier in the session or in a sourced file;
+- encodings: `echo Z2l0IHB1c2g= | base64 -d | sh`, hex, `printf` escapes;
+- `sh|bash|zsh|dash -c` strings nested more than 3 deep, and an unquoted `-c` word;
+- other quoting (`g'i't push`, `"git" push`), scripts on disk (`sh push.sh`), and
+  wrapper or git options this list does not name (`sudo --user me`, `git --exec-path=x`).
+
+The guard is the second line; OS permissions (the agent's user cannot write
+the store or read the key) are the first.
 
 Rules are globs: `*` stays inside a path segment and `**` crosses them;
 `commands` apply to any tool whose input has a string `command` (else
 `script`), not only Bash, and match each shell segment (split on `&&`, `||`, `;`, `|`, `&`,
-newlines, parentheses, backticks and `$(`, with leading `VAR=value` and
-wrappers such as `sudo` and `env` stripped); every matcher in a rule must
+newlines, parentheses, backticks and `$(`, with leading `VAR=value`, shell
+keywords, a command's directory, wrappers such as `sudo`, `env` and `xargs`,
+and git global options (`-C dir`, `-c k=v`, `--git-dir`, `--work-tree`,
+`--no-pager`, `-p`, `-P`, `--paginate`)
+stripped). The quoted string of `sh|bash|zsh|dash [-flags] -c '...'` is split
+the same way, up to 3 shells deep, so `bash -c 'git push'` and `git -C . push`
+both meet a `git push*` glob. That makes `commands` a tripwire for the obvious
+spellings, not a boundary (see Known limits); every matcher in a rule must
 match. `forbid` beats `require_approval`. A `paths` rule on Grep, Glob or LS
 also covers a search with no path or of any ancestor directory (searching `.`
 reaches `secrets/`). A rule is only as good as its globs: a command it does

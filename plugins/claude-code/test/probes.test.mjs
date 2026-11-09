@@ -223,6 +223,21 @@ for (const command of A006_PUSHES) {
   })
 }
 
+// A006 part 2: `sh -c` strings (up to 3 deep), xargs and git global options cannot hide a `git push`.
+const A006_PART2_PUSHES = ["bash -c 'git push'", 'sh -c "git push"', "bash -lc 'git push'", 'xargs git push', 'echo x | xargs -n1 git push', 'git -C . push', 'git -c a=b push', 'git --git-dir=x push', `bash -c "sh -c 'git push'"`]
+for (const command of A006_PART2_PUSHES) {
+  test(`A006: {commands:["git push*"]} denies Bash ${command}`, () => {
+    const active = rules({ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] })
+    assert.equal(evaluateCall(active, call('Bash', { command }), ctx).decision, 'deny')
+  })
+}
+
+test('A006 control: {commands:["git push*"]} allows Bash bash -c \'git status\' and git -C . status', () => {
+  const active = rules({ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] })
+  assert.equal(evaluateCall(active, call('Bash', { command: "bash -c 'git status'" }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(active, call('Bash', { command: 'git -C . status' }), ctx).decision, 'allow')
+})
+
 test('A006 control: {commands:["git push*"]} allows Bash git status and echo git push', () => {
   const active = rules({ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] })
   assert.equal(evaluateCall(active, call('Bash', { command: 'git status' }), ctx).decision, 'allow')

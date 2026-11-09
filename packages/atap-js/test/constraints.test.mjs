@@ -342,3 +342,67 @@ test('A006: Object.prototype names as a first word neither throw nor hide a late
   // valueOf is not a wrapper, so the segment keeps it (the prototype bug used to strip it to `git push`).
   assert.deepEqual(commandSegments('valueOf git push'), ['valueOf git push'])
 })
+
+// A006 part 2: `sh -c '...'` strings (3 deep), xargs and git global options.
+const A006_PART2_PUSHES = [
+  "bash -c 'git push'",
+  'sh -c "git push"',
+  "bash -lc 'git push'",
+  "bash -e -c 'git status; git push'",
+  "/bin/bash -c 'git push'",
+  'sudo bash -c "cd /x && git push"',
+  'xargs git push',
+  'echo x | xargs -n1 git push',
+  'xargs -I {} git push',
+  'git -C . push',
+  'git -c a=b push',
+  'git --git-dir=x push',
+  'git --work-tree y -C . push',
+  `bash -c "sh -c 'git push'"`,
+]
+// `n` shells deep, each a double-quoted `bash -c "..."` with the inner string escaped as a shell would need.
+const nest = (cmd, n) => (n === 0 ? cmd : `bash -c "${nest(cmd, n - 1).replace(/[\\"]/g, '\\$&')}"`)
+
+test('A006 part 2: {commands:["git push*"]} denies shell -c strings, xargs and git global options', () => {
+  const { active } = foldConstraints(
+    [signConstraintSet({ constraint_id: 'push', scope: '*', prose: 'No push.', rules: [{ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  )
+  const decide = (command) => evaluateCall(active, call('Bash', { command }), ctx).decision
+  for (const cmd of [...A006_PART2_PUSHES, nest('git push', 2), nest('git push', 3)]) assert.equal(decide(cmd), 'deny', `${cmd} -> ${JSON.stringify(commandSegments(cmd))}`)
+  // The depth cap is 3: a push four shells deep is not followed (a documented limit, not a promise).
+  assert.equal(decide(nest('git push', 4)), 'allow')
+  for (const cmd of ["bash -c 'git status'", 'git -C . status', 'xargs git status', 'echo "bash -c"', 'bash -c']) assert.equal(decide(cmd), 'allow', cmd)
+})
+
+test('A006 part 2: the line itself still splits as before; -c strings only add segments', () => {
+  assert.deepEqual(commandSegments("bash -c 'git push'"), ["bash -c 'git push'", 'git push'])
+  assert.deepEqual(commandSegments('git -C . status'), ['git status'])
+  assert.deepEqual(commandSegments('xargs'), ['xargs'])
+  // Prototype names neither throw nor unwrap.
+  assert.deepEqual(commandSegments('constructor -c x'), ['constructor -c x'])
+  assert.deepEqual(commandSegments('toString'), ['toString'])
+  assert.deepEqual(commandSegments("hasOwnProperty -c 'git push'"), ["hasOwnProperty -c 'git push'"])
+})
+
+test('A006 part 2: long flag runs and repeated git options stay fast (no regex blow-up)', () => {
+  const { active } = foldConstraints(
+    [signConstraintSet({ constraint_id: 'push', scope: '*', prose: 'No push.', rules: [{ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  )
+  const timed = (fn) => {
+    const t0 = performance.now()
+    const r = fn()
+    return [r, performance.now() - t0]
+  }
+  // `--x` once matched two ways in SHELL_C, doubling the time per word (40 words would take days).
+  const [d, ms] = timed(() => evaluateCall(active, call('Bash', { command: 'echo bash ' + '--x '.repeat(40) + '-c; git push' }), ctx).decision)
+  assert.equal(d, 'deny')
+  assert.ok(ms < 200, `${ms} ms`)
+  for (const cmd of ['bash ' + '--x '.repeat(40) + "-c 'git push", 'bash ' + '--x '.repeat(20000) + "-c 'git push", 'git ' + '-C . '.repeat(20000) + 'push']) {
+    const [, t] = timed(() => commandSegments(cmd))
+    assert.ok(t < 200, `${cmd.slice(0, 30)}... (${cmd.length} chars): ${t} ms`)
+  }
+})

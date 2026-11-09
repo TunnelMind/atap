@@ -299,12 +299,25 @@ const WRAPPERS: Record<string, string> = {
   nice: 'n',
   builtin: '',
   timeout: 'sk',
+  xargs: 'InLPdEsa',
 }
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+/
 // A leading shell keyword or grouping token: `then git push`, `{ git push`, `! git push`.
 const KEYWORD = /^(?:if|then|elif|else|fi|for|while|until|do|done|case|esac|\{|\}|!)(?: |$)/
 // The directory part of the first word: `/usr/bin/git` and `./git` are `git`.
 const DIR_PREFIX = /^[^\s'"]*\/(?=[^\s/])/
+// The git global options after `git`: `git -C . push`, `git -c k=v push`, `git --git-dir=x push` are `git push`.
+// All of them in one match (not one per fixed-point round, which made `git -C . -C . ...` quadratic); the
+// alternatives start differently, so each option matches one way only (no backtracking blow-up).
+// ponytail: the common ones only; other global options (`--exec-path`, `--namespace`, ...) are not stripped.
+const GIT_GLOBAL = /^git (?:(?:-[Cc] \S+|--(?:git-dir|work-tree)(?:=\S*| \S+)|--no-pager|-[pP]|--paginate) )+/
+// `sh|bash|zsh|dash [-flags] -c '<string>'` (or "<string>"), the shell word anywhere a command can start,
+// with or without a directory. Group 1 is a single-quoted body, group 2 a double-quoted one. Each flag word
+// must match one way only: `--?[A-Za-z-]+` let `--x` split two ways and a failed match took 2^n tries.
+const SHELL_C =
+  /(?<![^\s;&|(`])(?:[^\s'"]*\/)?(?:sh|bash|zsh|dash)\s+(?:-{1,2}[A-Za-z][A-Za-z-]*\s+)*?-[A-Za-z]*c[A-Za-z]*\s*(?:'([^']*)'|"((?:[^"\\]|\\.)*)")/g
+/** How many `sh -c` strings deep commandSegments follows; a command nested deeper is not looked at. */
+const SHELL_C_DEPTH = 3
 
 /** `t` without its leading wrapper and the wrapper's flags (getopt style), or `t` unchanged. */
 function stripWrapper(t: string): string {
@@ -330,27 +343,43 @@ function stripWrapper(t: string): string {
 }
 
 /**
- * Shell segments of a command line, whitespace collapsed. Splits on && || ; | & newlines, parentheses,
+ * Shell segments of a command line, whitespace collapsed. First, the quoted string of each
+ * `sh|bash|zsh|dash [-flags] -c '...'` (or "...", with \" \\ \$ \` unescaped) has its own segments
+ * appended, up to SHELL_C_DEPTH (3) strings deep; this reads the raw line, as the split below cuts
+ * inside the quotes. Then the line is split on && || ; | & newlines, parentheses,
  * backticks and $( , and per segment strips, to a fixed point: leading VAR=value assignments; shell
  * keywords and grouping (if then elif else fi for while until do done case esac { } !); wrappers with
  * their flags (sudo -u me, env -i, nice -n 5, time -p, nohup, exec -a NAME, command -p, timeout DUR,
- * builtin); a leading backslash; the directory of the first word. Empty quotes "" and '' are removed.
+ * builtin, xargs -n 1); a leading backslash; the directory of the first word; git global options after
+ * `git` (-C dir, -c k=v, --git-dir, --work-tree, --no-pager, -p, -P). Empty quotes "" and '' are removed.
  * So `(git push)`, `true & git push`, `echo $(git push)`, `X=1 sudo -u me /usr/bin/git push`,
- * `if true; then git push; fi` and `g""it push` all yield `git push`.
- * Not a shell parser: other quoting, variables, eval and aliases are not followed.
+ * `if true; then git push; fi`, `g""it push`, `bash -lc 'git push'`, `xargs git push` and
+ * `git -C . push` all yield `git push`.
+ * Not a shell parser: other quoting, variables, eval, aliases, functions and encodings are not followed.
  */
 export function commandSegments(cmd: string): string[] {
-  return cmd
+  return segments(cmd, 0)
+}
+
+function segments(cmd: string, depth: number): string[] {
+  // The line itself is split as before (so no segment a rule used to see goes missing); each `-c` string
+  // adds its own segments. Past the cap the string is not looked into.
+  const nested: string[] = []
+  if (depth < SHELL_C_DEPTH)
+    for (const [, single, double] of cmd.matchAll(SHELL_C))
+      nested.push(...segments(single ?? (double as string).replace(/\\(["\\$`])/g, '$1'), depth + 1))
+  const own = cmd
     .split(/&&|\|\||\$\(|[;|&\n()`]/)
     .map((s) => {
       let t = s.replace(/""|''/g, '').trim().replace(/\s+/g, ' ')
       for (let prev = ''; prev !== t; ) {
         prev = t
-        t = stripWrapper(t.replace(ASSIGNMENT, '').replace(KEYWORD, '').replace(/^\\/, '').replace(DIR_PREFIX, ''))
+        t = stripWrapper(t.replace(ASSIGNMENT, '').replace(KEYWORD, '').replace(/^\\/, '').replace(DIR_PREFIX, '')).replace(GIT_GLOBAL, 'git ')
       }
       return t
     })
     .filter(Boolean)
+  return [...own, ...nested]
 }
 
 const PATH_FIELDS = ['file_path', 'notebook_path', 'path'] as const
