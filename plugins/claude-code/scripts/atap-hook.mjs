@@ -1,21 +1,33 @@
 #!/usr/bin/env node
 // The one hook script for the ATAP Claude Code plugin. hooks/hooks.json runs it
-// as `atap-hook.mjs <session-start|post-tool-use|session-end>` with the hook's
-// JSON on stdin.
+// as `atap-hook.mjs <session-start|pre-tool-use|post-tool-use|session-end>`
+// with the hook's JSON on stdin.
 //
 // The rule above all: never break a session. The script always exits 0 and
-// never writes to stdout or stderr (SessionStart stdout lands in Claude's
-// context, PostToolUse stderr is shown to Claude). Anything that goes wrong is
+// writes nothing to stderr. It writes to stdout in exactly two cases, both only
+// when operator constraints exist or are required (strict mode, below; see
+// "Operator constraints" in README.md):
+// SessionStart prints the constraints in force as additionalContext (it also
+// fires after a compaction, which is how they survive one), and PreToolUse
+// prints a deny or ask decision for a call they cover. With no constraint store
+// the plugin records and says nothing, as before. Anything that goes wrong is
 // appended to the project's .atap/hook.log instead. A project without .atap/,
-// or ATAP_OFF=1, makes the script a silent no-op.
+// or ATAP_OFF=1, makes the script a silent no-op, with one exception below.
+//
+// The guard fails closed: when a constraint store exists and the decision
+// cannot be made (CLI missing, killed, unreadable output), the call is denied.
+// Strict mode (ATAP_CONSTRAINTS_REQUIRED=1 or a non-empty ATAP_OPERATOR in the
+// user's environment) goes further: PreToolUse also prints a deny when there is
+// no .atap/, when stdin is malformed, or when the handler throws. Other events
+// stay silent, and ATAP_OFF=1 still wins.
 //
 // Node built-ins only: the plugin ships with no dependencies.
 
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFile, readFile, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { delimiter, dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
 const LOG_CAP = 1024 * 1024 // hook.log stops growing at 1 MB
@@ -118,6 +130,53 @@ async function witness(atap, cwd, event, args, input) {
 
 const emit = (atap, cwd, event_type, payload) => witness(atap, cwd, 'post-tool-use', ['event'], { event_type, payload })
 
+// ---------------------------------------------------------------- operator constraints
+
+// The store the CLI reads: ATAP_CONSTRAINTS (the user's environment), else .atap/constraints.jsonl.
+const constraintStore = (atap) => (process.env.ATAP_CONSTRAINTS ? resolve(process.env.ATAP_CONSTRAINTS) : join(atap.dir, 'constraints.jsonl'))
+// On when anything says constraints exist: a required flag, a trusted operator (environment or
+// config), or a non-empty store. An operator with no store still runs the check, so a store the
+// agent deleted is caught by the CLI's witness-event cross-check instead of switching the guard off.
+const constraintsOn = async (atap) =>
+  process.env.ATAP_CONSTRAINTS_REQUIRED === '1' ||
+  Boolean(process.env.ATAP_OPERATOR) ||
+  typeof atap.config.constraints_operator === 'string' ||
+  (await stat(constraintStore(atap)).then((s) => s.size > 0, () => false))
+
+// `atap-witness constraints <args>` -> parsed stdout, or null when it cannot answer.
+async function constraintsCli(atap, cwd, event, args, input) {
+  const bin = process.env.ATAP_WITNESS || 'atap-witness'
+  // The project root is pinned to the .atap/ this hook found, never re-found from the agent's cwd.
+  const root = resolve(atap.dir, '..')
+  // The plugin's own files are guarded too (the CLI adds them to its protected paths): the root Claude
+  // Code says it loaded the plugin from, and the one this script sits in, in case they differ.
+  const plugin = [...new Set([process.env.CLAUDE_PLUGIN_ROOT, resolve(dirname(fileURLToPath(import.meta.url)), '..')].filter(Boolean))]
+  const env = { ...process.env, ATAP_PROJECT_DIR: root, ATAP_PLUGIN_ROOT: plugin.join(delimiter) }
+  const p = run(bin, ['constraints', ...args], { cwd: root, timeout: 8000, env })
+  p.child.stdin.on('error', () => {})
+  p.child.stdin.end(input === undefined ? '' : JSON.stringify(input))
+  try {
+    return (await p).stdout
+  } catch (e) {
+    await log(atap, event, e?.code === 'ENOENT' ? 'atap-witness not found' : `atap-witness constraints ${args[0]} failed: exit ${Number.isInteger(e?.code) ? e.code : 'killed'}`)
+    return null
+  }
+}
+
+const say = (obj) => process.stdout.write(JSON.stringify(obj))
+
+// The in-force hash for a commit or test-run event, when constraints exist.
+async function inForce(atap, cwd) {
+  if (!(await constraintsOn(atap))) return {}
+  const out = await constraintsCli(atap, cwd, 'post-tool-use', ['status'])
+  try {
+    const h = JSON.parse(out ?? '').in_force_sha256
+    return /^[0-9a-f]{64}$/.test(h) ? { in_force_sha256: h } : {}
+  } catch {
+    return {}
+  }
+}
+
 // A .atap/*.jsonl store as records; a missing file is empty. A bad line throws
 // fixed text (the parse error would quote the line) for the handler's log.
 async function readJsonl(atap, name) {
@@ -140,10 +199,40 @@ async function pendingEvents(atap, ait) {
 }
 
 // Per-event handlers: (input, atap) where input is the parsed hook JSON and
-// atap is { dir, config } from findAtap.
-const handlers = {
-  // Nothing to record at start: session-end rolls up whatever is pending then.
-  'session-start': async () => {},
+// atap is { dir, config } from findAtap. Exported only so a test can replace a handler in-process
+// (test/probes.test.mjs makes pre-tool-use throw); nothing outside this module reads it.
+export const handlers = {
+  // Nothing to record at start: session-end rolls up whatever is pending then. With operator
+  // constraints, put them in the context. SessionStart also fires with source "compact", so the
+  // constraints come back after every compaction instead of being summarised away.
+  'session-start': async (input, atap) => {
+    if (!(await constraintsOn(atap))) return
+    const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd()
+    const text = await constraintsCli(atap, cwd, 'session-start', ['context'])
+    if (text && text.trim()) say({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text.trim() } })
+  },
+  // The guard. Allowed calls print nothing, so Claude Code's own permission rules still apply;
+  // only deny and ask are ever returned.
+  'pre-tool-use': async (input, atap) => {
+    if (!(await constraintsOn(atap))) return
+    const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd()
+    const out = await constraintsCli(atap, cwd, 'pre-tool-use', ['check', '--record'], input)
+    let d = null
+    try {
+      d = JSON.parse(out ?? '')
+    } catch {}
+    if (!d || !['allow', 'deny', 'ask'].includes(d.decision)) {
+      return say({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'ATAP: the operator constraint check could not run, so the call is blocked (see .atap/hook.log).' } })
+    }
+    if (d.decision === 'allow') return
+    const where = `${d.constraint_id}/${d.rule_id}`
+    const why = String(d.reason ?? '').trim()
+    d.reason = why && !/[.!?]$/.test(why) ? `${why}.` : why
+    const reason = d.decision === 'deny'
+      ? `ATAP operator constraint ${where} forbids this call: ${d.reason ?? ''} Only the owner can lift it, with a signed rescind.`
+      : `ATAP operator constraint ${where} needs the owner's approval for this call: ${d.reason ?? ''}`
+    say({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.decision, permissionDecisionReason: reason.slice(0, 900) } })
+  },
   'post-tool-use': async (input, atap) => {
     const command = input.tool_input?.command
     if (input.tool_name !== 'Bash' || typeof command !== 'string') return
@@ -167,7 +256,7 @@ const handlers = {
         if (/^[0-9a-f]{40}$/.test(root)) repo = `local/${root.slice(0, 12)}`
       }
       if (!repo) return log(atap, 'post-tool-use', 'no owner/repo')
-      return emit(atap, cwd, 'code_crew:change_committed', { timestamp, evidence: 'anchored', repo, commit_sha })
+      return emit(atap, cwd, 'code_crew:change_committed', { timestamp, evidence: 'anchored', repo, commit_sha, ...(await inForce(atap, cwd)) })
     }
 
     const configured = atap.config.test_commands
@@ -180,6 +269,7 @@ const handlers = {
       command_sha256: sha256(command),
       exit_code: Math.max(-255, Math.min(255, exit_code)),
       output_sha256: sha256(outputOf(result)),
+      ...(await inForce(atap, cwd)),
     })
   },
   // Close a block over the pending events, i.e. this session's (plus any an
@@ -200,23 +290,44 @@ const handlers = {
 
 export async function main(event = process.argv[2]) {
   if (process.env.ATAP_OFF === '1') return
+  // Strict mode is decided from the user's environment alone, before looking for .atap/: an
+  // operator who requires constraints must not lose the guard because the agent deleted .atap/,
+  // garbled the hook input or made the handler throw. Then pre-tool-use denies instead of no-op.
+  const strict = process.env.ATAP_CONSTRAINTS_REQUIRED === '1' || Boolean(process.env.ATAP_OPERATOR)
+  // Fixed text only, never the error or the input (either may quote what the agent wrote).
+  const failClosed = async (atap, why) => {
+    if (atap) await log(atap, event, why)
+    if (strict && event === 'pre-tool-use') {
+      say({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `ATAP: operator constraints are required and the guard could not run (${why}), so the call is blocked.` } })
+    }
+  }
   const raw = await readStdin()
   let input = null
   try {
     input = JSON.parse(raw)
   } catch {}
   const valid = input && typeof input === 'object' && !Array.isArray(input)
-  // The hook's `cwd` is the session's project; fall back to our own cwd when stdin is unusable.
-  const atap = await findAtap(valid && typeof input.cwd === 'string' ? input.cwd : process.cwd())
-  if (!atap) return
+  // The guard events (pre-tool-use, session-start), and every event when strict, find the project from
+  // CLAUDE_PROJECT_DIR when Claude Code sets it (fixed for the session, so a nested .atap/ under a
+  // directory the agent cd's into cannot re-root a guard the pinned root already has). When the pinned
+  // root finds no .atap/ (a session started in /work, working in /work/repo/.atap), a non-strict guard
+  // event falls back to the `cwd` lookup; strict mode never falls back, it fails closed on the pinned root
+  // alone. Non-strict witness events (post-tool-use, session-end) keep the `cwd` lookup, so a commit in
+  // /mono/child is recorded in /mono/child/.atap, not in the pinned /mono's store.
+  const pinned = strict || event === 'pre-tool-use' || event === 'session-start' ? process.env.CLAUDE_PROJECT_DIR : undefined
+  const cwdFrom = valid && typeof input.cwd === 'string' ? input.cwd : process.cwd()
+  const atap = pinned ? ((await findAtap(pinned)) ?? (!strict ? await findAtap(cwdFrom) : null)) : await findAtap(cwdFrom)
+  // Not strict: no .atap/ is a silent no-op and nothing is logged (there is nowhere to log).
+  if (!atap) return failClosed(null, 'no .atap/')
   // Fixed text, not the parse error: JSON.parse messages quote the input.
-  if (!valid) return log(atap, event, 'malformed stdin')
+  if (!valid) return failClosed(atap, 'malformed stdin')
   const handler = handlers[event]
   if (!handler) return log(atap, event, 'unknown event')
   try {
     await handler(input, atap)
   } catch (e) {
     await log(atap, event, `${e?.name ?? 'Error'}: ${e?.message ?? e}`)
+    await failClosed(null, 'hook error')
   }
 }
 

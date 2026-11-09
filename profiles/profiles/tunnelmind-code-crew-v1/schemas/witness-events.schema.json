@@ -15,7 +15,10 @@
         "code_crew:review_verdict",
         "code_crew:approval",
         "code_crew:merged",
-        "code_crew:deployed"
+        "code_crew:deployed",
+        "code_crew:constraint_set",
+        "code_crew:constraint_rescind",
+        "code_crew:tool_gate"
       ]
     }
   },
@@ -35,7 +38,13 @@
     { "if": { "properties": { "event_type": { "const": "code_crew:merged" } }, "required": ["event_type"] },
       "then": { "properties": { "payload": { "$ref": "#/$defs/merged" } } } },
     { "if": { "properties": { "event_type": { "const": "code_crew:deployed" } }, "required": ["event_type"] },
-      "then": { "properties": { "payload": { "$ref": "#/$defs/deployed" } } } }
+      "then": { "properties": { "payload": { "$ref": "#/$defs/deployed" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:constraint_set" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/constraint_change" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:constraint_rescind" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/constraint_change" } } } },
+    { "if": { "properties": { "event_type": { "const": "code_crew:tool_gate" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/tool_gate" } } } }
   ],
   "$defs": {
     "timestamp": { "type": "string", "format": "date-time" },
@@ -54,6 +63,8 @@
     "repo_name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}$", "description": "Repo basename, no owner; for a private local repo with no public owner/repo." },
     "git_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "constraint_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$" },
+    "did_key": { "type": "string", "pattern": "^did:key:z6Mk[1-9A-HJ-NP-Za-km-z]{44}$" },
     "count": { "type": "integer", "minimum": 0 },
     "task_claimed": {
       "type": "object",
@@ -75,7 +86,8 @@
         "timestamp": { "$ref": "#/$defs/timestamp" },
         "evidence": { "$ref": "#/$defs/evidence", "const": "anchored", "description": "The commit sha is checkable in the repo." },
         "repo": { "$ref": "#/$defs/repo" },
-        "commit_sha": { "$ref": "#/$defs/git_sha" }
+        "commit_sha": { "$ref": "#/$defs/git_sha" },
+        "in_force_sha256": { "$ref": "#/$defs/sha256", "description": "Optional. The operator constraints in force when the commit ran (see constraint_change)." }
       }
     },
     "verify_run": {
@@ -87,7 +99,8 @@
         "evidence": { "$ref": "#/$defs/evidence", "description": "witnessed only if the witness ran the command itself; otherwise asserted." },
         "command_sha256": { "$ref": "#/$defs/sha256" },
         "exit_code": { "type": "integer", "minimum": -255, "maximum": 255 },
-        "output_sha256": { "$ref": "#/$defs/sha256" }
+        "output_sha256": { "$ref": "#/$defs/sha256" },
+        "in_force_sha256": { "$ref": "#/$defs/sha256", "description": "Optional. The operator constraints in force when the command ran." }
       }
     },
     "qa_verdict": {
@@ -168,6 +181,34 @@
         "evidence": { "$ref": "#/$defs/evidence", "description": "anchored when version_id is publicly checkable; otherwise asserted." },
         "target": { "$ref": "#/$defs/opaque_id" },
         "version_id": { "$ref": "#/$defs/opaque_id" }
+      }
+    },
+    "constraint_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "constraint_id", "statement_sha256", "operator", "in_force_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence", "const": "witnessed", "description": "The witness checked the operator's signature on the statement before recording it." },
+        "constraint_id": { "$ref": "#/$defs/constraint_id" },
+        "statement_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the RFC 8785 bytes of the whole signed Constraint Statement. The statement (and its prose) stays out of the payload; whoever holds it can prove it matches." },
+        "operator": { "$ref": "#/$defs/did_key", "description": "The operator key that signed the statement. A key, never a person." },
+        "in_force_sha256": { "$ref": "#/$defs/sha256", "description": "The set of constraints in force after this change." }
+      }
+    },
+    "tool_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "tool", "decision", "constraint_id", "rule_id", "input_sha256", "in_force_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "$ref": "#/$defs/evidence", "const": "witnessed", "description": "The witness evaluated the call itself, before it ran." },
+        "tool": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$" },
+        "decision": { "enum": ["deny", "ask"], "description": "Calls the constraints allow are not recorded here." },
+        "constraint_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$" },
+        "rule_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$" },
+        "input_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the RFC 8785 bytes of the tool input. The input itself may hold user data and stays out." },
+        "in_force_sha256": { "$ref": "#/$defs/sha256" }
       }
     }
   }

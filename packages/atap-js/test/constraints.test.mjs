@@ -1,0 +1,645 @@
+// Operator-signed constraints: signing, folding, the forged-rescind cases and
+// the tool-call evaluator.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { generateKeyPairSync, createPublicKey } from 'node:crypto'
+import {
+  signConstraintSet,
+  signConstraintRescind,
+  statementProblem,
+  statementHash,
+  foldConstraints,
+  evaluateCall,
+  renderConstraints,
+  globToRegExp,
+  didKeyFromPublicKey,
+  commandSegments,
+} from '../dist/index.js'
+
+const keypair = () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const x = createPublicKey(privateKey).export({ format: 'jwk' }).x
+  return { privateKey, did: didKeyFromPublicKey(new Uint8Array(Buffer.from(x, 'base64url'))) }
+}
+const op = keypair()
+const intruder = keypair()
+const AIT = 'urn:uuid:01890000-0000-7000-8000-000000000001'
+const ROOT = '/work/proj'
+const ctx = { projectRoot: ROOT, protectedPaths: [`${ROOT}/.atap/constraints.jsonl`, '/home/op/.atap-operator/operator.pem'] }
+const call = (tool_name, tool_input, cwd = ROOT) => ({ tool_name, tool_input, cwd })
+
+const noProdDeploy = (at = '2026-11-02T10:00:00.000Z', key = op.privateKey) =>
+  signConstraintSet(
+    {
+      constraint_id: 'no-prod',
+      scope: '*',
+      issued_at: at,
+      prose: 'Do not deploy to production or touch the prod Terraform workspace.',
+      rules: [
+        { id: 'deploy', effect: 'forbid', tools: ['Bash'], commands: ['wrangler deploy*', 'terraform * -var-file=prod*', 'terraform destroy*'] },
+        { id: 'prod-files', effect: 'forbid', tools: ['Write', 'Edit'], paths: ['infra/prod/**'] },
+      ],
+    },
+    key,
+  )
+
+test('a signed set verifies; any edit to it breaks the signature', () => {
+  const s = noProdDeploy()
+  assert.equal(statementProblem(s), null)
+  assert.equal(s.operator, op.did)
+  const edited = { ...s, prose: 'Deploy freely.' }
+  assert.equal(statementProblem(edited), 'operator signature does not verify')
+  const loosened = structuredClone(s)
+  loosened.rules[0].effect = 'require_approval'
+  assert.equal(statementProblem(loosened), 'operator signature does not verify')
+  assert.match(statementProblem({ ...s, extra: 1 }), /unknown field extra/)
+})
+
+test('shape rules refuse to sign a malformed set', () => {
+  assert.throws(() => signConstraintSet({ constraint_id: 'Bad Id', scope: '*', prose: 'x', rules: [] }, op.privateKey), /constraint_id/)
+  assert.throws(() => signConstraintSet({ constraint_id: 'a', scope: '*', prose: '', rules: [] }, op.privateKey), /prose/)
+  assert.throws(
+    () => signConstraintSet({ constraint_id: 'a', scope: '*', prose: 'p', rules: [{ id: 'r', effect: 'block', tools: ['Bash'] }] }, op.privateKey),
+    /effect/,
+  )
+  assert.throws(
+    () => signConstraintSet({ constraint_id: 'a', scope: '*', prose: 'p', rules: [{ id: 'r', effect: 'forbid', tools: ['Bash'] }, { id: 'r', effect: 'forbid', tools: ['Write'] }] }, op.privateKey),
+    /duplicate rule id/,
+  )
+})
+
+test('fold: a set is in force until the same operator rescinds it', () => {
+  const set = noProdDeploy()
+  const f1 = foldConstraints([set], op.did, AIT)
+  assert.deepEqual(f1.rejected, [])
+  assert.deepEqual(f1.active.map((c) => c.constraint_id), ['no-prod'])
+  const rescind = signConstraintRescind({ constraint_id: 'no-prod', scope: '*', issued_at: '2026-11-02T11:00:00.000Z' }, op.privateKey)
+  const f2 = foldConstraints([rescind, set], op.did, AIT) // order in the store does not matter
+  assert.deepEqual(f2.active, [])
+  assert.notEqual(f1.in_force, f2.in_force)
+})
+
+test('forged rescind: one signed by another key is rejected, not obeyed', () => {
+  const set = noProdDeploy()
+  const forged = signConstraintRescind({ constraint_id: 'no-prod', scope: '*', issued_at: '2026-11-02T11:00:00.000Z' }, intruder.privateKey)
+  const f = foldConstraints([set, forged], op.did, AIT)
+  assert.deepEqual(f.active.map((c) => c.constraint_id), ['no-prod'])
+  assert.equal(f.rejected.length, 1)
+  assert.match(f.rejected[0].reason, /does not trust/)
+})
+
+test('forged rescind: a hand-written one with the right operator but no valid signature is rejected', () => {
+  const set = noProdDeploy()
+  const real = signConstraintRescind({ constraint_id: 'other', scope: '*' }, op.privateKey)
+  const fake = { ...real, constraint_id: 'no-prod' } // reuse a real signature on new words
+  const f = foldConstraints([set, fake], op.did, AIT)
+  assert.deepEqual(f.active.map((c) => c.constraint_id), ['no-prod'])
+  assert.equal(f.rejected[0].reason, 'operator signature does not verify')
+})
+
+test('a set scoped to another AIT is rejected; "*" applies everywhere', () => {
+  const other = signConstraintSet({ constraint_id: 'x', scope: 'urn:uuid:01890000-0000-7000-8000-000000000999', prose: 'p', rules: [] }, op.privateKey)
+  const f = foldConstraints([other], op.did, AIT)
+  assert.equal(f.active.length, 0)
+  assert.match(f.rejected[0].reason, /another AIT/)
+})
+
+test('a newer set replaces the older one with the same constraint_id', () => {
+  const v1 = noProdDeploy('2026-11-01T00:00:00.000Z')
+  const v2 = signConstraintSet({ constraint_id: 'no-prod', scope: '*', issued_at: '2026-11-02T00:00:00.000Z', prose: 'v2', rules: [] }, op.privateKey)
+  const f = foldConstraints([v2, v1], op.did, AIT)
+  assert.equal(f.active.length, 1)
+  assert.equal(f.active[0].prose, 'v2')
+})
+
+test('no trusted operator configured fails closed, unless there is nothing to trust', () => {
+  const f = foldConstraints([noProdDeploy()], '', AIT)
+  assert.equal(f.active.length, 0)
+  assert.equal(f.rejected.length, 1)
+  assert.deepEqual(foldConstraints([], '', AIT).rejected, [])
+})
+
+test('evaluate: forbidden commands, segments and paths are denied; others allowed', () => {
+  const { active } = foldConstraints([noProdDeploy()], op.did, AIT)
+  assert.equal(evaluateCall(active, call('Bash', { command: 'npm test && wrangler deploy --env production' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Bash', { command: 'terraform  destroy -auto-approve' }), ctx).rule_id, 'deploy')
+  assert.equal(evaluateCall(active, call('Bash', { command: 'npm test' }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(active, call('Write', { file_path: 'infra/prod/main.tf' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Write', { file_path: `${ROOT}/infra/prod/a/b.tf` }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Edit', { file_path: 'infra/staging/main.tf' }), ctx).decision, 'allow')
+  // ../ cannot walk around a path rule
+  assert.equal(evaluateCall(active, call('Edit', { file_path: 'src/../infra/prod/x.tf' }), ctx).decision, 'deny')
+  const d = evaluateCall(active, call('Write', { file_path: 'infra/prod/x.tf' }), ctx)
+  assert.equal(d.reason, active[0].prose)
+})
+
+test('evaluate: forbid beats require_approval; outside_project and hosts match', () => {
+  const s = signConstraintSet(
+    {
+      constraint_id: 'scope',
+      scope: '*',
+      prose: 'Stay in the project; ask before fetching from unknown hosts.',
+      rules: [
+        { id: 'outside', effect: 'forbid', tools: ['Write', 'Edit', 'Read'], outside_project: true },
+        { id: 'fetch', effect: 'require_approval', tools: ['WebFetch'] },
+        { id: 'evil', effect: 'forbid', tools: ['WebFetch'], hosts: ['*.evil.example'] },
+      ],
+    },
+    op.privateKey,
+  )
+  const { active } = foldConstraints([s], op.did, AIT)
+  assert.equal(evaluateCall(active, call('Read', { file_path: '/etc/passwd' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Read', { file_path: '../other/x' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Read', { file_path: 'src/x' }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(active, call('WebFetch', { url: 'https://docs.example.com/a' }), ctx).decision, 'ask')
+  assert.equal(evaluateCall(active, call('WebFetch', { url: 'https://a.EVIL.example/x' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('WebFetch', { url: 'not a url' }), ctx).decision, 'ask')
+})
+
+test('self-protection: the store and operator key cannot be written or named in a command', () => {
+  const { active } = foldConstraints([], op.did, AIT)
+  assert.equal(evaluateCall(active, call('Write', { file_path: '.atap/constraints.jsonl' }), ctx).constraint_id, 'atap.self-protect')
+  assert.equal(evaluateCall(active, call('Bash', { command: 'echo {} >> .atap/constraints.jsonl' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Bash', { command: 'cat /home/op/.atap-operator/operator.pem' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Bash', { command: 'ls .atap' }), ctx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Bash', { command: 'ls src' }), ctx).decision, 'allow')
+})
+
+const keyCtx = { ...ctx, protectedPaths: [`${ROOT}/.atap`, `${ROOT}/.claude/settings.json`], secretPaths: ['/home/op/.atap-operator/operator.pem'] }
+
+test('review: a nested .atap/, agent settings and MCP writes are protected; the key is not even readable', () => {
+  const none = []
+  assert.equal(evaluateCall(none, call('Write', { file_path: 'sub/.atap/config.json', content: '{}' }), keyCtx).decision, 'deny')
+  assert.equal(evaluateCall(none, call('Edit', { file_path: '.claude/settings.json' }), keyCtx).decision, 'deny')
+  assert.equal(evaluateCall(none, call('mcp__fs__write_file', { path: `${ROOT}/.atap/events.jsonl` }), keyCtx).decision, 'deny')
+  assert.equal(evaluateCall(none, call('mcp__fs__write_file', { args: { target: '.atap/constraints.jsonl' } }), keyCtx).decision, 'deny')
+  assert.equal(evaluateCall(none, call('Read', { file_path: '/home/op/.atap-operator/operator.pem' }), keyCtx).rule_id, 'key-access')
+  assert.equal(evaluateCall(none, call('Read', { file_path: '.atap/constraints.jsonl' }), keyCtx).decision, 'allow')
+  assert.equal(evaluateCall(none, call('Bash', { command: 'ln -s .atap a' }), keyCtx).decision, 'deny')
+})
+
+test('A008: prose and look-alike names are not self-protection hits; real touches still are', () => {
+  const d = (tool, input) => evaluateCall([], call(tool, input), keyCtx).decision
+  // Edit tools: only path fields count; a non-path string counts only as one whitespace-free token.
+  assert.equal(d('Write', { file_path: 'src/a.txt', content: 'see foo/.atap/config.json' }), 'allow')
+  assert.equal(d('Edit', { file_path: 'src/a.txt', old_string: '.atap/x', new_string: '.atap/y' }), 'allow')
+  assert.equal(d('mcp__x__note', { text: 'see foo/.atap/config.json' }), 'allow')
+  assert.equal(d('mcp__x__write', { args: { target: 'sub/.atap/config.json' } }), 'deny')
+  assert.equal(d('Write', { file_path: '.atap/config.json' }), 'deny')
+  // Settings base names are not in the tripwire; .claude/settings is still matched by path.
+  assert.equal(d('Bash', { command: 'jq . .vscode/settings.json' }), 'allow')
+  assert.equal(d('Bash', { command: 'cat .claude/settings.json > /dev/null; rm .claude/settings.json' }), 'deny')
+  assert.equal(d('Bash', { command: 'rm .claude/settings.local.json' }), 'deny')
+  // A quoted commit message with nothing to expand is not command text; the rest of the line still is.
+  for (const command of ['git commit -m "ignore .atap"', "git commit -m 'ignore .atap'", 'git commit -am "ignore .atap"', 'git commit --message="ignore .atap"', "git -C . commit -m 'a' -m '.atap'"]) {
+    assert.equal(d('Bash', { command }), 'allow', command)
+  }
+  for (const command of [
+    'git commit -m "$(rm .atap/x)"',
+    'git commit -m "`rm .atap/x`"',
+    "git commit -m 'x'; rm .atap/x",
+    'git commit -m ".atap $HOME"',
+    'echo "git commit -m "; rm .atap/x; echo ""',
+    'echo "x; git commit -m "; rm .atap/x; echo ""',
+    "cat <<EOF\nit's\nEOF\necho \"x' ; git commit -m \"; rm .atap/x; echo \"",
+    '# it\'s\necho "x\' ; git commit -m "; rm .atap/x; echo ""',
+    'git log -m ".atap"',
+    // Blank only for the commit subcommand itself, never after `--`, never with an alias, never across a line.
+    "git rm -rf --ignore-unmatch -- commit -m '.atap'",
+    "git clean -fdx -- commit -m '.atap'",
+    "git checkout -- commit -m '.claude/settings.json'",
+    `git -c alias.x='!f(){ rm -rf "$3"; }; f' x commit -m '.atap'`,
+    "git commit -m\n'.atap/evil.sh'",
+    "git commit -m 'x' -- .atap/x",
+  ]) {
+    assert.equal(d('Bash', { command }), 'deny', command)
+  }
+})
+
+test('A008: commit-message blanking is linear on adversarial input', () => {
+  const t = Date.now()
+  for (const command of ['git commit ' + "-m 'a".repeat(20000), 'git commit ' + '-m "a\\'.repeat(20000), 'git commit -m ' + '"'.repeat(40000)]) {
+    evaluateCall([], call('Bash', { command }), keyCtx)
+  }
+  assert.ok(Date.now() - t < 2000, `took ${Date.now() - t} ms`)
+})
+
+test('review: symlinks resolve through ctx.realpath; case folds when asked', () => {
+  const { active } = foldConstraints([noProdDeploy()], op.did, AIT)
+  const realpath = (p) => p.replace(`${ROOT}/link`, `${ROOT}/infra/prod`).replace(`${ROOT}/a/`, `${ROOT}/.atap/`)
+  const c = { ...keyCtx, realpath }
+  assert.equal(evaluateCall(active, call('Write', { file_path: 'link/main.tf' }), c).rule_id, 'prod-files')
+  assert.equal(evaluateCall([], call('Write', { file_path: 'a/constraints.jsonl' }), c).decision, 'deny')
+  const ci = { ...keyCtx, caseInsensitive: true }
+  assert.equal(evaluateCall(active, call('Write', { file_path: 'INFRA/Prod/x.tf' }), ci).decision, 'deny')
+  assert.equal(evaluateCall([], call('Write', { file_path: '.ATAP/constraints.jsonl' }), ci).decision, 'deny')
+})
+
+test('review: a paths rule on search tools covers searches without a path and of ancestors', () => {
+  const s = signConstraintSet({ constraint_id: 'secrets', scope: '*', prose: 'Do not look in secrets/.', rules: [{ id: 'look', effect: 'forbid', tools: ['Read', 'Grep', 'Glob'], paths: ['secrets/**'] }] }, op.privateKey)
+  const { active } = foldConstraints([s], op.did, AIT)
+  for (const input of [{ pattern: 'KEY' }, { pattern: 'KEY', path: '.' }, { pattern: 'KEY', path: ROOT }, { pattern: 'x', path: 'secrets' }]) {
+    assert.equal(evaluateCall(active, call('Grep', input), keyCtx).decision, 'deny', JSON.stringify(input))
+  }
+  assert.equal(evaluateCall(active, call('Glob', { pattern: 'secrets/**' }), keyCtx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('Grep', { pattern: 'x', path: 'src' }), keyCtx).decision, 'allow')
+  assert.equal(evaluateCall(active, call('Read', { file_path: 'src/a.ts' }), keyCtx).decision, 'allow')
+})
+
+test('A007: a search at or below a glob\'s static prefix matches when the rest of the glob has **', () => {
+  const grep = (paths, path) => {
+    const s = signConstraintSet({ constraint_id: 'reach', scope: '*', prose: 'Search reach.', rules: [{ id: 'r', effect: 'forbid', tools: ['Grep', 'Glob', 'LS', 'Read'], paths }] }, op.privateKey)
+    const { active } = foldConstraints([s], op.did, AIT)
+    return (tool, input) => evaluateCall(active, call(tool, input), keyCtx).decision
+  }
+  assert.equal(grep(['**/.env'])('Grep', { pattern: 'x', path: 'src' }), 'deny')
+  assert.equal(grep(['src/**/x'])('Grep', { pattern: 'x', path: 'src/a' }), 'deny')
+  assert.equal(grep(['secrets/**'])('Grep', { pattern: 'x', path: 'docs' }), 'allow')
+  assert.equal(grep(['secrets/*.key'])('Grep', { pattern: 'x', path: 'secrets/sub' }), 'allow')
+  // Only search tools get the reach: reading `src` itself is not reading `src/.env`.
+  assert.equal(grep(['**/.env'])('Read', { file_path: 'src' }), 'allow')
+})
+
+test('review: background jobs, subshells, assignments and wrappers are split out; trailing-dot hosts match', () => {
+  const s = signConstraintSet(
+    { constraint_id: 'push', scope: '*', prose: 'No pushes; no evil host.', rules: [
+      { id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] },
+      { id: 'host', effect: 'forbid', tools: ['WebFetch'], hosts: ['evil.com', '*.evil.com'] }] },
+    op.privateKey,
+  )
+  const { active } = foldConstraints([s], op.did, AIT)
+  for (const command of ['true & git push', '(git push)', 'echo $(git push)', 'echo `git push`', 'GIT_X=1 git push', 'sudo env A=b git push origin']) {
+    assert.equal(evaluateCall(active, call('Bash', { command }), keyCtx).decision, 'deny', command)
+  }
+  assert.equal(evaluateCall(active, call('WebFetch', { url: 'https://evil.com./x' }), keyCtx).decision, 'deny')
+  assert.equal(evaluateCall(active, call('WebFetch', { url: 'https://a.evil.com./' }), keyCtx).decision, 'deny')
+})
+
+test('A003: every shell tool gets the commands rules and the name tripwire, not only Bash', () => {
+  const s = signConstraintSet(
+    { constraint_id: 'shells', scope: '*', prose: 'No pushes from any shell; stay out of secrets/.', rules: [
+      { id: 'push', effect: 'forbid', tools: ['mcp__*', 'PowerShell', 'RunScript'], commands: ['git push*'] },
+      { id: 'secrets', effect: 'forbid', tools: ['mcp__*'], paths: ['secrets/**'] }] },
+    op.privateKey,
+  )
+  const { active } = foldConstraints([s], op.did, AIT)
+  const tripped = (d) => d.decision === 'deny' && d.rule_id === 'store-command'
+  assert.ok(tripped(evaluateCall([], call('PowerShell', { command: 'Remove-Item .atap/constraints.jsonl' }), keyCtx)))
+  assert.ok(tripped(evaluateCall([], call('mcp__wsl__run', { command: 'rm .atap/constraints.jsonl' }), keyCtx)))
+  assert.ok(tripped(evaluateCall([], call('RunScript', { script: 'cat /home/op/.atap-operator/operator.pem' }), keyCtx)))
+  assert.equal(evaluateCall(active, call('mcp__wsl__run', { command: 'git push' }), keyCtx).rule_id, 'push')
+  assert.equal(evaluateCall(active, call('RunScript', { script: 'git push origin' }), keyCtx).rule_id, 'push')
+  assert.equal(evaluateCall(active, call('mcp__wsl__run', { command: 'git status' }), keyCtx).decision, 'allow')
+  // A non-shell MCP tool: no command, so no commands match, but its path argument is still checked.
+  assert.equal(evaluateCall(active, call('mcp__fs__read_file', { path: 'secrets/k.txt' }), keyCtx).rule_id, 'secrets')
+  assert.equal(evaluateCall(active, call('mcp__fs__read_file', { path: 'src/a.ts' }), keyCtx).decision, 'allow')
+  // A shell tool's path arguments stay path-checked too.
+  assert.equal(evaluateCall([], call('mcp__x__run', { command: 'ls', file_path: '.atap/constraints.jsonl' }), keyCtx).rule_id, 'store-write')
+})
+
+test('glob: * stays in a path segment, ** crosses them, regex characters are literal', () => {
+  assert.ok(globToRegExp('src/*.ts', true).test('src/a.ts'))
+  assert.ok(!globToRegExp('src/*.ts', true).test('src/a/b.ts'))
+  assert.ok(globToRegExp('src/**/*.ts', true).test('src/a/b.ts'))
+  assert.ok(globToRegExp('src/**/*.ts', true).test('src/b.ts'))
+  assert.ok(!globToRegExp('a.b', false).test('axb'))
+  assert.ok(globToRegExp('mcp__github__*', false).test('mcp__github__create_issue'))
+})
+
+test('render: the re-injected text names each constraint and how a rescind is made', () => {
+  const f = foldConstraints([noProdDeploy()], op.did, AIT)
+  const text = renderConstraints(f, op.did)
+  assert.match(text, /\[no-prod\] Do not deploy/)
+  assert.match(text, /Only a rescind signed with the operator key/)
+  assert.equal(renderConstraints(foldConstraints([], op.did, AIT), op.did), '')
+  assert.match(statementHash(noProdDeploy()), /^0x[0-9a-f]{64}$/)
+})
+
+test('windows paths: drive letters and backslashes fold; POSIX keeps a backslash literal', () => {
+  const secrets = foldConstraints(
+    [signConstraintSet({ constraint_id: 'sec', scope: '*', prose: 'No secrets.', rules: [{ id: 'sec', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  ).active
+  // Windows mode from the drive-letter root alone (no `windows` flag), and with the flag set.
+  for (const extra of [{}, { windows: true }]) {
+    const w = { projectRoot: 'C:\\p', protectedPaths: ['C:\\p\\.atap\\constraints.jsonl'], ...extra }
+    const at = (file_path, cwd = 'C:\\p') => evaluateCall(secrets, call('Write', { file_path }, cwd), w)
+    assert.equal(at('C:\\p\\.atap\\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('c:/P/.ATAP/constraints.jsonl').decision, 'deny')
+    assert.equal(at('C:\\p\\secrets\\k').rule_id, 'sec')
+    assert.equal(at('c:/P/Secrets/k').rule_id, 'sec')
+    assert.equal(at('secrets\\k').rule_id, 'sec')
+    assert.equal(at('..\\secrets\\k', 'C:\\p\\docs').rule_id, 'sec')
+    assert.equal(at('C:\\p\\docs\\a').decision, 'allow')
+    // A drive-less rooted path takes the project's drive.
+    assert.equal(at('\\p\\.atap\\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('\\p\\secrets\\k').rule_id, 'sec')
+    assert.equal(at('/p/secrets/k').rule_id, 'sec')
+    assert.equal(at('\\\\srv\\x').decision, 'allow')
+    // Extended-length and device prefixes are stripped; `\\?\UNC\` stays UNC, outside the project.
+    assert.equal(at('\\\\?\\C:\\p\\.atap\\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('\\\\?\\C:\\p\\secrets\\k').rule_id, 'sec')
+    assert.equal(at('\\\\.\\C:\\p\\secrets\\k').rule_id, 'sec')
+    assert.equal(at('\\\\?\\UNC\\srv\\x').decision, 'allow')
+    // A UNC path is absolute, so it is outside the project rather than under C:\p.
+    const outside = foldConstraints([signConstraintSet({ constraint_id: 'out', scope: '*', prose: 'Stay in.', rules: [{ id: 'out', effect: 'forbid', tools: ['*'], outside_project: true }] }, op.privateKey)], op.did, AIT).active
+    assert.equal(evaluateCall(outside, call('Read', { file_path: '\\\\srv\\share\\k' }, 'C:\\p'), w).rule_id, 'out')
+    assert.equal(evaluateCall(outside, call('Read', { file_path: 'docs\\a' }, 'C:\\p'), w).decision, 'allow')
+    assert.equal(evaluateCall(outside, call('Read', { file_path: '\\\\?\\UNC\\srv\\x' }, 'C:\\p'), w).rule_id, 'out')
+    // The tripwire sees a backslashed, re-cased store path in a command.
+    assert.equal(evaluateCall([], call('PowerShell', { command: 'Remove-Item C:\\P\\.ATAP\\Constraints.jsonl' }, 'C:\\p'), w).decision, 'deny')
+  }
+  // POSIX: `\` is a filename character, so `secrets/a\..\..\b` is a file under secrets/, not an escape.
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: 'secrets/a\\..\\..\\b' }), ctx).rule_id, 'sec')
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: `${ROOT}/secrets/a\\..\\..\\b` }), ctx).rule_id, 'sec')
+  // POSIX: an extended-length prefix is just a filename (relative, in the project root, not under secrets/).
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: '\\\\?\\C:\\p\\secrets\\k' }), ctx).decision, 'allow')
+})
+
+test('absoluteOnlyPaths: guarded for writes, but the tripwire matches only their absolute path', () => {
+  const plugin = `${ROOT}/plugins/claude-code`
+  const c = { ...keyCtx, protectedPaths: [...keyCtx.protectedPaths, plugin], absoluteOnlyPaths: [plugin] }
+  assert.equal(evaluateCall([], call('Edit', { file_path: `${plugin}/scripts/atap-hook.mjs` }), c).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('Bash', { command: `rm ${plugin}/scripts/atap-hook.mjs` }), c).rule_id, 'store-command')
+  assert.equal(evaluateCall([], call('Bash', { command: 'npm --prefix plugins/claude-code test' }), c).decision, 'allow')
+  // Without the mark the same entry gets its project-relative name in the tripwire, as before.
+  assert.equal(evaluateCall([], call('Bash', { command: 'npm --prefix plugins/claude-code test' }), { ...c, absoluteOnlyPaths: [] }).rule_id, 'store-command')
+})
+
+// A006 part 1: keywords, wrapper flags, /dir/cmd, a leading backslash and empty quotes normalise away.
+const A006_PUSHES = [
+  'if true; then git push; fi',
+  'for i in 1; do git push; done',
+  'true || { git push; }',
+  '! git push',
+  'sudo -u me git push',
+  'env -i git push',
+  'nice -n 5 git push',
+  'time -p git push',
+  '/usr/bin/git push',
+  '\\git push',
+  'g""it push',
+]
+
+test('A006: commandSegments reduces each disguised push to `git push`', () => {
+  for (const cmd of A006_PUSHES) assert.ok(commandSegments(cmd).includes('git push'), `${cmd} -> ${JSON.stringify(commandSegments(cmd))}`)
+  // more wrapper flag shapes
+  for (const cmd of ['sudo -iu me git push', 'sudo -uroot git push', 'env -u HOME X=1 git push', 'timeout -s KILL 5 git push', "exec -a x git push", "command -p git push", "nohup nice -5 ./git push"])
+    assert.ok(commandSegments(cmd).includes('git push'), `${cmd} -> ${JSON.stringify(commandSegments(cmd))}`)
+})
+
+test('A006 control: ordinary commands are unchanged', () => {
+  assert.deepEqual(commandSegments('echo git push'), ['echo git push'])
+  assert.deepEqual(commandSegments('git status'), ['git status'])
+  assert.deepEqual(commandSegments('git  log -- src/a.ts'), ['git log -- src/a.ts'])
+  assert.deepEqual(commandSegments('time'), ['time'])
+})
+
+test('A006: Object.prototype names as a first word neither throw nor hide a later push', () => {
+  assert.ok(commandSegments('toString -x; git push').includes('git push'))
+  assert.ok(commandSegments('constructor -x; git push').includes('git push'))
+  // valueOf is not a wrapper, so the segment keeps it (the prototype bug used to strip it to `git push`).
+  assert.deepEqual(commandSegments('valueOf git push'), ['valueOf git push'])
+})
+
+// A006 part 2: `sh -c '...'` strings (3 deep), xargs and git global options.
+const A006_PART2_PUSHES = [
+  "bash -c 'git push'",
+  'sh -c "git push"',
+  "bash -lc 'git push'",
+  "bash -e -c 'git status; git push'",
+  "/bin/bash -c 'git push'",
+  'sudo bash -c "cd /x && git push"',
+  'xargs git push',
+  'echo x | xargs -n1 git push',
+  'xargs -I {} git push',
+  'git -C . push',
+  'git -c a=b push',
+  'git --git-dir=x push',
+  'git --work-tree y -C . push',
+  `bash -c "sh -c 'git push'"`,
+]
+// `n` shells deep, each a double-quoted `bash -c "..."` with the inner string escaped as a shell would need.
+const nest = (cmd, n) => (n === 0 ? cmd : `bash -c "${nest(cmd, n - 1).replace(/[\\"]/g, '\\$&')}"`)
+
+test('A006 part 2: {commands:["git push*"]} denies shell -c strings, xargs and git global options', () => {
+  const { active } = foldConstraints(
+    [signConstraintSet({ constraint_id: 'push', scope: '*', prose: 'No push.', rules: [{ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  )
+  const decide = (command) => evaluateCall(active, call('Bash', { command }), ctx).decision
+  for (const cmd of [...A006_PART2_PUSHES, nest('git push', 2), nest('git push', 3)]) assert.equal(decide(cmd), 'deny', `${cmd} -> ${JSON.stringify(commandSegments(cmd))}`)
+  // The depth cap is 3: a push four shells deep is not followed (a documented limit, not a promise).
+  assert.equal(decide(nest('git push', 4)), 'allow')
+  for (const cmd of ["bash -c 'git status'", 'git -C . status', 'xargs git status', 'echo "bash -c"', 'bash -c']) assert.equal(decide(cmd), 'allow', cmd)
+})
+
+test('A006 part 2: the line itself still splits as before; -c strings only add segments', () => {
+  assert.deepEqual(commandSegments("bash -c 'git push'"), ["bash -c 'git push'", 'git push'])
+  assert.deepEqual(commandSegments('git -C . status'), ['git status'])
+  assert.deepEqual(commandSegments('xargs'), ['xargs'])
+  // Prototype names neither throw nor unwrap.
+  assert.deepEqual(commandSegments('constructor -c x'), ['constructor -c x'])
+  assert.deepEqual(commandSegments('toString'), ['toString'])
+  assert.deepEqual(commandSegments("hasOwnProperty -c 'git push'"), ["hasOwnProperty -c 'git push'"])
+})
+
+test('A006 part 2: long flag runs and repeated git options stay fast (no regex blow-up)', () => {
+  const { active } = foldConstraints(
+    [signConstraintSet({ constraint_id: 'push', scope: '*', prose: 'No push.', rules: [{ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  )
+  const timed = (fn) => {
+    const t0 = performance.now()
+    const r = fn()
+    return [r, performance.now() - t0]
+  }
+  // `--x` once matched two ways in SHELL_C, doubling the time per word (40 words would take days).
+  const [d, ms] = timed(() => evaluateCall(active, call('Bash', { command: 'echo bash ' + '--x '.repeat(40) + '-c; git push' }), ctx).decision)
+  assert.equal(d, 'deny')
+  assert.ok(ms < 200, `${ms} ms`)
+  for (const cmd of ['bash ' + '--x '.repeat(40) + "-c 'git push", 'bash ' + '--x '.repeat(20000) + "-c 'git push", 'bash ' + '-xo a '.repeat(20000) + "-c 'git push", 'bash ' + '-o '.repeat(20000) + "-c 'git push", 'git ' + '-C . '.repeat(20000) + 'push']) {
+    const [, t] = timed(() => commandSegments(cmd))
+    assert.ok(t < 200, `${cmd.slice(0, 30)}... (${cmd.length} chars): ${t} ms`)
+  }
+})
+
+test('T014 (d): a `-o NAME` / `+o NAME` shell option before -c cannot hide a git push', () => {
+  const { active } = foldConstraints(
+    [signConstraintSet({ constraint_id: 'push', scope: '*', prose: 'No push.', rules: [{ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  )
+  const decide = (command) => evaluateCall(active, call('Bash', { command }), ctx).decision
+  for (const cmd of ["bash -euxo pipefail -c 'git push'", "bash +o pipefail -c 'git push'", "sh -o errexit -e -c 'git push'", "bash -e -o pipefail -o nounset -c 'git push'"]) assert.equal(decide(cmd), 'deny', cmd)
+  for (const cmd of ["bash -euxo pipefail -c 'git status'", "bash +o pipefail -c 'git status'"]) assert.equal(decide(cmd), 'allow', cmd)
+})
+
+test('T014 (c): a call\'s description is prose, never judged as an absolute path; a real path field still is', () => {
+  assert.equal(evaluateCall([], call('Bash', { command: 'git status', description: `${ROOT}/.atap/x is mentioned` }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('Write', { file_path: `${ROOT}/.atap/x`, content: '' }), ctx).rule_id, 'store-write')
+  // A non-description field of the same shape is still judged (T012 (a)'s whitespace-holding absolute path).
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { target: `${ROOT}/.atap/x is mentioned` }), ctx).rule_id, 'store-write')
+  // A description copying the path field's value does not unguard it (the skip is Bash's only).
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { target: `${ROOT}/.atap/x y`, description: `${ROOT}/.atap/x y`, content: 'a' }), ctx).rule_id, 'store-write')
+})
+
+test('A007: a paths rule on Bash matches the path-like words of each shell segment', () => {
+  const sign = (rule) => foldConstraints([signConstraintSet({ constraint_id: rule.id, scope: '*', prose: 'Rule.', rules: [rule] }, op.privateKey)], op.did, AIT).active
+  const secrets = sign({ id: 'sec', effect: 'forbid', tools: ['Bash'], paths: ['secrets/**'] })
+  const bash = (command, cwd) => evaluateCall(secrets, call('Bash', { command }, cwd), ctx)
+  assert.equal(bash('cat secrets/x').rule_id, 'sec')
+  assert.equal(bash('cat docs/x').decision, 'allow')
+  assert.equal(bash('cat "secrets/x"').rule_id, 'sec')
+  assert.equal(bash("cat 'secrets/x'").rule_id, 'sec')
+  assert.equal(bash('echo hi && cat "secrets/x"').rule_id, 'sec')
+  assert.equal(bash('echo hi >secrets/x').rule_id, 'sec')
+  assert.equal(bash('cat ../secrets/x', `${ROOT}/docs`).rule_id, 'sec')
+  assert.equal(bash(`cat ${ROOT}/secrets/x`).rule_id, 'sec')
+  assert.equal(bash('ls -la secrets').decision, 'allow') // no slash: not a path-like word (tripwire)
+  // No path field and no path-like word: unaffected.
+  assert.equal(evaluateCall(secrets, call('Bash', { command: 'echo hi' }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(sign({ id: 'w', effect: 'forbid', tools: ['WebFetch'], paths: ['secrets/**'] }), call('WebFetch', { url: 'https://x/secrets/a' }), ctx).decision, 'allow')
+  // outside_project keeps judging the declared path fields only: shell words trip nothing new.
+  const outside = sign({ id: 'out', effect: 'forbid', tools: ['*'], outside_project: true })
+  assert.equal(evaluateCall(outside, call('Bash', { command: 'cat /etc/passwd > /dev/null' }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(outside, call('Read', { file_path: '/etc/passwd' }), ctx).rule_id, 'out')
+})
+
+test('T012 (a): a single-line absolute path with spaces under any key is judged; prose and multi-line text are not', () => {
+  const at = (tool_name, tool_input) => evaluateCall([], call(tool_name, tool_input), keyCtx)
+  const mac = { ...keyCtx, projectRoot: '/Users/Josh Moore/proj', protectedPaths: ['/Users/Josh Moore/proj/.atap'], secretPaths: ['/Users/Josh Moore/key.pem'] }
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { target: '/Users/Josh Moore/proj/.atap/constraints.jsonl' }, '/Users/Josh Moore/proj'), mac).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__fs__read_file', { target: '/Users/Josh Moore/key.pem' }, '/Users/Josh Moore/proj'), mac).rule_id, 'key-access')
+  assert.equal(at('Write', { file_path: 'src/a.md', content: 'see foo/.atap/config.json' }).decision, 'allow')
+  assert.equal(at('Write', { file_path: 'src/a.md', content: `${ROOT}/.atap/x is the store` }).decision, 'allow')
+  assert.equal(at('mcp__fs__write_file', { path: 'src/a.md', text: `${ROOT}/.atap/x\nis the store` }).decision, 'allow')
+  assert.equal(at('mcp__fs__write_file', { path: 'src/a.md', text: 'see foo/.atap/config.json' }).decision, 'allow')
+  // A bare `~` is prose, not a home path; `~/…` with spaces is still judged.
+  assert.equal(at('mcp__x__note', { text: '~ approx 5 /p/.atap/x items' }).decision, 'allow')
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { target: '~/my proj/.atap/x' }, '/work/proj'), { ...keyCtx, protectedPaths: ['/work/proj/~/my proj/.atap'] }).rule_id, 'store-write')
+})
+
+test('T012 (b): windows trailing dots/spaces and NTFS streams are stripped; POSIX keeps them', () => {
+  const secrets = foldConstraints(
+    [signConstraintSet({ constraint_id: 'sec', scope: '*', prose: 'No secrets.', rules: [{ id: 'sec', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  ).active
+  const keys = foldConstraints(
+    [signConstraintSet({ constraint_id: 'keys', scope: '*', prose: 'No key files.', rules: [{ id: 'keys', effect: 'forbid', tools: ['*'], paths: ['secrets/*.key'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  ).active
+  for (const extra of [{}, { windows: true }]) {
+    const w = { projectRoot: 'C:\\p', protectedPaths: ['C:\\p\\.atap\\constraints.jsonl'], ...extra }
+    const at = (file_path) => evaluateCall(secrets, call('Write', { file_path }, 'C:\\p'), w)
+    assert.equal(at('C:\\p\\.atap.\\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('C:\\p\\.atap \\constraints.jsonl').rule_id, 'store-write')
+    assert.equal(at('C:\\p\\.atap\\constraints.jsonl::$DATA').rule_id, 'store-write')
+    assert.equal(at('C:\\p\\.atap\\constraints.jsonl:x').rule_id, 'store-write')
+    assert.equal(at('C:\\p\\secrets.\\k').rule_id, 'sec')
+    assert.equal(at('C:\\p\\secrets. .\\k').rule_id, 'sec')
+    assert.equal(at('C:\\p\\docs\\a.').decision, 'allow')
+    // The stream cut, outside .atap/ (where the .atap segment rule would deny anyway).
+    // `secrets\\k:x` matches `secrets/**` with or without the cut; `*.key` pins it (`a.key:x` is not `*.key`).
+    assert.equal(at('C:\\p\\secrets\\k:x').rule_id, 'sec')
+    assert.equal(evaluateCall(keys, call('Write', { file_path: 'C:\\p\\secrets\\a.key:x' }, 'C:\\p'), w).rule_id, 'keys')
+    const key = { ...w, secretPaths: ['C:\\k\\op.pem'] }
+    assert.equal(evaluateCall([], call('Write', { file_path: 'C:\\k\\op.pem::$DATA' }, 'C:\\p'), key).rule_id, 'key-access')
+  }
+  // POSIX: `.atap.` is its own name, not .atap.
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: `${ROOT}/.atap./x` }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(secrets, call('Write', { file_path: `${ROOT}/secrets./k` }), ctx).decision, 'allow')
+})
+
+test('T012 (e): guarded files under home trip in their ~/ form; a trailing-slash directory target matches dir/**', () => {
+  const home = { ...ctx, home: '/home/op', protectedPaths: [`${ROOT}/.atap`, '/home/op/.claude.json'], absoluteOnlyPaths: ['/home/op/.claude.json'], secretPaths: ['/home/op/.atap-operator/operator.pem'] }
+  const sh = (command, c = home) => evaluateCall([], call('Bash', { command }), c)
+  assert.equal(sh('echo x > ~/.claude.json').rule_id, 'store-command')
+  assert.equal(sh('cat ~/.atap-operator/operator.pem').rule_id, 'store-command')
+  assert.equal(sh('echo x > ~/.bashrc').decision, 'allow')
+  // The module reads no environment (T013 c): the caller passes ctx.home (the CLI passes homedir(), and the
+  // real-hook probe in plugins/claude-code covers `~/.claude.json` end to end). HOME alone changes nothing.
+  const saved = process.env.HOME
+  process.env.HOME = '/home/op'
+  try {
+    assert.equal(sh('echo x > ~/.claude.json', { ...home, home: undefined }).decision, 'allow')
+    assert.equal(sh('echo x > /home/op/.claude.json', { ...home, home: undefined }).rule_id, 'store-command')
+  } finally {
+    process.env.HOME = saved
+  }
+  // Windows: `~\.claude.json` folds to the same name.
+  const win = { projectRoot: 'C:\\p', home: 'C:\\Users\\op', protectedPaths: ['C:\\Users\\op\\.claude.json'], absoluteOnlyPaths: ['C:\\Users\\op\\.claude.json'] }
+  assert.equal(evaluateCall([], call('PowerShell', { command: 'Set-Content ~\\.Claude.json x' }, 'C:\\p'), win).rule_id, 'store-command')
+
+  const secrets = foldConstraints(
+    [signConstraintSet({ constraint_id: 'sec', scope: '*', prose: 'No secrets.', rules: [{ id: 'sec', effect: 'forbid', tools: ['*'], paths: ['secrets/**'] }] }, op.privateKey)],
+    op.did,
+    AIT,
+  ).active
+  assert.equal(evaluateCall(secrets, call('Bash', { command: 'cp a secrets/' }), ctx).rule_id, 'sec')
+  assert.equal(evaluateCall(secrets, call('Bash', { command: `cp a ${ROOT}/secrets/` }), ctx).rule_id, 'sec')
+  assert.equal(evaluateCall(secrets, call('Bash', { command: 'cp a docs/' }), ctx).decision, 'allow')
+  // Known limit: a bare `secrets` (no slash) is not a path word.
+  assert.equal(evaluateCall(secrets, call('Bash', { command: 'cp a secrets' }), ctx).decision, 'allow')
+})
+
+test('R003: input the guard cannot fully check denies for a non-read tool instead of being skipped', () => {
+  const padded = `${ROOT}/` + './'.repeat(2100) + '.atap/constraints.jsonl'
+  assert.ok(padded.length >= 4096)
+  // Length: a padded path is still canonicalised and judged.
+  assert.equal(evaluateCall([], call('Write', { file_path: padded, content: '' }), ctx).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__fs__move_file', { source: `${ROOT}/a`, destination: padded }), ctx).rule_id, 'store-write')
+  // Count: the guarded path is string 300 (past R003's old 256 cap; T015 walks 4096, so it is seen and judged).
+  const many = Object.fromEntries(Array.from({ length: 299 }, (_, i) => [`k${i}`, `v${i}`]))
+  many.k299 = `${ROOT}/.atap/constraints.jsonl`
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', many), ctx).rule_id, 'store-write')
+  // Depth: the path sits at depth 4 (past R003's old depth-3 cap; T015 walks to depth 8).
+  assert.equal(evaluateCall([], call('mcp__fs__write_file', { a: { b: { c: { d: `${ROOT}/.atap/constraints.jsonl` } } } }), ctx).rule_id, 'store-write')
+  // Controls: long file text on an edit tool, and a long string on a read tool (even past the caps), allow.
+  assert.equal(evaluateCall([], call('Write', { file_path: `${ROOT}/src/a.txt`, content: 'x'.repeat(10000) }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('Grep', { pattern: 'x'.repeat(10000), path: `${ROOT}/src` }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('Read', { file_path: padded }), ctx).decision, 'allow')
+  // A read past the caps still gets the key check on what it walked.
+  assert.equal(evaluateCall([], call('Read', { file_path: '/home/op/.atap-operator/operator.pem', x: { a: { b: { c: 'y' } } } }), keyCtx).rule_id, 'key-access')
+})
+
+// `leaf` nested under n objects: the walk sees it at depth n.
+const deep = (n, leaf) => (n === 0 ? leaf : { k: deep(n - 1, leaf) })
+const strs = (n, last) => Object.fromEntries([...Array.from({ length: n }, (_, i) => [`k${i}`, `v${i}`]), ...(last ? [['last', last]] : [])])
+
+test('T015 (a): edit tools judge only their path fields and never deny on a cut', () => {
+  const guarded = `${ROOT}/.atap/constraints.jsonl`
+  for (const tool of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+    const field = tool === 'NotebookEdit' ? 'notebook_path' : 'file_path'
+    for (const extra of [strs(5000), deep(12, 'x')]) {
+      assert.equal(evaluateCall([], call(tool, { [field]: `${ROOT}/src/a.txt`, extra }), ctx).decision, 'allow', tool)
+      assert.equal(evaluateCall([], call(tool, { [field]: guarded, extra }), ctx).rule_id, 'store-write', tool)
+    }
+  }
+  // The padded path of R003 in a path field is still judged, whatever its length.
+  const padded = `${ROOT}/` + './'.repeat(2100) + '.atap/constraints.jsonl'
+  assert.equal(evaluateCall([], call('Write', { file_path: padded, extra: deep(12, 'x') }), ctx).rule_id, 'store-write')
+})
+
+test('T015 (a): other write tools walk to depth 8 and 4096 strings, and deny past them', () => {
+  const guarded = `${ROOT}/.atap/constraints.jsonl`
+  // Common deep or wide MCP input with no guarded path allows.
+  assert.equal(evaluateCall([], call('mcp__x__tool', { rows: strs(300), doc: deep(5, { a: 'b', c: [1, 'd'] }) }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('mcp__x__tool', { s: strs(4095), d: deep(7, 'x') }), ctx).decision, 'allow')
+  // A guarded path inside the limits is seen and judged.
+  assert.equal(evaluateCall([], call('mcp__x__tool', deep(7, guarded)), ctx).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__x__tool', strs(4095, guarded)), ctx).rule_id, 'store-write')
+  // Past the limits it cannot be seen, so the call is denied.
+  assert.equal(evaluateCall([], call('mcp__x__tool', deep(9, guarded)), ctx).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__x__tool', strs(4096, guarded)), ctx).rule_id, 'store-write')
+  // Past the limits with nothing guarded still denies (unseen input is refused).
+  assert.equal(evaluateCall([], call('mcp__x__tool', deep(9, 'x')), ctx).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__x__tool', strs(4097)), ctx).rule_id, 'store-write')
+  // A read tool is not denied on a cut.
+  assert.equal(evaluateCall([], call('Grep', { pattern: 'x', path: `${ROOT}/src`, extra: deep(12, 'x') }), ctx).decision, 'allow')
+})

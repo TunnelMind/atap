@@ -89,6 +89,8 @@ test('real CLI: commit + test run -> events, block, receipt verifies twice, no l
   // receipt from config's key/witness/ait, then the JS verifier and the shipped verify.sh.
   cli(repo, 'receipt', '--ait', config.ait, '--out', join(root, 'r'))
   assert.equal(cli(repo, 'verify', join(root, 'r')).ok, true)
-  const sh = spawnSync('bash', ['verify.sh'], { cwd: join(root, 'r'), encoding: 'utf8' })
+  // The repo's trusted verify.sh, not the receipt's own copy: verify.sh refuses to vouch for the
+  // receipt it ships inside (ATAP-v0.2 §8.2), so running the inner copy now fails by design.
+  const sh = spawnSync('bash', [fileURLToPath(new URL('../../../verify.sh', import.meta.url)), join(root, 'r')], { encoding: 'utf8' })
   assert.equal(sh.status, 0, sh.stdout + sh.stderr)
 })

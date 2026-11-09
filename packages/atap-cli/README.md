@@ -114,6 +114,35 @@ Flags:
 
 Errors go to stderr as one line of `{"error": "..."}` with a non-zero exit.
 
+## Operator constraints
+
+`atap-witness constraints` signs, folds and checks operator constraints
+(code_crew profile, section 5.1). The operator key is separate from the
+witness key and belongs outside the project.
+
+| Command | Does |
+|---|---|
+| `constraints keygen --out FILE [--force]` | Writes an Ed25519 key (0600); prints its did:key. |
+| `constraints set --operator-key K < {constraint_id, prose, rules, scope?}` | Signs a set, appends it to the store, records `code_crew:constraint_set`. The first set pins its key as `constraints_operator` in config.json. |
+| `constraints rescind --operator-key K --id ID` | Signs a rescind; records `code_crew:constraint_rescind`. |
+| `constraints status` | The store, the trusted operator, what is in force, and any rejected statement. |
+| `constraints context` | The text a harness puts back into the context. |
+| `constraints check [--record] < PreToolUse JSON` | `{decision: allow, deny or ask, constraint_id, rule_id, reason, in_force_sha256}`; `--record` writes `code_crew:tool_gate` for deny and ask. |
+
+`ATAP_OPERATOR`, `ATAP_CONSTRAINTS`, `ATAP_CONSTRAINTS_REQUIRED` and
+`ATAP_OPERATOR_KEY` override the config; see the Claude Code plugin's README.
+Set `ATAP_OPERATOR` only in the crew's or agent's own environment (its unit
+or launcher), not a global shell profile: with it set, the hook blocks every
+call in a project without `.atap/`.
+`check` also protects the guard's own files: the plugin root(s) in
+`ATAP_PLUGIN_ROOT` (the Claude Code hook sets it), the `ATAP_WITNESS` binary,
+this CLI's package directory (`packages/atap-cli`), the `@tunnelmindai/atap`
+package directory (`packages/atap-js`), and `~/.claude.json`. It reads drive-letter and backslash
+paths (`C:\p\.atap`, `c:/p`) on win32 or when the project root has a drive
+letter. With `ATAP_CONSTRAINTS_REQUIRED=1`, `check` denies when no
+constraints are in force. The hook's strict mode (that, or `ATAP_OPERATOR`
+set) also denies on a missing `.atap/`, malformed input or an internal error.
+
 ## Records in git
 
 The store's records can live in the project's own git repo, on an orphan
