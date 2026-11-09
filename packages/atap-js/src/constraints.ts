@@ -286,24 +286,67 @@ export function globToRegExp(glob: string, path: boolean): RegExp {
 
 const matchAny = (globs: string[], value: string, path: boolean) => globs.some((g) => globToRegExp(g, path).test(value))
 
-// Wrappers that run the rest of the line as a command: `sudo git push` is a `git push`.
-const WRAPPERS = /^(?:sudo|env|exec|command|nohup|time|nice|builtin)\s+/
+// Wrappers that run the rest of the line as a command: `sudo git push` is a `git push`. The value is
+// the wrapper's short flags that take an argument (`sudo -u me`, `nice -n 5`); any other flag is one token.
+// ponytail: short flags only consume; `--user me` (long flag + separate value) is not followed.
+const WRAPPERS: Record<string, string> = {
+  sudo: 'ugChpUrtDRT',
+  env: 'uSCP',
+  exec: 'a',
+  command: '',
+  nohup: '',
+  time: 'fo',
+  nice: 'n',
+  builtin: '',
+  timeout: 'sk',
+}
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+/
+// A leading shell keyword or grouping token: `then git push`, `{ git push`, `! git push`.
+const KEYWORD = /^(?:if|then|elif|else|fi|for|while|until|do|done|case|esac|\{|\}|!)(?: |$)/
+// The directory part of the first word: `/usr/bin/git` and `./git` are `git`.
+const DIR_PREFIX = /^[^\s'"]*\/(?=[^\s/])/
+
+/** `t` without its leading wrapper and the wrapper's flags (getopt style), or `t` unchanged. */
+function stripWrapper(t: string): string {
+  const w = t.split(' ')
+  // Own keys only: `toString` or `constructor` as a first word must not find Object.prototype's methods.
+  const argFlags = Object.hasOwn(WRAPPERS, w[0] as string) ? WRAPPERS[w[0] as string] : undefined
+  if (argFlags === undefined || w.length < 2) return t
+  let i = 1
+  while (i < w.length && (w[i] as string).startsWith('-')) {
+    const f = w[i++] as string
+    if (f === '--') break
+    if (f.startsWith('--')) continue
+    // A cluster like `-iu me`: the first argument-taking letter eats the rest of the cluster, or the next word.
+    for (let j = 1; j < f.length; j++) {
+      if (argFlags.includes(f.charAt(j))) {
+        if (j === f.length - 1) i++
+        break
+      }
+    }
+  }
+  if (w[0] === 'timeout') i++ // the DURATION
+  return w.slice(i).join(' ')
+}
 
 /**
  * Shell segments of a command line, whitespace collapsed. Splits on && || ; | & newlines, parentheses,
- * backticks and $( , and strips leading VAR=value assignments and wrappers (sudo, env, exec, …), so
- * `(git push)`, `true & git push`, `echo $(git push)` and `X=1 sudo git push` all yield `git push`.
- * Not a shell parser: quoting, variables, eval and aliases are not followed.
+ * backticks and $( , and per segment strips, to a fixed point: leading VAR=value assignments; shell
+ * keywords and grouping (if then elif else fi for while until do done case esac { } !); wrappers with
+ * their flags (sudo -u me, env -i, nice -n 5, time -p, nohup, exec -a NAME, command -p, timeout DUR,
+ * builtin); a leading backslash; the directory of the first word. Empty quotes "" and '' are removed.
+ * So `(git push)`, `true & git push`, `echo $(git push)`, `X=1 sudo -u me /usr/bin/git push`,
+ * `if true; then git push; fi` and `g""it push` all yield `git push`.
+ * Not a shell parser: other quoting, variables, eval and aliases are not followed.
  */
 export function commandSegments(cmd: string): string[] {
   return cmd
     .split(/&&|\|\||\$\(|[;|&\n()`]/)
     .map((s) => {
-      let t = s.trim().replace(/\s+/g, ' ')
+      let t = s.replace(/""|''/g, '').trim().replace(/\s+/g, ' ')
       for (let prev = ''; prev !== t; ) {
         prev = t
-        t = t.replace(ASSIGNMENT, '').replace(WRAPPERS, '')
+        t = stripWrapper(t.replace(ASSIGNMENT, '').replace(KEYWORD, '').replace(/^\\/, '').replace(DIR_PREFIX, ''))
       }
       return t
     })

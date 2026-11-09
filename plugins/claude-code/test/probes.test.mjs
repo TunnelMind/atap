@@ -200,3 +200,31 @@ test('A005: Bash npm --prefix plugins/claude-code test in a project containing t
   // The hook prints nothing on allow.
   assert.equal(pre(bash('npm --prefix plugins/claude-code test')), null)
 })
+
+// ---------------------------------------------------------------- A006 segment normaliser
+// evaluateCall rows: shell keywords, wrapper flags, /dir/cmd, `\\cmd` and empty quotes cannot hide a `git push`.
+const A006_PUSHES = [
+  'if true; then git push; fi',
+  'for i in 1; do git push; done',
+  'true || { git push; }',
+  '! git push',
+  'sudo -u me git push',
+  'env -i git push',
+  'nice -n 5 git push',
+  'time -p git push',
+  '/usr/bin/git push',
+  '\\git push',
+  'g""it push',
+]
+for (const command of A006_PUSHES) {
+  test(`A006: {commands:["git push*"]} denies Bash ${command}`, () => {
+    const active = rules({ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] })
+    assert.equal(evaluateCall(active, call('Bash', { command }), ctx).decision, 'deny')
+  })
+}
+
+test('A006 control: {commands:["git push*"]} allows Bash git status and echo git push', () => {
+  const active = rules({ id: 'push', effect: 'forbid', tools: ['Bash'], commands: ['git push*'] })
+  assert.equal(evaluateCall(active, call('Bash', { command: 'git status' }), ctx).decision, 'allow')
+  assert.equal(evaluateCall(active, call('Bash', { command: 'echo git push' }), ctx).decision, 'allow')
+})

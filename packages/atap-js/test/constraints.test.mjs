@@ -13,6 +13,7 @@ import {
   renderConstraints,
   globToRegExp,
   didKeyFromPublicKey,
+  commandSegments,
 } from '../dist/index.js'
 
 const keypair = () => {
@@ -304,4 +305,40 @@ test('absoluteOnlyPaths: guarded for writes, but the tripwire matches only their
   assert.equal(evaluateCall([], call('Bash', { command: 'npm --prefix plugins/claude-code test' }), c).decision, 'allow')
   // Without the mark the same entry gets its project-relative name in the tripwire, as before.
   assert.equal(evaluateCall([], call('Bash', { command: 'npm --prefix plugins/claude-code test' }), { ...c, absoluteOnlyPaths: [] }).rule_id, 'store-command')
+})
+
+// A006 part 1: keywords, wrapper flags, /dir/cmd, a leading backslash and empty quotes normalise away.
+const A006_PUSHES = [
+  'if true; then git push; fi',
+  'for i in 1; do git push; done',
+  'true || { git push; }',
+  '! git push',
+  'sudo -u me git push',
+  'env -i git push',
+  'nice -n 5 git push',
+  'time -p git push',
+  '/usr/bin/git push',
+  '\\git push',
+  'g""it push',
+]
+
+test('A006: commandSegments reduces each disguised push to `git push`', () => {
+  for (const cmd of A006_PUSHES) assert.ok(commandSegments(cmd).includes('git push'), `${cmd} -> ${JSON.stringify(commandSegments(cmd))}`)
+  // more wrapper flag shapes
+  for (const cmd of ['sudo -iu me git push', 'sudo -uroot git push', 'env -u HOME X=1 git push', 'timeout -s KILL 5 git push', "exec -a x git push", "command -p git push", "nohup nice -5 ./git push"])
+    assert.ok(commandSegments(cmd).includes('git push'), `${cmd} -> ${JSON.stringify(commandSegments(cmd))}`)
+})
+
+test('A006 control: ordinary commands are unchanged', () => {
+  assert.deepEqual(commandSegments('echo git push'), ['echo git push'])
+  assert.deepEqual(commandSegments('git status'), ['git status'])
+  assert.deepEqual(commandSegments('git  log -- src/a.ts'), ['git log -- src/a.ts'])
+  assert.deepEqual(commandSegments('time'), ['time'])
+})
+
+test('A006: Object.prototype names as a first word neither throw nor hide a later push', () => {
+  assert.ok(commandSegments('toString -x; git push').includes('git push'))
+  assert.ok(commandSegments('constructor -x; git push').includes('git push'))
+  // valueOf is not a wrapper, so the segment keeps it (the prototype bug used to strip it to `git push`).
+  assert.deepEqual(commandSegments('valueOf git push'), ['valueOf git push'])
 })
