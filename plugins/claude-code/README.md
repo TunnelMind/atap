@@ -136,10 +136,17 @@ What the hook does once a store exists:
   case fold, and a relative path resolves against a drive-letter `cwd`: so
   `secrets\k` and `c:/P/Secrets/k` both match `secrets/**` under `C:\p`
   (unit-tested with Windows paths on Linux, not on a Windows host). Elsewhere
-  `\` is an ordinary filename character. Any MCP tool argument that looks
-  like a path is checked too. No shell command may name any of them (any
-  tool whose input has a string `command` or `script`: Bash, PowerShell, an
-  MCP shell such as `mcp__wsl__run`).
+  `\` is an ordinary filename character. Write, Edit, MultiEdit and
+  NotebookEdit are judged by their path fields only (file text that mentions
+  `.atap/` is fine); any other tool's argument is checked when it is a path
+  field or a single whitespace-free token that looks like a path. No shell
+  command may name any of them (any tool whose input has a string `command`
+  or `script`: Bash, PowerShell, an MCP shell such as `mcp__wsl__run`). The
+  settings files are named by path (`.claude/settings…`), not by base name,
+  so `jq . .vscode/settings.json` runs. The message of `git commit -m`
+  (`-am`, `--message`) is not read when it is single-quoted, or
+  double-quoted with no `$` or backtick, so `git commit -m "ignore .atap"`
+  runs while `git commit -m "$(rm .atap/x)"` is denied.
 - **Pinned root.** The hook finds `.atap/` from `CLAUDE_PROJECT_DIR` and
   passes that root to the CLI, so the agent `cd`-ing somewhere else changes
   nothing.

@@ -383,6 +383,8 @@ function segments(cmd: string, depth: number): string[] {
 }
 
 const PATH_FIELDS = ['file_path', 'notebook_path', 'path'] as const
+/** Tools whose other fields (content, old_string, new_string, ...) are file text: self-protection judges only their path fields. */
+const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 /** Tools that only read: self-protection lets them see the store (not the operator key). */
 const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead'])
 /** Tools that search a directory: a `paths` rule also covers a search of any ancestor of what it names. */
@@ -570,6 +572,85 @@ function ruleMatches(rule: ConstraintRule, call: ToolCall, ctx: EvalContext): bo
   return true
 }
 
+// A commit message flag at a word start and its quoted message: '...' or "..." with no $, backtick or
+// backslash (nothing the shell would expand or escape), ending at a word end. Sticky, no nested quantifiers.
+const COMMIT_MSG = /(-[A-Za-z]*m|--message)(=|[ \t]*)('[^']*'|"[^"$`\\]*")(?=[\s;&|)]|$)/y
+const SEP = ';&|()`\n'
+
+/**
+ * Whether the words so far of a segment are a `git commit` whose next word may be a message flag: `git`,
+ * then only `-C <dir>` pairs, then `commit`, with no `--` after it (git reads the rest as pathspecs) and no
+ * `!` anywhere (shell-alias text). Any other global option (`-c alias.x=…`, `--git-dir`) means no: when
+ * unsure, nothing is blanked.
+ */
+function isCommit(words: string[]): boolean {
+  if (words[0] !== 'git' || words.some((x) => x.includes('!'))) return false
+  let k = 1
+  while (words[k] === '-C') k += 2
+  return words[k] === 'commit' && !words.slice(k + 1).includes('--')
+}
+
+/**
+ * `cmd` with the message of each `git … commit -m '…'` (also -am, -m=, --message, --message=) replaced by
+ * '' so prose like "ignore .atap" does not trip the name tripwire. One quote-aware pass: a message counts
+ * only when its flag is an unquoted word of a `git commit` segment (see isCommit) and the message is on
+ * the same line. A double-quoted string holding $( or a backtick nests quotes this scanner does not
+ * follow, so blanking stops there (as it does for a command with a here-doc or $'...'); anything not blanked is
+ * matched as before, so a missed blank is a false deny, not a gap.
+ */
+function blankCommitMessages(cmd: string): string {
+  // A here-doc body and $'...' (where \' is a quote) are quoted differently from what this scanner follows.
+  if (cmd.includes('<<') || cmd.includes("$'")) return cmd
+  let out = ''
+  let words: string[] = []
+  let i = 0
+  while (i < cmd.length) {
+    const c = cmd.charAt(i)
+    if (SEP.includes(c) || /\s/.test(c)) {
+      if (SEP.includes(c)) words = []
+      out += c
+      i++
+      continue
+    }
+    if (isCommit(words)) {
+      COMMIT_MSG.lastIndex = i
+      const m = COMMIT_MSG.exec(cmd)
+      if (m) {
+        out += `${m[1]}${m[2]}''`
+        i = COMMIT_MSG.lastIndex
+        continue
+      }
+    }
+    const start = i
+    if (c === '#') {
+      // A comment runs to the end of the line; an apostrophe in it opens no quote.
+      const k = cmd.indexOf('\n', i)
+      i = k === -1 ? cmd.length : k
+      out += cmd.slice(start, i)
+      continue
+    }
+    // One word, with its quotes.
+    while (i < cmd.length && !SEP.includes(cmd.charAt(i)) && !/\s/.test(cmd.charAt(i))) {
+      const ch = cmd.charAt(i)
+      if (ch === '\\') i += 2
+      else if (ch === "'") {
+        const k = cmd.indexOf("'", i + 1)
+        i = k === -1 ? cmd.length : k + 1
+      }
+      else if (ch === '"') {
+        let j = i + 1
+        while (j < cmd.length && cmd.charAt(j) !== '"') j += cmd.charAt(j) === '\\' ? 2 : 1
+        const body = cmd.slice(i + 1, j)
+        if (body.includes('$(') || body.includes('`')) return out + cmd.slice(start)
+        i = j + 1
+      } else i++
+    }
+    words.push(cmd.slice(start, i))
+    out += cmd.slice(start, i)
+  }
+  return out
+}
+
 /**
  * The built-in rule. No tool may touch the operator key; no tool but a read-only one may touch the
  * store, the .atap/ directory (any .atap/ in the project, so a nested one cannot re-root the guard)
@@ -586,7 +667,8 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   const fold = ctx.caseInsensitive || w
   if (cmd !== null) {
     // Windows: `C:\P\.ATAP` and `c:/p/.atap` name the same thing; compare in the canonical shape.
-    const folded = w ? cmd.replace(/\\/g, '/').toLowerCase() : fold ? cmd.toLowerCase() : cmd
+    const text = blankCommitMessages(cmd)
+    const folded = w ? text.replace(/\\/g, '/').toLowerCase() : fold ? text.toLowerCase() : text
     const names = new Set<string>(['.atap', '.claude/settings'])
     const absOnly = new Set((ctx.absoluteOnlyPaths ?? []).map((p) => canon(ctx, '/', p)))
     for (const t of [...secrets, ...guarded]) {
@@ -596,7 +678,9 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
       const rel = relativeTo(root, t)
       if (rel) names.add(rel)
       const base = t.split('/').pop()
-      if (base && base.length >= 8) names.add(base)
+      // Not a settings file's base name: `jq . .vscode/settings.json` is not the agent's settings, which
+      // stay matched by path (`.claude/settings`, the absolute and project-relative paths above).
+      if (base && base.length >= 8 && !/^settings(?:\.[^./]+)?\.json$/i.test(base)) names.add(base)
     }
     // ponytail: substring match, so an obfuscated name (variables, globs, base64) is not caught. Keep the
     // store and key outside the agent's reach (ATAP_CONSTRAINTS, OS permissions); this is a tripwire.
@@ -608,8 +692,13 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   }
   const reads = READ_TOOLS.has(call.tool_name)
   for (const raw of strings) {
-    // Only strings that could be paths: a field the tool reads as a path, or anything with a slash or .atap in it.
-    if (!(PATH_FIELDS.some((k) => call.tool_input[k] === raw) || raw.includes('/') || (w && raw.includes('\\')) || raw.includes('.atap'))) continue
+    // Only strings that could be paths: a field the tool reads as a path, or (not for an edit tool, whose
+    // other fields are file text) a single whitespace-free token with a slash or .atap in it, so prose such
+    // as `see foo/.atap/config.json` is not judged as a path. A shell command went through the tripwire above.
+    if (!PATH_FIELDS.some((k) => call.tool_input[k] === raw)) {
+      if (EDIT_TOOLS.has(call.tool_name) || /\s/.test(raw)) continue
+      if (!(raw.includes('/') || (w && raw.includes('\\')) || raw.includes('.atap'))) continue
+    }
     const abs = canon(ctx, call.cwd, raw)
     if (secrets.some((t) => within(abs, t))) return deny('key-access', 'touches the operator key')
     if (reads) continue

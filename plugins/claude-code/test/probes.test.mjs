@@ -261,3 +261,21 @@ for (const [path, glob, want] of [['src', '**/.env', 'deny'], ['src/a', 'src/**/
     assert.equal(evaluateCall(active, call('Grep', { pattern: 'x', path }), ctx).decision, want)
   })
 }
+
+// ---------------------------------------------------------------- A008 false denials
+// Prose in file text, a settings.json that is not the agent's, and a quoted commit message are not
+// self-protection hits; a real path field, a message that runs a command, and a chained rm still are.
+for (const [tool_name, tool_input, want] of [
+  ['Write', { file_path: 'src/a.txt', content: 'see foo/.atap/config.json' }, 'allow'],
+  ['Bash', { command: 'jq . .vscode/settings.json' }, 'allow'],
+  ['Bash', { command: 'git commit -m "ignore .atap"' }, 'allow'],
+  ['Bash', { command: "git commit -m 'ignore .atap'" }, 'allow'],
+  ['Write', { file_path: '.atap/config.json' }, 'deny'],
+  ['Bash', { command: 'git commit -m "$(rm .atap/x)"' }, 'deny'],
+  ['Bash', { command: 'cat .claude/settings.json > /dev/null; rm .claude/settings.json' }, 'deny'],
+  ['Bash', { command: "git commit -m 'x'; rm .atap/x" }, 'deny'],
+]) {
+  test(`A008: ${tool_name} ${JSON.stringify(tool_input)} ${want === 'deny' ? 'denies' : 'is allowed'}`, () => {
+    assert.equal(evaluateCall([], call(tool_name, tool_input), ctx).decision, want)
+  })
+}

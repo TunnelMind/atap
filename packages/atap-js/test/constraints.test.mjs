@@ -178,6 +178,52 @@ test('review: a nested .atap/, agent settings and MCP writes are protected; the 
   assert.equal(evaluateCall(none, call('Bash', { command: 'ln -s .atap a' }), keyCtx).decision, 'deny')
 })
 
+test('A008: prose and look-alike names are not self-protection hits; real touches still are', () => {
+  const d = (tool, input) => evaluateCall([], call(tool, input), keyCtx).decision
+  // Edit tools: only path fields count; a non-path string counts only as one whitespace-free token.
+  assert.equal(d('Write', { file_path: 'src/a.txt', content: 'see foo/.atap/config.json' }), 'allow')
+  assert.equal(d('Edit', { file_path: 'src/a.txt', old_string: '.atap/x', new_string: '.atap/y' }), 'allow')
+  assert.equal(d('mcp__x__note', { text: 'see foo/.atap/config.json' }), 'allow')
+  assert.equal(d('mcp__x__write', { args: { target: 'sub/.atap/config.json' } }), 'deny')
+  assert.equal(d('Write', { file_path: '.atap/config.json' }), 'deny')
+  // Settings base names are not in the tripwire; .claude/settings is still matched by path.
+  assert.equal(d('Bash', { command: 'jq . .vscode/settings.json' }), 'allow')
+  assert.equal(d('Bash', { command: 'cat .claude/settings.json > /dev/null; rm .claude/settings.json' }), 'deny')
+  assert.equal(d('Bash', { command: 'rm .claude/settings.local.json' }), 'deny')
+  // A quoted commit message with nothing to expand is not command text; the rest of the line still is.
+  for (const command of ['git commit -m "ignore .atap"', "git commit -m 'ignore .atap'", 'git commit -am "ignore .atap"', 'git commit --message="ignore .atap"', "git -C . commit -m 'a' -m '.atap'"]) {
+    assert.equal(d('Bash', { command }), 'allow', command)
+  }
+  for (const command of [
+    'git commit -m "$(rm .atap/x)"',
+    'git commit -m "`rm .atap/x`"',
+    "git commit -m 'x'; rm .atap/x",
+    'git commit -m ".atap $HOME"',
+    'echo "git commit -m "; rm .atap/x; echo ""',
+    'echo "x; git commit -m "; rm .atap/x; echo ""',
+    "cat <<EOF\nit's\nEOF\necho \"x' ; git commit -m \"; rm .atap/x; echo \"",
+    '# it\'s\necho "x\' ; git commit -m "; rm .atap/x; echo ""',
+    'git log -m ".atap"',
+    // Blank only for the commit subcommand itself, never after `--`, never with an alias, never across a line.
+    "git rm -rf --ignore-unmatch -- commit -m '.atap'",
+    "git clean -fdx -- commit -m '.atap'",
+    "git checkout -- commit -m '.claude/settings.json'",
+    `git -c alias.x='!f(){ rm -rf "$3"; }; f' x commit -m '.atap'`,
+    "git commit -m\n'.atap/evil.sh'",
+    "git commit -m 'x' -- .atap/x",
+  ]) {
+    assert.equal(d('Bash', { command }), 'deny', command)
+  }
+})
+
+test('A008: commit-message blanking is linear on adversarial input', () => {
+  const t = Date.now()
+  for (const command of ['git commit ' + "-m 'a".repeat(20000), 'git commit ' + '-m "a\\'.repeat(20000), 'git commit -m ' + '"'.repeat(40000)]) {
+    evaluateCall([], call('Bash', { command }), keyCtx)
+  }
+  assert.ok(Date.now() - t < 2000, `took ${Date.now() - t} ms`)
+})
+
 test('review: symlinks resolve through ctx.realpath; case folds when asked', () => {
   const { active } = foldConstraints([noProdDeploy()], op.did, AIT)
   const realpath = (p) => p.replace(`${ROOT}/link`, `${ROOT}/infra/prod`).replace(`${ROOT}/a/`, `${ROOT}/.atap/`)
