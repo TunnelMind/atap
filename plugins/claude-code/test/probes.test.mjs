@@ -7,6 +7,7 @@
 //   A006 command forms                A007 paths on shells / search reach
 //   A008 false denials
 //   R003 input past the guard's length, count or depth limit denies (non-read tools)
+//   T015 the walk's limits: edit tools judge path fields only; others depth 8, 4096 strings
 // Rows are top-level test() calls plus the loop-generated ones (A006, A007, A008).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -433,20 +434,43 @@ for (const [command, want] of [["bash -euxo pipefail -c 'git push'", 'deny'], ["
 }
 
 // ---------------------------------------------------------------- R003 input past a limit
-// evaluateCall rows: a path the guard cannot fully check (padded past 4096 chars, past the 256-string
-// cap, or nested past depth 3) denies for a tool that can write; long file text and reads still allow.
+// evaluateCall rows: a path padded past 4096 chars, or (since T015 raised the walk's limits to 4096
+// strings and depth 8, where it is seen and judged) string 300 or depth 4, denies for a tool that can write; long file text and reads still allow.
 const R003_PADDED = `${ROOT}/` + './'.repeat(2100) + '.atap/constraints.jsonl'
 const R003_MANY = Object.fromEntries([...Array.from({ length: 299 }, (_, i) => [`k${i}`, `v${i}`]), ['k299', `${ROOT}/.atap/constraints.jsonl`]])
 for (const [what, tool, input, want] of [
   ['Write file_path padded to 4226 chars', 'Write', { file_path: R003_PADDED, content: '' }, 'store-write'],
   ['mcp__fs__move_file destination padded to 4226 chars', 'mcp__fs__move_file', { source: `${ROOT}/a`, destination: R003_PADDED }, 'store-write'],
-  ['mcp__fs__write_file with the guarded path as string 300 (past the 256 cap)', 'mcp__fs__write_file', R003_MANY, 'store-write'],
-  ['mcp__fs__write_file with the guarded path at depth 4 (past the depth-3 cap)', 'mcp__fs__write_file', { a: { b: { c: { d: `${ROOT}/.atap/constraints.jsonl` } } } }, 'store-write'],
+  ['mcp__fs__write_file with the guarded path as string 300 (past R003 old 256 cap)', 'mcp__fs__write_file', R003_MANY, 'store-write'],
+  ['mcp__fs__write_file with the guarded path at depth 4 (past R003 old depth-3 cap)', 'mcp__fs__write_file', { a: { b: { c: { d: `${ROOT}/.atap/constraints.jsonl` } } } }, 'store-write'],
   ['Write src/a.txt with a 10000-char content (control)', 'Write', { file_path: `${ROOT}/src/a.txt`, content: 'x'.repeat(10000) }, 'allow'],
   ['Grep with a 10000-char pattern (control)', 'Grep', { pattern: 'x'.repeat(10000), path: `${ROOT}/src` }, 'allow'],
 ]) {
   test(`R003: ${what} ${want === 'allow' ? 'allows' : 'denies'}`, () => {
     if (want !== 'allow') assert.ok(R003_PADDED.length > 4096 && Object.keys(R003_MANY).length > 256)
+    const d = evaluateCall([], call(tool, input), ctx)
+    if (want === 'allow') assert.equal(d.decision, 'allow')
+    else assert.equal(d.rule_id, want)
+  })
+}
+
+// ---------------------------------------------------------------- T015 (a) the walk's limits
+// evaluateCall rows: edit tools judge only their path fields (never cut); other write tools walk to depth 8
+// and 4096 strings and deny past them, so common deep MCP input with no guarded path allows.
+const T015_G = `${ROOT}/.atap/constraints.jsonl`
+const deep = (n, leaf) => (n === 0 ? leaf : { k: deep(n - 1, leaf) })
+const strs = (n, last) => Object.fromEntries([...Array.from({ length: n }, (_, i) => [`k${i}`, `v${i}`]), ...(last ? [['last', last]] : [])])
+for (const [what, tool, input, want] of [
+  ['mcp__x__tool with 300 strings and depth 6, no guarded path', 'mcp__x__tool', { rows: strs(300), doc: deep(6, { a: 'b' }) }, 'allow'],
+  ['mcp__x__tool with the guarded path at depth 7', 'mcp__x__tool', deep(7, T015_G), 'store-write'],
+  ['mcp__x__tool with the guarded path at depth 9 (past the depth-8 limit)', 'mcp__x__tool', deep(9, T015_G), 'store-write'],
+  ['mcp__x__tool with the guarded path as string 4097 (past the 4096 limit)', 'mcp__x__tool', strs(4096, T015_G), 'store-write'],
+  ['Write file_path padded to 4226 chars beside a depth-12 field', 'Write', { file_path: R003_PADDED, extra: deep(12, 'x') }, 'store-write'],
+  ['Write src/a.txt with 5000 extra strings', 'Write', { file_path: `${ROOT}/src/a.txt`, extra: strs(5000) }, 'allow'],
+  ['Edit src/a.txt with a depth-12 extra field', 'Edit', { file_path: `${ROOT}/src/a.txt`, old_string: 'a', new_string: 'b', extra: deep(12, 'x') }, 'allow'],
+  ['Edit .atap/constraints.jsonl with a depth-12 extra field', 'Edit', { file_path: T015_G, old_string: 'a', new_string: 'b', extra: deep(12, 'x') }, 'store-write'],
+]) {
+  test(`T015 (a): ${what} ${want === 'allow' ? 'allows' : 'denies'}`, () => {
     const d = evaluateCall([], call(tool, input), ctx)
     if (want === 'allow') assert.equal(d.decision, 'allow')
     else assert.equal(d.rule_id, want)

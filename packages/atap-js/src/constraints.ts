@@ -526,20 +526,24 @@ function shellCommand(call: ToolCall): string | null {
   return typeof command === 'string' ? command : typeof script === 'string' ? script : null
 }
 
+/** How deep and how many strings inputStrings walks; past either, `cut.hit` is set. */
+const WALK_DEPTH = 8
+const WALK_STRINGS = 4096
+
 /**
- * Every string in the tool input (three levels deep, capped): MCP tools name paths under any key. `cut.hit`
- * is set when the walk left something unseen (past 256 strings or past depth 3), so the caller can refuse
- * input it could not fully check instead of letting a path hide past a limit.
+ * Every string in the tool input (WALK_DEPTH levels deep, at most WALK_STRINGS strings): MCP tools name
+ * paths under any key. `cut.hit` is set when the walk left something unseen (a string past the cap, or a
+ * non-empty object past the depth), so the caller can refuse input it could not fully check instead of
+ * letting a path hide past a limit. Once the string cap is hit the walk stops, so work stays bounded.
  */
 function inputStrings(v: unknown, cut: { hit: boolean }, depth = 0, out: string[] = []): string[] {
-  if (out.length > 256) {
-    cut.hit = true
-    return out
-  }
-  if (typeof v === 'string') out.push(v)
-  else if (v && typeof v === 'object') {
+  if (out.length >= WALK_STRINGS && cut.hit) return out
+  if (typeof v === 'string') {
+    if (out.length >= WALK_STRINGS) cut.hit = true
+    else out.push(v)
+  } else if (v && typeof v === 'object') {
     const xs = Object.values(v as object)
-    if (depth >= 3) cut.hit ||= xs.length > 0
+    if (depth >= WALK_DEPTH) cut.hit ||= xs.length > 0
     else for (const x of xs) inputStrings(x, cut, depth + 1, out)
   }
   return out
@@ -688,7 +692,11 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   const guarded = ctx.protectedPaths.map((p) => canon(ctx, '/', p))
   // No length cap: canon is linear, and a cap let a padded path (`/p/./././…/.atap/x`) skip the check.
   const cut = { hit: false }
-  const strings = inputStrings(call.tool_input, cut).filter((x) => x.length > 0)
+  // An edit tool's other fields are file text, never judged: read its top-level path fields directly, so
+  // a huge or deep extra field cannot trip the walk's caps (and a cut never denies an edit tool).
+  const strings = EDIT_TOOLS.has(call.tool_name)
+    ? PATH_FIELDS.map((k) => call.tool_input[k]).filter((x): x is string => typeof x === 'string' && x.length > 0)
+    : inputStrings(call.tool_input, cut).filter((x) => x.length > 0)
   const cmd = shellCommand(call)
   const w = isWindows(ctx)
   const fold = ctx.caseInsensitive || w
@@ -723,7 +731,8 @@ function selfProtection(call: ToolCall, ctx: EvalContext): Decision | null {
   }
   const reads = READ_TOOLS.has(call.tool_name)
   // Input past the walk's count or depth cap was not all seen; for a tool that can write, refuse it rather
-  // than let a guarded path hide past the cap. A read tool still gets the key check on what was walked.
+  // than let a guarded path hide past the cap (depth 8, 4096 strings; edit tools are not walked, so never
+  // cut). A read tool still gets the key check on what was walked.
   if (cut.hit && !reads) return deny('store-write', 'tool input is too large or too deep to check for the operator constraint store, .atap/ or agent settings')
   for (const raw of strings) {
     // Only strings that could be paths: a field the tool reads as a path, or (not for an edit tool, whose

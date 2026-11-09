@@ -142,7 +142,14 @@ What the hook does once a store exists:
   `\` is an ordinary filename character. Write, Edit, MultiEdit and
   NotebookEdit are judged by their path fields only (file text that mentions
   `.atap/` is fine); any other tool's argument is checked when it is a path
-  field or a single whitespace-free token that looks like a path. No shell
+  field or a single whitespace-free token that looks like a path. Limits:
+  an edit tool's top-level path fields are judged directly and its other
+  fields are never walked, so no size or depth of file text denies it. Any
+  other tool's input is walked to depth 8 and 4096 strings; a tool that can
+  write is denied when its input goes past either (what the guard cannot see
+  it does not allow), while a read-only tool is not denied for that and still
+  gets the key check on what was walked. A path field of any length is
+  resolved and judged, never skipped (`/p/./././…/.atap/x` is denied). No shell
   command may name any of them (any tool whose input has a string `command`
   or `script`: Bash, PowerShell, an MCP shell such as `mcp__wsl__run`). The
   settings files are named by path (`.claude/settings…`), not by base name,

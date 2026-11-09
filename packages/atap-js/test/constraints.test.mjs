@@ -594,11 +594,11 @@ test('R003: input the guard cannot fully check denies for a non-read tool instea
   // Length: a padded path is still canonicalised and judged.
   assert.equal(evaluateCall([], call('Write', { file_path: padded, content: '' }), ctx).rule_id, 'store-write')
   assert.equal(evaluateCall([], call('mcp__fs__move_file', { source: `${ROOT}/a`, destination: padded }), ctx).rule_id, 'store-write')
-  // Count: the guarded path is string 300, past the 256-string cap.
+  // Count: the guarded path is string 300 (past R003's old 256 cap; T015 walks 4096, so it is seen and judged).
   const many = Object.fromEntries(Array.from({ length: 299 }, (_, i) => [`k${i}`, `v${i}`]))
   many.k299 = `${ROOT}/.atap/constraints.jsonl`
   assert.equal(evaluateCall([], call('mcp__fs__write_file', many), ctx).rule_id, 'store-write')
-  // Depth: the path sits at depth 4, under an object the walk does not descend.
+  // Depth: the path sits at depth 4 (past R003's old depth-3 cap; T015 walks to depth 8).
   assert.equal(evaluateCall([], call('mcp__fs__write_file', { a: { b: { c: { d: `${ROOT}/.atap/constraints.jsonl` } } } }), ctx).rule_id, 'store-write')
   // Controls: long file text on an edit tool, and a long string on a read tool (even past the caps), allow.
   assert.equal(evaluateCall([], call('Write', { file_path: `${ROOT}/src/a.txt`, content: 'x'.repeat(10000) }), ctx).decision, 'allow')
@@ -606,4 +606,40 @@ test('R003: input the guard cannot fully check denies for a non-read tool instea
   assert.equal(evaluateCall([], call('Read', { file_path: padded }), ctx).decision, 'allow')
   // A read past the caps still gets the key check on what it walked.
   assert.equal(evaluateCall([], call('Read', { file_path: '/home/op/.atap-operator/operator.pem', x: { a: { b: { c: 'y' } } } }), keyCtx).rule_id, 'key-access')
+})
+
+// `leaf` nested under n objects: the walk sees it at depth n.
+const deep = (n, leaf) => (n === 0 ? leaf : { k: deep(n - 1, leaf) })
+const strs = (n, last) => Object.fromEntries([...Array.from({ length: n }, (_, i) => [`k${i}`, `v${i}`]), ...(last ? [['last', last]] : [])])
+
+test('T015 (a): edit tools judge only their path fields and never deny on a cut', () => {
+  const guarded = `${ROOT}/.atap/constraints.jsonl`
+  for (const tool of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+    const field = tool === 'NotebookEdit' ? 'notebook_path' : 'file_path'
+    for (const extra of [strs(5000), deep(12, 'x')]) {
+      assert.equal(evaluateCall([], call(tool, { [field]: `${ROOT}/src/a.txt`, extra }), ctx).decision, 'allow', tool)
+      assert.equal(evaluateCall([], call(tool, { [field]: guarded, extra }), ctx).rule_id, 'store-write', tool)
+    }
+  }
+  // The padded path of R003 in a path field is still judged, whatever its length.
+  const padded = `${ROOT}/` + './'.repeat(2100) + '.atap/constraints.jsonl'
+  assert.equal(evaluateCall([], call('Write', { file_path: padded, extra: deep(12, 'x') }), ctx).rule_id, 'store-write')
+})
+
+test('T015 (a): other write tools walk to depth 8 and 4096 strings, and deny past them', () => {
+  const guarded = `${ROOT}/.atap/constraints.jsonl`
+  // Common deep or wide MCP input with no guarded path allows.
+  assert.equal(evaluateCall([], call('mcp__x__tool', { rows: strs(300), doc: deep(5, { a: 'b', c: [1, 'd'] }) }), ctx).decision, 'allow')
+  assert.equal(evaluateCall([], call('mcp__x__tool', { s: strs(4095), d: deep(7, 'x') }), ctx).decision, 'allow')
+  // A guarded path inside the limits is seen and judged.
+  assert.equal(evaluateCall([], call('mcp__x__tool', deep(7, guarded)), ctx).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__x__tool', strs(4095, guarded)), ctx).rule_id, 'store-write')
+  // Past the limits it cannot be seen, so the call is denied.
+  assert.equal(evaluateCall([], call('mcp__x__tool', deep(9, guarded)), ctx).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__x__tool', strs(4096, guarded)), ctx).rule_id, 'store-write')
+  // Past the limits with nothing guarded still denies (unseen input is refused).
+  assert.equal(evaluateCall([], call('mcp__x__tool', deep(9, 'x')), ctx).rule_id, 'store-write')
+  assert.equal(evaluateCall([], call('mcp__x__tool', strs(4097)), ctx).rule_id, 'store-write')
+  // A read tool is not denied on a cut.
+  assert.equal(evaluateCall([], call('Grep', { pattern: 'x', path: `${ROOT}/src`, extra: deep(12, 'x') }), ctx).decision, 'allow')
 })

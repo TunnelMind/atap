@@ -42,6 +42,16 @@ All notable changes to ATAP are recorded here.
   `**`. False denials removed: strings outside path fields, settings files by
   bare base name, quoted `git commit -m` text. Commands and paths on shells
   remain a tripwire, not a boundary (see the plugin README's Known limits).
+  Self-protection limits: Write, Edit, MultiEdit and NotebookEdit are judged
+  on their top-level path fields only and never denied for input size; any
+  other write tool is walked to depth 8 and 4096 strings and denied past
+  either; read tools are not denied on a cut; a path field of any length
+  (`/p/./././…/.atap/x`) is judged, never skipped.
+- **Release note: publish `@tunnelmindai/atap` (atap-js) before atap-cli.**
+  The CLI evaluates constraints through the atap-js library and depends on
+  it as `file:../atap-js`; publish atap-js first, then point atap-cli's
+  dependency at that published version before publishing the CLI, or the
+  CLI installs without the constraint code. No version is bumped by this run.
 - **Plugin e2e test** runs the repo's trusted `verify.sh` on the receipt; the
   receipt's own copy refuses to vouch for itself since the §8.2 hardening.
 
