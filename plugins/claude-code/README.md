@@ -197,7 +197,8 @@ the shell expands (`cat secr*/x`), a bare word with no slash (`ls secrets`), or
 paths built at runtime. `outside_project` judges only the declared path fields,
 not command words. `forbid` beats `require_approval`. A `paths` rule on Grep, Glob or LS
 also covers a search with no path or of any ancestor directory (searching `.`
-reaches `secrets/`). A rule is only as good as its globs: a command it does
+reaches `secrets/`), and of a directory at or below the glob's static prefix
+when the rest of the glob has `**` (searching `src` reaches `**/.env`). A rule is only as good as its globs: a command it does
 not name runs. The statement format is in the
 [code_crew profile, section 5.1](../../profiles/profiles/tunnelmind-code-crew-v1/profile.md).
 

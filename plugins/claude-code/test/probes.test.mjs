@@ -252,3 +252,12 @@ for (const [command, want] of [['cat secrets/x', 'deny'], ['cat docs/x', 'allow'
     assert.equal(evaluateCall(active, call('Bash', { command }), ctx).decision, want)
   })
 }
+
+// ---------------------------------------------------------------- A007 search reach
+// A search at or below a glob's static prefix reaches it when the rest of the glob has `**`.
+for (const [path, glob, want] of [['src', '**/.env', 'deny'], ['src/a', 'src/**/x', 'deny'], ['docs', 'secrets/**', 'allow'], ['secrets/sub', 'secrets/*.key', 'allow']]) {
+  test(`A007: {tools:["Grep"], paths:["${glob}"]} ${want === 'deny' ? 'denies' : 'allows'} Grep path: ${path}`, () => {
+    const active = rules({ id: 'reach', effect: 'forbid', tools: ['Grep'], paths: [glob] })
+    assert.equal(evaluateCall(active, call('Grep', { pattern: 'x', path }), ctx).decision, want)
+  })
+}

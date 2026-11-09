@@ -546,9 +546,12 @@ function ruleMatches(rule: ConstraintRule, call: ToolCall, ctx: EvalContext): bo
       const globs = (rule.paths as string[]).map(fold)
       if (matchAny(globs, rel, true)) return true
       // A search of a directory reaches everything under it: searching an ancestor of a forbidden path matches.
+      // So does searching at or below the glob's static prefix when the rest has `**`: `**/.env` searched at
+      // `src` can reach `src/.env`. Without `**` it cannot (`secrets/*.key` searched at `secrets/sub`).
       return SEARCH_TOOLS.has(call.tool_name) && globs.some((g) => {
         const d = staticDir(g)
-        return rel === '' || d === rel || d.startsWith(rel + '/')
+        if (rel === '' || d === rel || d.startsWith(rel + '/')) return true
+        return g.slice(d.length).includes('**') && (d === '' || rel.startsWith(d + '/'))
       })
     })
     if (!hit) return false

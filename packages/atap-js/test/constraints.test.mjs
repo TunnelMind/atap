@@ -200,6 +200,20 @@ test('review: a paths rule on search tools covers searches without a path and of
   assert.equal(evaluateCall(active, call('Read', { file_path: 'src/a.ts' }), keyCtx).decision, 'allow')
 })
 
+test('A007: a search at or below a glob\'s static prefix matches when the rest of the glob has **', () => {
+  const grep = (paths, path) => {
+    const s = signConstraintSet({ constraint_id: 'reach', scope: '*', prose: 'Search reach.', rules: [{ id: 'r', effect: 'forbid', tools: ['Grep', 'Glob', 'LS', 'Read'], paths }] }, op.privateKey)
+    const { active } = foldConstraints([s], op.did, AIT)
+    return (tool, input) => evaluateCall(active, call(tool, input), keyCtx).decision
+  }
+  assert.equal(grep(['**/.env'])('Grep', { pattern: 'x', path: 'src' }), 'deny')
+  assert.equal(grep(['src/**/x'])('Grep', { pattern: 'x', path: 'src/a' }), 'deny')
+  assert.equal(grep(['secrets/**'])('Grep', { pattern: 'x', path: 'docs' }), 'allow')
+  assert.equal(grep(['secrets/*.key'])('Grep', { pattern: 'x', path: 'secrets/sub' }), 'allow')
+  // Only search tools get the reach: reading `src` itself is not reading `src/.env`.
+  assert.equal(grep(['**/.env'])('Read', { file_path: 'src' }), 'allow')
+})
+
 test('review: background jobs, subshells, assignments and wrappers are split out; trailing-dot hosts match', () => {
   const s = signConstraintSet(
     { constraint_id: 'push', scope: '*', prose: 'No pushes; no evil host.', rules: [
