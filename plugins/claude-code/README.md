@@ -116,7 +116,10 @@ What the hook does once a store exists:
 - **Fails closed.** If the store holds a statement that fails its signature,
   one from another key, or has lost a statement a witness event recorded,
   every call is denied until the owner repairs it. If the CLI cannot answer
-  (missing, killed, bad output), the call is denied.
+  (missing, killed, bad output), the call is denied. With
+  `ATAP_CONSTRAINTS_REQUIRED=1` or a non-empty `ATAP_OPERATOR`, a missing
+  `.atap/`, malformed hook input or a hook error also denies the call
+  (PreToolUse only; `ATAP_OFF=1` still switches the plugin off).
 - **Self-protection.** No tool may touch the operator key (reads included,
   when `ATAP_OPERATOR_KEY` names it). No tool but a read-only one (Read, Grep,
   Glob, LS) may touch the store, any `.atap/` directory in the project (so a

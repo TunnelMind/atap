@@ -5,16 +5,21 @@
 //
 // The rule above all: never break a session. The script always exits 0 and
 // writes nothing to stderr. It writes to stdout in exactly two cases, both only
-// when operator constraints exist (see "Operator constraints" in README.md):
+// when operator constraints exist or are required (strict mode, below; see
+// "Operator constraints" in README.md):
 // SessionStart prints the constraints in force as additionalContext (it also
 // fires after a compaction, which is how they survive one), and PreToolUse
 // prints a deny or ask decision for a call they cover. With no constraint store
 // the plugin records and says nothing, as before. Anything that goes wrong is
 // appended to the project's .atap/hook.log instead. A project without .atap/,
-// or ATAP_OFF=1, makes the script a silent no-op.
+// or ATAP_OFF=1, makes the script a silent no-op, with one exception below.
 //
 // The guard fails closed: when a constraint store exists and the decision
 // cannot be made (CLI missing, killed, unreadable output), the call is denied.
+// Strict mode (ATAP_CONSTRAINTS_REQUIRED=1 or a non-empty ATAP_OPERATOR in the
+// user's environment) goes further: PreToolUse also prints a deny when there is
+// no .atap/, when stdin is malformed, or when the handler throws. Other events
+// stay silent, and ATAP_OFF=1 still wins.
 //
 // Node built-ins only: the plugin ships with no dependencies.
 
@@ -190,8 +195,9 @@ async function pendingEvents(atap, ait) {
 }
 
 // Per-event handlers: (input, atap) where input is the parsed hook JSON and
-// atap is { dir, config } from findAtap.
-const handlers = {
+// atap is { dir, config } from findAtap. Exported only so a test can replace a handler in-process
+// (test/probes.test.mjs makes pre-tool-use throw); nothing outside this module reads it.
+export const handlers = {
   // Nothing to record at start: session-end rolls up whatever is pending then. With operator
   // constraints, put them in the context. SessionStart also fires with source "compact", so the
   // constraints come back after every compaction instead of being summarised away.
@@ -280,6 +286,17 @@ const handlers = {
 
 export async function main(event = process.argv[2]) {
   if (process.env.ATAP_OFF === '1') return
+  // Strict mode is decided from the user's environment alone, before looking for .atap/: an
+  // operator who requires constraints must not lose the guard because the agent deleted .atap/,
+  // garbled the hook input or made the handler throw. Then pre-tool-use denies instead of no-op.
+  const strict = process.env.ATAP_CONSTRAINTS_REQUIRED === '1' || Boolean(process.env.ATAP_OPERATOR)
+  // Fixed text only, never the error or the input (either may quote what the agent wrote).
+  const failClosed = async (atap, why) => {
+    if (atap) await log(atap, event, why)
+    if (strict && event === 'pre-tool-use') {
+      say({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `ATAP: operator constraints are required and the guard could not run (${why}), so the call is blocked.` } })
+    }
+  }
   const raw = await readStdin()
   let input = null
   try {
@@ -290,15 +307,17 @@ export async function main(event = process.argv[2]) {
   // .atap/ under a directory the agent cd's into cannot re-root the guard), else the hook's `cwd`.
   const from = process.env.CLAUDE_PROJECT_DIR || (valid && typeof input.cwd === 'string' ? input.cwd : process.cwd())
   const atap = await findAtap(from)
-  if (!atap) return
+  // Not strict: no .atap/ is a silent no-op and nothing is logged (there is nowhere to log).
+  if (!atap) return failClosed(null, 'no .atap/')
   // Fixed text, not the parse error: JSON.parse messages quote the input.
-  if (!valid) return log(atap, event, 'malformed stdin')
+  if (!valid) return failClosed(atap, 'malformed stdin')
   const handler = handlers[event]
   if (!handler) return log(atap, event, 'unknown event')
   try {
     await handler(input, atap)
   } catch (e) {
     await log(atap, event, `${e?.name ?? 'Error'}: ${e?.message ?? e}`)
+    await failClosed(null, 'hook error')
   }
 }
 
