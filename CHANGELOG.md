@@ -153,6 +153,34 @@ changes verdict; each line names the inputs that do.
 
 ### Added
 
+- **Profile `tunnelmind:data_model:v1` (draft, 2026-11-03).** Witness vocabulary
+  for one semantic-model lineage: drafts from hashed inputs, schema pins, four
+  correctness gates (compile, structural, golden, reconcile) on pinned fixtures,
+  publication, and signed accuracy assessments by agents and people with
+  re-runs and resolutions. Golden answers cannot come from the drafting crew;
+  assessors appear only as kind, tier and a per-version nullifier; published
+  versions are never edited (§14.1) — status is derived from later events.
+  An owner approval (`data_model:approved`, always witnessed; role and the
+  approval text's sha256 only) is required before each of a lineage's first
+  three published versions — the latest approval event before publication
+  decides, so a later reject overrides an earlier approve; after that the
+  gates decide. `pre_publish` gate
+  runs are pinned to `trigger: build` and `target: fixture`. Every gate run
+  carries `schema_fingerprints` (one `{source_id, sha256}` per source), and
+  on `pre_publish` runs they must match that draft's schema pins exactly.
+  Structured queries (`schemas/query.schema.json`) and golden questions admit
+  no free text: a filter value is a number, a boolean or an opaque token with
+  no `@` or whitespace containing no dotted quad, `::`, colon-separated hex
+  run, trailing CIDR suffix or `did:` anywhere (a heuristic: a name written
+  as one token is not detected; ordinary values shaped like those, e.g.
+  `v1.2.3.4` or `rule/100`, are rejected too). Twenty-six PII-rejection cases (plus three
+  ordinary tokens that must be accepted), twenty-five gate-shape cases
+  (7 accept, 18 reject) and six approval-chain cases for the latest-event
+  rule (`tests/approval-chains.json`); signed examples round-trip. Profile registry README
+  now also lists `tunnelmind:code_crew:v1`, which `registry.json` already
+  carried.
+- Profile CI: `scripts/validate.mjs` runs every `tests/*-shapes.json` file, not
+  only `merged-shapes.json`. Existing cases unchanged.
 - `atap-witness git sync` / `git restore [--into DIR]` / `init --git` — the
   witness store's records (`aits.jsonl`, `blocks.jsonl`, `cleared.jsonl`,
   `events.jsonl`; never the key or `config.json`) committed to the orphan

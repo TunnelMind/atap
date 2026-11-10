@@ -1,0 +1,273 @@
+{
+  "description": "ATAP v0.1 §9.4(2) acceptance evidence: each case is a Witness Event whose payload smuggles a person-resolvable or free-text field forbidden by ATAP §7.6 and §4. Every case MUST FAIL validation against witness-events.schema.json — every payload sets additionalProperties:false, assessors are recorded by kind, tier and nullifier only, identifiers are opaque tokens, and questions and queries are sha256 digests. Cases naming `schema` carry a `doc` checked against that schema instead (query: schemas/query.schema.json, golden-questions: schemas/golden-questions.schema.json), where the structured query artifacts admit no free text. A must_reject case that validates is a profile defect. The must_accept cases are ordinary query filter tokens the address/key heuristic must not reject.",
+  "must_reject": [
+    {
+      "name": "assessor_email",
+      "reason": "email address of the person assessing (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "inaccurate",
+          "assessor_kind": "human", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare",
+          "assessor_email": "jane@example.com"
+        }
+      }
+    },
+    {
+      "name": "assessor_name",
+      "reason": "named natural person (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "accurate",
+          "assessor_kind": "human", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare",
+          "assessor_name": "Jane Doe"
+        }
+      }
+    },
+    {
+      "name": "person_name_as_assessor_kind",
+      "reason": "named natural person in place of the assessor kind (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "accurate",
+          "assessor_kind": "Jane Doe", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare"
+        }
+      }
+    },
+    {
+      "name": "assessor_key_id",
+      "reason": "linkable assessor identifier; only the per-version nullifier is permitted (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "accurate",
+          "assessor_kind": "agent", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "bare",
+          "key_id": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+        }
+      }
+    },
+    {
+      "name": "free_text_question",
+      "reason": "free-text question that may carry user communications; only query_sha256 is permitted (ATAP §7.6, §4)",
+      "event": {
+        "event_type": "data_model:assessment_received",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "ise.auth_events.failure_rate", "verdict": "inaccurate",
+          "assessor_kind": "agent", "assessor_tier": "software",
+          "assessor_nullifier_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "evidence_kind": "reproducible",
+          "query_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "expected": 0.031, "observed": 0,
+          "question": "What was the EAP-TLS failure rate for the user jane@example.com on Oct 30?"
+        }
+      }
+    },
+    {
+      "name": "email_in_field_ref",
+      "reason": "email address smuggled into an identifier field (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:coverage_changed",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "field_ref": "users.jane@example.com",
+          "from": "observed_clean", "to": "degraded",
+          "cause_event": "ATAP-WE-019a4c00-0000-7000-8000-000000000001"
+        }
+      }
+    },
+    {
+      "name": "client_ip_in_schema_pin",
+      "reason": "end-user IP address (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:schema_pinned",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "witnessed",
+          "model_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "source_id": "cisco-ise-3.3", "source_version": "3.3-patch4",
+          "schema_fingerprint_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "client_ip": "203.0.113.7"
+        }
+      }
+    },
+    {
+      "name": "ip_port_as_source_version",
+      "reason": "IP address and port in a version token (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:schema_pinned",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "witnessed",
+          "model_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "source_id": "cisco-ise-3.3", "source_version": "203.0.113.7:443",
+          "schema_fingerprint_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "did_key_as_source_version",
+      "reason": "key identifier in a version token (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:schema_pinned",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "witnessed",
+          "model_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "source_id": "cisco-ise-3.3", "source_version": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+          "schema_fingerprint_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "email_as_source_id",
+      "reason": "email address in an opaque identifier (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:drafted",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "asserted",
+          "model_id": "cisco-network", "version": "0.3.1",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "format": "apache-ossie", "format_version": "1.0",
+          "drafter_model": "claude-opus-5-5",
+          "prompt_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "inputs": [{ "source_id": "jane@example.com", "kind": "vendor_doc",
+            "sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c" }]
+        }
+      }
+    },
+    {
+      "name": "email_in_query_filter_value",
+      "reason": "email address as a filter value; values are numbers, booleans or opaque tokens with no `@` (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.user", "op": "eq", "value": "jane@example.com"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "email_as_query_filter_object",
+      "reason": "filter written as {\"user\":\"jane@example.com\"}; a filter is only field_ref, op, value (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"user": "jane@example.com"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "free_text_query_filter",
+      "reason": "free-text filter string that may name a person; whitespace is not permitted in a filter value (ATAP §7.6, §4)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.user", "op": "eq", "value": "failed logins for Jane Smith last week"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "query_extra_key",
+      "reason": "natural-language question smuggled in as an extra key; additionalProperties:false (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.auth_method", "op": "eq", "value": "eap-tls"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}, "question": "What was the EAP-TLS failure rate for jane@example.com?"}
+    },
+    {
+      "name": "ipv4_in_query_filter_value",
+      "reason": "client IPv4 address as a filter value; an IP-shaped token is rejected (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "eq", "value": "203.0.113.7"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "ipv6_in_query_filter_value",
+      "reason": "client IPv6 address as a filter value; an IP-shaped token is rejected (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "eq", "value": "2001:db8::1"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "did_key_in_query_filter_value",
+      "reason": "linkable did:key id as a filter value; a did: token is rejected (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "eq", "value": "did:key:z6Mkabc"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "ipv4_cidr_in_query_filter_value",
+      "reason": "IPv4 network in CIDR form; a value containing a dotted quad is rejected (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "eq", "value": "10.0.0.0/8"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "ipv4_host_cidr_in_query_filter_value",
+      "reason": "single-host IPv4 CIDR; a value containing a dotted quad (or ending in /NN) is rejected (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "eq", "value": "203.0.113.7/32"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "ipv6_cidr_in_query_filter_value",
+      "reason": "IPv6 prefix; a value containing `::` (or ending in /NN) is rejected (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "eq", "value": "2001:db8::/32"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "ipv4_in_hostname_query_filter_value",
+      "reason": "IP embedded in a wildcard-DNS hostname; a value containing a dotted quad anywhere is rejected (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "eq", "value": "203.0.113.7.nip.io"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "ipv4_range_in_query_filter_value",
+      "reason": "IPv4 range; a value containing a dotted quad is rejected (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "eq", "value": "10.0.0.1-10.0.0.9"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "ipv4_in_query_filter_array",
+      "reason": "client IPv4 address inside an `in` list; each array member is checked like a single value (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "in", "value": ["eap-tls", "203.0.113.7"]}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "false_positive_four_part_version_rejected",
+      "reason": "documented false positive: an ordinary four-part version contains a dotted quad, so the heuristic rejects it; encode such a value as an enum member or a token without that shape (profile §10)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.policy_version", "op": "eq", "value": "v1.2.3.4"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "false_positive_slash_number_rejected",
+      "reason": "documented false positive: an ordinary rule id ending in `/` and digits reads as a CIDR suffix, so the heuristic rejects it; encode such a value as an enum member or a token without that shape (profile §10)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.rule", "op": "eq", "value": "rule/100"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "golden_question_text",
+      "reason": "natural-language question text in a golden entry; only machine fields are permitted (ATAP §7.6)",
+      "schema": "golden-questions",
+      "doc": [{"query_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c", "query": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.auth_method", "op": "eq", "value": "eap-tls"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}, "golden_source": "human_sql", "expected": 0.031, "tolerance": 0.001, "question": "What was the EAP-TLS failure rate for Jane Smith on Oct 30?"}]
+    }
+  ],
+  "must_accept": [
+    {
+      "name": "token_site_a_accepted",
+      "reason": "ordinary opaque token; the address/key heuristic must not reject it",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.site", "op": "eq", "value": "site-a"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "token_vlan_20_accepted",
+      "reason": "ordinary opaque token; the address/key heuristic must not reject it",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.vlan", "op": "eq", "value": "vlan_20"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "token_ise_policy_guest_accepted",
+      "reason": "ordinary opaque token; the address/key heuristic must not reject it",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.policy", "op": "eq", "value": "ise:policy/guest"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    }
+  ]
+}

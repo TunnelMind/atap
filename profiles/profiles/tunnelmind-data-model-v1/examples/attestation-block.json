@@ -1,0 +1,34 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "AttestationBlock",
+  "id": "ATAP-AB-01a1c2d9-d30d-76f0-83d9-2f47740ca4de",
+  "ait": "AIT-01a1a147-ce00-7364-bc43-8e98ea202786",
+  "ab_version": "0.1",
+  "profile": "tunnelmind:data_model:v1",
+  "period_start": "2026-11-03T12:00:01.500Z",
+  "period_end": "2026-11-03T12:00:21.000Z",
+  "first_event": "ATAP-WE-01a1a147-d3dc-7873-9ce1-15e58a8ae368",
+  "last_event": "ATAP-WE-01a1a148-2008-7d8a-af09-0455279335ee",
+  "event_count": 14,
+  "chain_head_hash": "0x0ea5f5c15d8ccf9a08c62cc9908eac9e2241096a89447edc40f5257b0006ede5",
+  "period_summary": {
+    "drafted": 1,
+    "published": 1,
+    "retired": 1,
+    "gate_runs": {
+      "pass": 4,
+      "fail": 1
+    },
+    "coverage_degraded": 1,
+    "assessments": {
+      "received": 1,
+      "confirmed": 1,
+      "not_reproduced": 0,
+      "out_of_scope": 0
+    },
+    "golden_added": 1
+  },
+  "prev_block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "self_hash": "0x3cec5db2f2304feef6ef438eda50a8a5ebf65d977f35a0611e2130200ed80522",
+  "witness_signature": "ed25519:0x9c44f3047584d9e2f9678f00b5bb1b735aebc38dd2e08641842c6ca724030f836d930ef67580b9e55f5df372935b6475d3092781f3eccb4cf786c50139962105"
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-data-model-v1/period-summary.schema.json",
+  "title": "tunnelmind:data_model:v1 — Attestation Block period_summary",
+  "description": "Validates the `period_summary` object of an ATAP v0.1 Attestation Block under the tunnelmind:data_model:v1 profile. Every field is a non-negative integer count over the block's events. No field resolves to a natural person (ATAP v0.1 §7.6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["drafted", "published", "retired", "gate_runs", "coverage_degraded", "assessments", "golden_added"],
+  "properties": {
+    "drafted": { "$ref": "#/$defs/count", "description": "`drafted` events." },
+    "published": { "$ref": "#/$defs/count", "description": "`published` events." },
+    "retired": { "$ref": "#/$defs/count", "description": "`retired` events." },
+    "gate_runs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "fail"],
+      "properties": {
+        "pass": { "$ref": "#/$defs/count" },
+        "fail": { "$ref": "#/$defs/count" }
+      },
+      "description": "`gate_run` events by result, all gates and phases."
+    },
+    "coverage_degraded": { "$ref": "#/$defs/count", "description": "`coverage_changed` events whose `to` is `degraded`." },
+    "assessments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["received", "confirmed", "not_reproduced", "out_of_scope"],
+      "properties": {
+        "received": { "$ref": "#/$defs/count" },
+        "confirmed": { "$ref": "#/$defs/count" },
+        "not_reproduced": { "$ref": "#/$defs/count" },
+        "out_of_scope": { "$ref": "#/$defs/count" }
+      },
+      "description": "Assessments received, and resolutions by outcome."
+    },
+    "golden_added": { "$ref": "#/$defs/count", "description": "Confirmed assessments whose question became a permanent golden question." }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 }
+  }
+}

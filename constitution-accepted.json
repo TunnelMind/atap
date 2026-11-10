@@ -5,5 +5,26 @@
     "reason": "The crew-ops profile's autonomy_decision event records a decision the crew already made, as a witnessed fact (evidence 'asserted'); the example generator writes that recorded value. It is not an authorization outcome the code issues. Pre-existing on main (a8e25db, B501); surfaced when atap-1017 pushed.",
     "accepted": "2026-10-17",
     "accepted_by": "Josh (chat 2026-10-17: 'Accept the finding')"
+  },
+  {
+    "principle": "I",
+    "file": "packages/atap-cli/src/cli.ts",
+    "reason": "The operator-constraint engine's job is to gate tool calls: allow, deny or ask is the product's output, returned to the agent harness and recorded as a witnessed fact (code_crew:tool_gate). It is not a verdict about a person or a model. Pre-existing on main from atap-constraints-1 (atap#25, 759ba5a); surfaced when data-model-v1-fix-1 pushed.",
+    "accepted": "2026-11-10",
+    "accepted_by": "Josh (chat 2026-11-10: 'Yes and merge', to: record the 8 findings as accepted with that reason)"
+  },
+  {
+    "principle": "I",
+    "file": "packages/atap-cli/src/constraints.ts",
+    "reason": "The operator-constraint engine's job is to gate tool calls: allow, deny or ask is the product's output, returned to the agent harness and recorded as a witnessed fact (code_crew:tool_gate). It is not a verdict about a person or a model. Pre-existing on main from atap-constraints-1 (atap#25, 759ba5a); surfaced when data-model-v1-fix-1 pushed.",
+    "accepted": "2026-11-10",
+    "accepted_by": "Josh (chat 2026-11-10: 'Yes and merge', to: record the 8 findings as accepted with that reason)"
+  },
+  {
+    "principle": "I",
+    "file": "packages/atap-js/src/constraints.ts",
+    "reason": "The operator-constraint engine's job is to gate tool calls: allow, deny or ask is the product's output, returned to the agent harness and recorded as a witnessed fact (code_crew:tool_gate). It is not a verdict about a person or a model. Pre-existing on main from atap-constraints-1 (atap#25, 759ba5a); surfaced when data-model-v1-fix-1 pushed.",
+    "accepted": "2026-11-10",
+    "accepted_by": "Josh (chat 2026-11-10: 'Yes and merge', to: record the 8 findings as accepted with that reason)"
   }
 ]

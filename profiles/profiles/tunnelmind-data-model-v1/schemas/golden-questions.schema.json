@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-data-model-v1/golden-questions.schema.json",
+  "title": "tunnelmind:data_model:v1 — golden suite artifact",
+  "description": "profile_artifacts/golden_questions.json: the golden suite. Per question only machine fields — query_sha256, the structured query (query.schema.json), golden_source, expected value and tolerance. No natural-language field exists (ATAP §7.6); every object sets additionalProperties:false.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["query_sha256", "query", "golden_source", "expected", "tolerance"],
+    "properties": {
+      "query_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the RFC 8785 canonical bytes of `query`." },
+      "query": { "$ref": "query.schema.json" },
+      "golden_source": {
+        "enum": ["human_sql", "vendor_ui", "second_source", "confirmed_assessment"],
+        "description": "Same enum as the gate_run golden_source in witness-events.schema.json."
+      },
+      "expected": { "type": "number" },
+      "tolerance": { "type": "number", "minimum": 0 }
+    }
+  }
+}

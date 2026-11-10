@@ -1,0 +1,7 @@
+{
+  "profile": "tunnelmind:data_model:v1",
+  "description": "Canonical capability vocabulary for the tunnelmind:data_model:v1 profile. An AIT's `capabilities` array MUST draw only from these tokens. The AIT belongs to the build crew, which only drafts. Schema pins, gate runs, publication, coverage changes, assessment intake and resolution, and retirement are performed by the registry (the witness) and recorded as witness-derived events under the same AIT (ATAP v0.1.1 §2(3)); they need no agent capability and cannot be suppressed by the holder.",
+  "capabilities": {
+    "data_model:draft": "Write or revise a semantic model as code (Apache Ossie YAML) from declared, hashed inputs and submit it to the registry."
+  }
+}
