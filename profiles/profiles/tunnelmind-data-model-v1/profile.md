@@ -109,7 +109,7 @@ is not in `allowed_sources`, or more `target: live` runs in a day than
 
 | Gate | What it proves | What it cannot catch |
 |---|---|---|
-| `compile` | Every metric, dimension and join compiles to valid SQL against the pinned schema (`schema_fingerprint_sha256`). | Joins that compile and are semantically wrong. |
+| `compile` | Every metric, dimension and join compiles to valid SQL against the pinned schema of every source it uses (`schema_fingerprints`). | Joins that compile and are semantically wrong. |
 | `structural` | Join fan-out (row counts before and after each join), declared-key uniqueness, null-rate bounds per field. | Wrong business definitions on correct joins. |
 | `golden` | The model's answers match expected answers from an **independent** source, within each metric's declared tolerance. | Questions nobody asked. |
 | `reconcile` | The same fact computed through two sources agrees within tolerance (e.g. a client count from the API and from syslog). | Errors both sources share. |
@@ -134,8 +134,8 @@ Every payload requires `timestamp` and `evidence` and sets
 | `event_type` | Payload (besides `timestamp`, `evidence`) |
 |---|---|
 | `data_model:drafted` | `model_id`, `version` (semver), `model_sha256`, `format` (`apache-ossie`), `format_version`, `drafter_model`, `prompt_sha256`, `inputs[]` {`source_id`, `kind`, `sha256`} |
-| `data_model:schema_pinned` | `source_id`, `source_version`, `schema_fingerprint_sha256` |
-| `data_model:gate_run` | `model_sha256`, `gate`, `phase` (`pre_publish` \| `post_publish`), `trigger` (`build` \| `scheduled` \| `assessment`), `target` (`fixture` \| `live`), `schema_fingerprint_sha256`, `fixture_sha256` (fixture runs only), `golden_source` (golden runs only), `result`, `checks` {`total`, `passed`, `failed`, `refused`}, `output_sha256` |
+| `data_model:schema_pinned` | `model_sha256` (the draft this pin was taken for), `source_id`, `source_version`, `schema_fingerprint_sha256`. One event per source the draft used. |
+| `data_model:gate_run` | `model_sha256`, `gate`, `phase` (`pre_publish` \| `post_publish`), `trigger` (`build` \| `scheduled` \| `assessment`), `target` (`fixture` \| `live`), `schema_fingerprints[]` {`source_id`, `sha256`} (one per source, `source_id` unique), `fixture_sha256` (fixture runs only), `golden_source` (golden runs only), `result`, `checks` {`total`, `passed`, `failed`, `refused`}, `output_sha256` |
 | `data_model:approved` | `role` (always `owner`), `decision` (`approve` \| `reject`), `model_sha256`, `approval_text_sha256`. The approval text is recorded only as its sha256, never the text; the person appears only as the role. |
 | `data_model:published` | `model_id`, `version`, `model_sha256`, `supersedes_sha256` (or null), `diff_sha256` (when superseding), `coverage` {counts per state}, `coverage_sha256`, `golden_count` |
 | `data_model:coverage_changed` | `model_sha256`, `field_ref`, `from`, `to`, `cause_event` |
@@ -211,8 +211,16 @@ without exposing anyone's network.
 
 A profile-aware verifier checks, beyond `verify.sh`: the event-chain checks
 of `tunnelmind:code_crew:v1` §9; that each `published` version has a passing
-`pre_publish` run of every required gate on the same `model_sha256` and
-`schema_fingerprint_sha256`; that each of the first three versions of a
+`pre_publish` run of every required gate on the same `model_sha256`; that
+every source the draft used (`drafted.inputs[].source_id`) is pinned by a
+`schema_pinned` event for that `model_sha256`, and each of those
+`pre_publish` gate runs' `schema_fingerprints` equals those pins exactly —
+the same set of `source_id`s, each with the pinned
+`schema_fingerprint_sha256` (spec AC-2.1). A gate run whose fingerprint for a
+source differs from its pin, that omits a pinned source, or that names a
+source with no pin fails the check; `source_id` MUST be unique within
+`schema_fingerprints` (the schema cannot express per-key uniqueness, so the
+verifier rejects a repeated `source_id`); that each of the first three versions of a
 lineage (same `model_id`, counted in `published` order) has a
 `data_model:approved` event with `decision: approve` for the same
 `model_sha256` earlier in the chain than its `published` event — version four

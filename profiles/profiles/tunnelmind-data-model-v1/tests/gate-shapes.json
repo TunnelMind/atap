@@ -2,6 +2,25 @@
   "description": "data_model payload rules that make correctness structural: golden expected answers cannot come from the drafting crew; a fixture run names its fixture hash; a pre-publish run is a build run; a superseding publication carries a diff; a reproducible assessment carries its query hash and values; a not-confirmed assessment adds no golden; a superseded retirement names its successor. CI asserts every must_accept case validates and every must_reject case fails the profile schema.",
   "must_accept": [
     {
+      "name": "compile_gate_two_sources",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "schema_fingerprints": [
+            { "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" },
+            { "source_id": "meraki-syslog", "sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c" }
+          ],
+          "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
       "name": "golden_gate_from_human_sql_on_fixture",
       "event": {
         "event_type": "data_model:gate_run",
@@ -9,7 +28,7 @@
           "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
           "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
           "gate": "golden", "phase": "pre_publish", "trigger": "build", "target": "fixture",
-          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "schema_fingerprints": [{ "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }],
           "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
           "golden_source": "human_sql", "result": "pass",
           "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
@@ -25,7 +44,7 @@
           "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
           "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
           "gate": "reconcile", "phase": "post_publish", "trigger": "scheduled", "target": "live",
-          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "schema_fingerprints": [{ "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }],
           "result": "fail",
           "checks": { "total": 12, "passed": 11, "failed": 1, "refused": 0 },
           "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
@@ -76,6 +95,73 @@
   ],
   "must_reject": [
     {
+      "name": "gate_run_missing_fingerprints",
+      "reason": "a gate run must name the schema fingerprint of every source it ran against (AC-2.1)",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "gate_run_empty_fingerprints",
+      "reason": "a gate run with no source fingerprints proves nothing about the pinned schemas (AC-2.1)",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "schema_fingerprints": [],
+          "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "gate_run_old_single_fingerprint",
+      "reason": "one fingerprint cannot cover a multi-source draft; schema_fingerprint_sha256 is not a gate_run field",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
+      "name": "gate_run_duplicate_fingerprint_entry",
+      "reason": "each source appears once; a repeated identical entry is caught by uniqueItems (a repeated source_id with a different sha256 is the verifier's check, profile §9)",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "fixture",
+          "schema_fingerprints": [{ "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }, { "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }],
+          "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
       "name": "golden_answers_from_the_crew",
       "reason": "the drafting crew is not an independent source of expected answers",
       "event": {
@@ -84,7 +170,7 @@
           "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
           "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
           "gate": "golden", "phase": "pre_publish", "trigger": "build", "target": "fixture",
-          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "schema_fingerprints": [{ "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }],
           "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
           "golden_source": "crew", "result": "pass",
           "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
@@ -101,7 +187,7 @@
           "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
           "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
           "gate": "golden", "phase": "pre_publish", "trigger": "build", "target": "fixture",
-          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "schema_fingerprints": [{ "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }],
           "fixture_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
           "result": "pass",
           "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
@@ -118,7 +204,7 @@
           "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
           "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
           "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "fixture",
-          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "schema_fingerprints": [{ "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }],
           "result": "pass",
           "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
           "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
@@ -134,7 +220,7 @@
           "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
           "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
           "gate": "compile", "phase": "pre_publish", "trigger": "assessment", "target": "live",
-          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "schema_fingerprints": [{ "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }],
           "result": "pass",
           "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
           "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
@@ -150,7 +236,7 @@
           "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
           "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
           "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "live",
-          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "schema_fingerprints": [{ "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }],
           "result": "pass",
           "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
           "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"

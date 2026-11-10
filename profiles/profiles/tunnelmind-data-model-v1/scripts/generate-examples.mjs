@@ -59,12 +59,18 @@ await generateExamples(import.meta.url, {
   },
   events: async ({ witness, tick, sha256 }) => {
     const v1 = sha256('cisco-network 0.3.1 (canonical JSON of the Ossie document)');
-    const fp = sha256('cisco-ise-3.3 schema fingerprint');
+    // One pin per source the draft used; every gate run names both (profile §9).
+    const fpIse = sha256('cisco-ise-3.3 schema fingerprint');
+    const fpSyslog = sha256('meraki-syslog schema fingerprint');
+    const fingerprints = [
+      { source_id: 'cisco-ise-3.3', sha256: fpIse },
+      { source_id: 'meraki-syslog', sha256: fpSyslog },
+    ];
     const fixture = sha256('synthetic fixture extract 2026-11-03');
     const gate = (g, extra = {}) => witness('data_model:gate_run', {
       timestamp: tick(), evidence: 'witnessed', model_sha256: v1, gate: g,
       phase: 'pre_publish', trigger: 'build', target: 'fixture',
-      schema_fingerprint_sha256: fp, fixture_sha256: fixture, result: 'pass',
+      schema_fingerprints: fingerprints, fixture_sha256: fixture, result: 'pass',
       checks: { total: 40, passed: 40, failed: 0, refused: 0 },
       output_sha256: sha256(`${g} gate output`), ...extra,
     });
@@ -80,8 +86,12 @@ await generateExamples(import.meta.url, {
       ],
     }));
     out.push(await witness('data_model:schema_pinned', {
-      timestamp: tick(), evidence: 'witnessed', source_id: 'cisco-ise-3.3',
-      source_version: '3.3-patch4', schema_fingerprint_sha256: fp,
+      timestamp: tick(), evidence: 'witnessed', model_sha256: v1, source_id: 'cisco-ise-3.3',
+      source_version: '3.3-patch4', schema_fingerprint_sha256: fpIse,
+    }));
+    out.push(await witness('data_model:schema_pinned', {
+      timestamp: tick(), evidence: 'witnessed', model_sha256: v1, source_id: 'meraki-syslog',
+      source_version: 'mx-18.211', schema_fingerprint_sha256: fpSyslog,
     }));
     out.push(await gate('compile'));
     out.push(await gate('structural'));
@@ -112,7 +122,7 @@ await generateExamples(import.meta.url, {
     const rerun = await witness('data_model:gate_run', {
       timestamp: tick(), evidence: 'witnessed', model_sha256: v1, gate: 'golden',
       phase: 'post_publish', trigger: 'assessment', target: 'fixture',
-      schema_fingerprint_sha256: fp, fixture_sha256: fixture,
+      schema_fingerprints: fingerprints, fixture_sha256: fixture,
       golden_source: 'human_sql', result: 'fail',
       checks: { total: 1, passed: 0, failed: 1, refused: 0 },
       output_sha256: sha256('rerun output'),
