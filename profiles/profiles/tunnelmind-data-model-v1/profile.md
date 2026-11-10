@@ -92,7 +92,7 @@ NOT exceed 4096 canonical bytes.
 | `model_id` | yes | The one model lineage this AIT witnesses. |
 | `allowed_sources` | yes | Source identifiers the model may be built from or compiled against (1–50). |
 | `required_gates` | yes | Exactly `compile`, `structural`, `golden`, `reconcile`. |
-| `fixture_policy` | yes | `fixture_only`, or `fixture_then_live` (fixture runs required; live runs permitted in addition). |
+| `fixture_policy` | yes | `fixture_only`, or `fixture_then_live` (fixture runs required; live runs permitted in addition, after publish). Every `pre_publish` run is on a pinned fixture under either value; live runs are `post_publish` only. |
 | `max_live_reruns_per_day` | yes | Ceiling on live gate runs per UTC day, across all triggers (0–1000). |
 | `min_assessor_tier_for_rerun` | yes | Lowest assessor tier whose reproducible assessment triggers a free re-run. |
 | `models` | yes | Model identifier for one or more of the agent roles `drafter`, `reviewer`, `coordinator`. |

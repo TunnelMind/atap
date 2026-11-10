@@ -130,6 +130,22 @@
       }
     },
     {
+      "name": "pre_publish_live_run",
+      "reason": "every pre-publish run is on a pinned fixture; live runs are post-publish only (AC-2.7, C8)",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "compile", "phase": "pre_publish", "trigger": "build", "target": "live",
+          "schema_fingerprint_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "result": "pass",
+          "checks": { "total": 40, "passed": 40, "failed": 0, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
       "name": "superseding_publication_without_diff",
       "reason": "a new version must say what changed",
       "event": {

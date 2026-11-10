@@ -153,7 +153,7 @@
           "then": { "required": ["golden_source"] },
           "else": { "not": { "required": ["golden_source"] } } },
         { "if": { "properties": { "phase": { "const": "pre_publish" } }, "required": ["phase"] },
-          "then": { "properties": { "trigger": { "const": "build" } } },
+          "then": { "properties": { "trigger": { "const": "build" }, "target": { "const": "fixture" } }, "required": ["target"] },
           "else": { "properties": { "trigger": { "enum": ["scheduled", "assessment"] } } } }
       ]
     },
