@@ -49,7 +49,12 @@
     "opaque_id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
-      "description": "Opaque token (model id, source id, source version). No `@` or whitespace."
+      "description": "Opaque token (model id, source id). No `@` or whitespace; MUST NOT carry an IP address or a key id (profile §10)."
+    },
+    "version_token": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$",
+      "description": "Version string (source_version, format_version), e.g. 3.3-patch4, mx-18.211, 1.0. No `:` or `/`, so an ip:port or a did:key cannot pass as a version."
     },
     "field_ref": {
       "type": "string",
@@ -82,7 +87,7 @@
         "version": { "$ref": "#/$defs/semver" },
         "model_sha256": { "$ref": "#/$defs/sha256", "description": "SHA-256 of the RFC 8785 canonical bytes of the model document parsed to JSON. Whitespace and key order in the YAML do not change it." },
         "format": { "const": "apache-ossie" },
-        "format_version": { "$ref": "#/$defs/opaque_id" },
+        "format_version": { "$ref": "#/$defs/version_token" },
         "drafter_model": { "$ref": "#/$defs/model" },
         "prompt_sha256": { "$ref": "#/$defs/sha256" },
         "inputs": {
@@ -112,7 +117,7 @@
         "evidence": { "enum": ["asserted", "witnessed"], "description": "witnessed only if the witness read the schema from the source itself." },
         "model_sha256": { "$ref": "#/$defs/sha256", "description": "The draft this pin was taken for: one schema_pinned event per source the draft used (drafted.inputs[].source_id)." },
         "source_id": { "$ref": "#/$defs/opaque_id" },
-        "source_version": { "$ref": "#/$defs/opaque_id" },
+        "source_version": { "$ref": "#/$defs/version_token" },
         "schema_fingerprint_sha256": { "$ref": "#/$defs/sha256", "description": "SHA-256 of the canonical (RFC 8785) list of tables, columns and types plus source_id and source_version." }
       }
     },

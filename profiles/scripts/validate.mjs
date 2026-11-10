@@ -20,6 +20,13 @@ const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
 
 let failures = 0;
 const fail = (msg) => { console.error(`  ✗ ${msg}`); failures++; };
+// a test file's case list; a missing or non-array key is a failure line, not
+// a TypeError that kills the run before the other profiles are checked
+const caseList = (doc, key, file) => {
+  if (Array.isArray(doc?.[key])) return doc[key];
+  fail(`${file}: "${key}" missing or not an array`);
+  return [];
+};
 const pass = (msg) => console.log(`  ✓ ${msg}`);
 
 // ── frozen ATAP v0.1 base schemas ────────────────────────────────────────────
@@ -122,7 +129,7 @@ for (const profile of readdirSync(profilesDir)) {
   if (existsSync(piiPath)) {
     // a case names its schema (default witness-events) and carries `doc`
     // instead of `event` when it is not a Witness Event
-    for (const c of readJson(piiPath).must_reject) {
+    for (const c of caseList(readJson(piiPath), 'must_reject', piiPath)) {
       const v = compiled[c.schema || 'witness-events'];
       if (!v) { fail(`PII case "${c.name}" names missing schema ${c.schema}`); continue; }
       v(c.doc ?? c.event)
@@ -141,10 +148,10 @@ for (const profile of readdirSync(profilesDir)) {
   for (const shapeFile of shapeFiles) {
     const v = compiled['witness-events'];
     const shapes = readJson(join(testsDir, shapeFile));
-    for (const c of shapes.must_accept) {
+    for (const c of caseList(shapes, 'must_accept', shapeFile)) {
       v(c.event) ? pass(`shape case "${c.name}" correctly accepted`) : fail(`shape case "${c.name}" was REJECTED — must be accepted: ${errs(v)}`);
     }
-    for (const c of shapes.must_reject) {
+    for (const c of caseList(shapes, 'must_reject', shapeFile)) {
       v(c.event)
         ? fail(`shape case "${c.name}" was ACCEPTED — must be rejected (${c.reason})`)
         : pass(`shape case "${c.name}" correctly rejected (${c.reason})`);

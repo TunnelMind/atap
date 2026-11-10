@@ -76,6 +76,8 @@ await generateExamples(import.meta.url, {
     });
 
     const out = [];
+    // format_version '1.0' is illustrative: per profile §9.3 it is pinned to
+    // the real Apache Ossie release at implementation.
     out.push(await witness('data_model:drafted', {
       timestamp: tick(), evidence: 'anchored', model_id: MODEL_ID, version: '0.3.1',
       model_sha256: v1, format: 'apache-ossie', format_version: '1.0',

@@ -27,7 +27,7 @@
       "items": {
         "$ref": "#/$defs/opaque_id"
       },
-      "description": "Source identifiers the models may be built from or compiled against (e.g. cisco-ise-3.3, meraki-dashboard-api-v1, tunnelmind-scry). A drafted event citing any other source breaks the constraint."
+      "description": "Source identifiers the models may be built from or compiled against (e.g. cisco-ise-3.3, meraki-dashboard-api-v1, fortinet-fortigate-7.4). A drafted event citing any other source breaks the constraint."
     },
     "required_gates": {
       "type": "array",

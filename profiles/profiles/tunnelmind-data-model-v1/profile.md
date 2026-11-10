@@ -174,7 +174,11 @@ published version is accurate or inaccurate.
 - **Re-runs are rate-limited and ordered.** A reproducible assessment at or
   above `min_assessor_tier_for_rerun` triggers a `post_publish`, `trigger:
   assessment` gate run, on the fixture first. Below that tier the re-run is
-  paid per call. Live re-runs count against `max_live_reruns_per_day`.
+  paid per call. Live re-runs count against `max_live_reruns_per_day`. A
+  failed re-run on a gate the version previously passed retires it
+  (`failed_rerun`, with its `cause_event`) unless the failure is confined to
+  fields already `degraded` before the re-run (marked by an earlier
+  `coverage_changed` event, not by the re-run itself).
 - **Confirmed assessments harden the suite.** `outcome: confirmed` with
   `golden_added: true` means the assessor's query, with the independently
   re-computed expected value, is now a permanent golden question for every
@@ -242,13 +246,17 @@ bytes match the hash its event names.
   or an opaque token, and
   [`schemas/golden-questions.schema.json`](schemas/golden-questions.schema.json)
   holds only machine fields per golden question;
-- identifier fields (`model_id`, `source_id`, `source_version`,
-  `format_version`) are opaque tokens with no `@` or whitespace, and
-  `field_ref` is lower-case dotted identifiers only.
+- identifier fields (`model_id`, `source_id`) are opaque tokens with no `@`
+  or whitespace, and MUST NOT carry an IP address or a key id (a `did:key`,
+  a fingerprint); `source_version` and `format_version` are version tokens
+  (letters, digits, `.`, `+`, `_`, `-`; no `:`, `/`, `@` or whitespace), so
+  an `ip:port` or a `did:key` cannot pass as a version; and `field_ref` is
+  lower-case dotted identifiers only.
 
 [`tests/pii-rejection.json`](tests/pii-rejection.json) is the §9.4(2)
-evidence: thirteen cases — eight events smuggling a name, an email, a key id,
-free-text question, or a client IP, four structured queries carrying an email
+evidence: fifteen cases — ten events smuggling a name, an email, a key id,
+free-text question, a client IP, or an `ip:port` or `did:key` as a source
+version, four structured queries carrying an email
 filter value, an email filter object, a free-text filter string or an extra
 question key, and one golden entry with question text; CI confirms each is
 rejected.

@@ -111,6 +111,32 @@
       }
     },
     {
+      "name": "ip_port_as_source_version",
+      "reason": "IP address and port in a version token (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:schema_pinned",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "witnessed",
+          "model_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "source_id": "cisco-ise-3.3", "source_version": "203.0.113.7:443",
+          "schema_fingerprint_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
+      "name": "did_key_as_source_version",
+      "reason": "key identifier in a version token (ATAP §7.6)",
+      "event": {
+        "event_type": "data_model:schema_pinned",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:01Z", "evidence": "witnessed",
+          "model_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "source_id": "cisco-ise-3.3", "source_version": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+          "schema_fingerprint_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      }
+    },
+    {
       "name": "email_as_source_id",
       "reason": "email address in an opaque identifier (ATAP §7.6)",
       "event": {
