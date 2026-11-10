@@ -1,0 +1,42 @@
+{
+  "@context": "https://tunnelmind.ai/atap/context.jsonld",
+  "@type": "AgentIdentityToken",
+  "id": "AIT-01a1a147-ce00-722c-a30f-b054442d8bf9",
+  "ait_version": "0.1",
+  "issued_at": "2026-11-03T12:00:00.000Z",
+  "expires_at": "2027-11-03T12:00:00.000Z",
+  "agent_type": "data-model-crew",
+  "profile": "tunnelmind:data_model:v1",
+  "operator": "OAI-2026-0010011",
+  "witness": "OAI-2026-0010012",
+  "capabilities": [
+    "data_model:draft"
+  ],
+  "constraints": {
+    "model_id": "cisco-network",
+    "allowed_sources": [
+      "cisco-ise-3.3",
+      "meraki-dashboard-api-v1",
+      "meraki-syslog"
+    ],
+    "required_gates": [
+      "compile",
+      "structural",
+      "golden",
+      "reconcile"
+    ],
+    "fixture_policy": "fixture_then_live",
+    "max_live_reruns_per_day": 24,
+    "min_assessor_tier_for_rerun": "software",
+    "models": {
+      "drafter": "claude-opus-5-5",
+      "reviewer": "claude-fable-5-1"
+    }
+  },
+  "attestation_policy": {
+    "witness_granularity": "per_action",
+    "block_interval_seconds": 3600,
+    "receipt_generation": "on_demand"
+  },
+  "witness_signature": "ed25519:0xec509ffa4a677424bbb552377386fed4f733be6f4d47791cf0fa735845fa0e2a9d49430c6c880745c281176e747dc2e593f5b808ce50c50eac179f81be7b0d06"
+}
