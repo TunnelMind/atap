@@ -255,7 +255,12 @@ bytes match the hash its event names.
   (`/` and one to three digits at the end) and no `did:` in any case. This is
   a shape heuristic, not proof that a token names no person, host or key:
   `jane.doe` has an enum member's shape and passes, and so would an address
-  written in a form none of these shapes covers; and
+  written in a form none of these shapes covers. It also rejects ordinary
+  values that happen to share those shapes — `v1.2.3.4`, `2026.11.09.1` and
+  `build-1.0.0.12` contain a dotted quad, `rule/100` ends like a CIDR suffix,
+  `abc:def:1` reads as colon-separated hex — so such a value must be encoded
+  as an enum member or as a token without those shapes (`v1-2-3-4`,
+  `rule-100`); and
   [`schemas/golden-questions.schema.json`](schemas/golden-questions.schema.json)
   holds only machine fields per golden question;
 - identifier fields (`model_id`, `source_id`) are opaque tokens with no `@`
@@ -266,14 +271,15 @@ bytes match the hash its event names.
   lower-case dotted identifiers only.
 
 [`tests/pii-rejection.json`](tests/pii-rejection.json) is the §9.4(2)
-evidence: twenty-four cases — ten events smuggling a name, an email, a key id,
+evidence: twenty-six cases — ten events smuggling a name, an email, a key id,
 free-text question, a client IP, or an `ip:port` or `did:key` as a source
-version, thirteen structured queries carrying an email
+version, fifteen structured queries carrying an email
 filter value, an email filter object, a free-text filter string, an extra
 question key, an IPv4, IPv6 or `did:key` filter value, an IPv4 CIDR
 (`10.0.0.0/8`, `203.0.113.7/32`), an IPv6 prefix (`2001:db8::/32`), an IP
 inside a hostname (`203.0.113.7.nip.io`) or a range (`10.0.0.1-10.0.0.9`),
-or an IPv4 inside an `in` list, and one golden entry with question text; CI
+or an IPv4 inside an `in` list, or one of the two documented false positives
+above (`v1.2.3.4`, `rule/100`), and one golden entry with question text; CI
 confirms each is rejected. Its `must_accept` list holds ordinary tokens
 (`site-a`, `vlan_20`, `ise:policy/guest`) the filter heuristic must leave
 alone; CI confirms each is accepted.

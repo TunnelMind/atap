@@ -29,6 +29,21 @@ const caseList = (doc, key, file) => {
 };
 const pass = (msg) => console.log(`  ✓ ${msg}`);
 
+// judge one must_accept / must_reject case → [ok, line]. A case with no input
+// is a failure: v(undefined) fails every schema, so without this guard a
+// must_reject case missing its doc/event would read "correctly rejected"
+// having tested nothing.
+const judge = (kind, c, v, input, field, mustAccept) => {
+  if (input === undefined) return [false, `${kind} case "${c.name}" has no ${field}`];
+  if (v(input) === mustAccept) {
+    return [true, `${kind} case "${c.name}" correctly ${mustAccept ? 'accepted' : `rejected (${c.reason})`}`];
+  }
+  return [false, mustAccept
+    ? `${kind} case "${c.name}" was REJECTED — must be accepted: ${errs(v)}`
+    : `${kind} case "${c.name}" was ACCEPTED — must be rejected (${c.reason})`];
+};
+const report = ([ok, line]) => (ok ? pass(line) : fail(line));
+
 // ── frozen ATAP v0.1 base schemas ────────────────────────────────────────────
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 addFormats(ajv);
@@ -47,6 +62,14 @@ const base = loadBase('atap-v0.1-schemas');
 const baseV02 = loadBase('atap-v0.2-schemas');
 
 const errs = (v) => ajv.errorsText(v.errors, { separator: '; ' });
+
+// self-test: a malformed must_reject case (no doc, no event) against a schema
+// that rejects everything must come back as a failure, not "correctly rejected"
+{
+  const [ok] = judge('self-test', { name: 'no input', reason: 'malformed' }, () => false, undefined, 'doc or event', false);
+  ok ? fail('self-test: a case with no doc/event was reported as passing')
+    : pass('self-test: a case with no doc/event is a reported failure');
+}
 
 // ── per-profile validation ───────────────────────────────────────────────────
 const profilesDir = join(root, 'profiles');
@@ -132,9 +155,7 @@ for (const profile of readdirSync(profilesDir)) {
     for (const c of caseList(readJson(piiPath), 'must_reject', piiPath)) {
       const v = compiled[c.schema || 'witness-events'];
       if (!v) { fail(`PII case "${c.name}" names missing schema ${c.schema}`); continue; }
-      v(c.doc ?? c.event)
-        ? fail(`PII case "${c.name}" was ACCEPTED — must be rejected (${c.reason})`)
-        : pass(`PII case "${c.name}" correctly rejected (${c.reason})`);
+      report(judge('PII', c, v, c.doc ?? c.event, 'doc or event', false));
     }
     // optional must_accept: ordinary values a PII heuristic must leave alone
     // (data-model: the query filter-value address/key pattern)
@@ -142,9 +163,7 @@ for (const profile of readdirSync(profilesDir)) {
     for (const c of pii.must_accept ? caseList(pii, 'must_accept', piiPath) : []) {
       const v = compiled[c.schema || 'witness-events'];
       if (!v) { fail(`PII case "${c.name}" names missing schema ${c.schema}`); continue; }
-      v(c.doc ?? c.event)
-        ? pass(`PII case "${c.name}" correctly accepted`)
-        : fail(`PII case "${c.name}" was REJECTED — must be accepted: ${errs(v)}`);
+      report(judge('PII', c, v, c.doc ?? c.event, 'doc or event', true));
     }
   }
 
@@ -183,12 +202,10 @@ for (const profile of readdirSync(profilesDir)) {
     const v = compiled['witness-events'];
     const shapes = readJson(join(testsDir, shapeFile));
     for (const c of caseList(shapes, 'must_accept', shapeFile)) {
-      v(c.event) ? pass(`shape case "${c.name}" correctly accepted`) : fail(`shape case "${c.name}" was REJECTED — must be accepted: ${errs(v)}`);
+      report(judge('shape', c, v, c.event, 'event', true));
     }
     for (const c of caseList(shapes, 'must_reject', shapeFile)) {
-      v(c.event)
-        ? fail(`shape case "${c.name}" was ACCEPTED — must be rejected (${c.reason})`)
-        : pass(`shape case "${c.name}" correctly rejected (${c.reason})`);
+      report(judge('shape', c, v, c.event, 'event', false));
     }
   }
 }

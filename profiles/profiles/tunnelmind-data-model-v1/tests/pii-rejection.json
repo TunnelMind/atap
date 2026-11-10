@@ -232,6 +232,18 @@
       "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.client_ip", "op": "in", "value": ["eap-tls", "203.0.113.7"]}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
     },
     {
+      "name": "false_positive_four_part_version_rejected",
+      "reason": "documented false positive: an ordinary four-part version contains a dotted quad, so the heuristic rejects it; encode such a value as an enum member or a token without that shape (profile §10)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.policy_version", "op": "eq", "value": "v1.2.3.4"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "false_positive_slash_number_rejected",
+      "reason": "documented false positive: an ordinary rule id ending in `/` and digits reads as a CIDR suffix, so the heuristic rejects it; encode such a value as an enum member or a token without that shape (profile §10)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.rule", "op": "eq", "value": "rule/100"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
       "name": "golden_question_text",
       "reason": "natural-language question text in a golden entry; only machine fields are permitted (ATAP §7.6)",
       "schema": "golden-questions",
