@@ -315,6 +315,37 @@
       }
     },
     {
+      "name": "failed_rerun_retirement_without_cause_event",
+      "reason": "a failed_rerun retirement must name the gate_run that failed in cause_event (C14, AC-6.4)",
+      "event": {
+        "event_type": "data_model:retired",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "anchored",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "reason": "failed_rerun"
+        }
+      }
+    },
+    {
+      "name": "live_run_with_fixture_sha256",
+      "reason": "a live run never carries a fixture hash; fixture_sha256 belongs to fixture runs only (C8)",
+      "event": {
+        "event_type": "data_model:gate_run",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "gate": "reconcile", "phase": "post_publish", "trigger": "scheduled", "target": "live",
+          "fixture_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "schema_fingerprints": [
+            { "source_id": "cisco-ise-3.3", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9" }
+          ],
+          "result": "fail",
+          "checks": { "total": 12, "passed": 11, "failed": 1, "refused": 0 },
+          "output_sha256": "7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730"
+        }
+      }
+    },
+    {
       "name": "approved_role_not_owner",
       "reason": "an approval records the owner role only, never another role or a person",
       "event": {
