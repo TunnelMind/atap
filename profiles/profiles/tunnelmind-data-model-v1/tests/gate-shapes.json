@@ -91,6 +91,19 @@
           "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
         }
       }
+    },
+    {
+      "name": "approved_owner_reject",
+      "note": "A reject is a valid shape. Ordering is the verifier's (profile §9): if this follows approved_owner_approve for the same model_sha256 before its published event, it is the latest decision and the version is not approved, so that publication fails verification.",
+      "event": {
+        "event_type": "data_model:approved",
+        "payload": {
+          "timestamp": "2026-11-03T12:05:00Z", "evidence": "witnessed",
+          "role": "owner", "decision": "reject",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+        }
+      }
     }
   ],
   "must_reject": [

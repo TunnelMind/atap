@@ -225,12 +225,16 @@ source differs from its pin, that omits a pinned source, or that names a
 source with no pin fails the check; `source_id` MUST be unique within
 `schema_fingerprints` (the schema cannot express per-key uniqueness, so the
 verifier rejects a repeated `source_id`); that each of the first three versions of a
-lineage (same `model_id`, counted in `published` order) has a
-`data_model:approved` event with `decision: approve` for the same
-`model_sha256` earlier in the chain than its `published` event — version four
+lineage (same `model_id`, counted in `published` order) is approved: the
+latest `data_model:approved` event for the same `model_sha256` earlier in
+the chain than its `published` event has `decision: approve` — a later
+`reject` overrides an earlier `approve`, so approve-then-reject before
+publication fails the check, as does no approval event at all; version four
 onward needs no approval, the gates decide (spec AC-3.2 as settled in §9.4);
 that every `cause_event`, `assessment_event` and
-`rerun_event` names an earlier event in the chain; and that each artifact's
+`rerun_event` names an earlier event in the chain; that each structured
+query's `time_range.from` is strictly earlier than its `to` (the schema
+cannot compare dates); and that each artifact's
 bytes match the hash its event names.
 
 ## 10. PII prohibition (ATAP §7.6)
@@ -243,7 +247,9 @@ bytes match the hash its event names.
   events; the structured query artifacts admit no free text:
   [`schemas/query.schema.json`](schemas/query.schema.json) takes metric and
   dimensions as `field_ref`s and a filter value only as a number, a boolean
-  or an opaque token, and
+  or an opaque token with no `@` or whitespace that is not shaped like an
+  IPv4 or IPv6 address or a `did:` key id (an opaque token is not checked
+  for being a person's name: `jane.doe` has an enum member's shape), and
   [`schemas/golden-questions.schema.json`](schemas/golden-questions.schema.json)
   holds only machine fields per golden question;
 - identifier fields (`model_id`, `source_id`) are opaque tokens with no `@`
@@ -254,11 +260,12 @@ bytes match the hash its event names.
   lower-case dotted identifiers only.
 
 [`tests/pii-rejection.json`](tests/pii-rejection.json) is the §9.4(2)
-evidence: fifteen cases — ten events smuggling a name, an email, a key id,
+evidence: nineteen cases — ten events smuggling a name, an email, a key id,
 free-text question, a client IP, or an `ip:port` or `did:key` as a source
-version, four structured queries carrying an email
-filter value, an email filter object, a free-text filter string or an extra
-question key, and one golden entry with question text; CI confirms each is
+version, eight structured queries carrying an email
+filter value, an email filter object, a free-text filter string, an extra
+question key, an IPv4, IPv6 or `did:key` filter value, or an IPv4 inside an
+`in` list, and one golden entry with question text; CI confirms each is
 rejected.
 
 ## 11. Conformance
@@ -274,16 +281,17 @@ An implementation conforms to `tunnelmind:data_model:v1` if:
 4. no payload, summary or artifact contains PII (§10);
 5. every event's `evidence` follows §3;
 6. no version is published without passing every gate in `required_gates`
-   (§6), none of a lineage's first three versions is published without an
-   earlier owner `approved` event with `decision: approve` for the same
-   `model_sha256` (§9; version four onward needs none), and no published
+   (§6), none of a lineage's first three versions is published unless the
+   latest owner `approved` event for the same `model_sha256` before its
+   `published` event has `decision: approve` — a later `reject` overrides an
+   earlier `approve` (§9; version four onward needs none), and no published
    version or event is edited (§7.1).
 
 ## 12. Examples
 
 [`examples/`](examples/) holds a signed, hash-chained set: `ait.json`, a
-thirteen-event chain covering every event type — draft, schema pin, four
-passing gates, the owner's approval, publication, a reproducible assessment, its re-run against an
+fourteen-event chain covering every event type — draft, two schema pins
+(one per source), four passing gates, the owner's approval, publication, a reproducible assessment, its re-run against an
 independently recomputed answer (`human_sql`), its confirmation, the field
 degraded, and the version retired as `failed_rerun` — plus
 `attestation-block.json`, `receipt.json`, `public_keys.json`, the

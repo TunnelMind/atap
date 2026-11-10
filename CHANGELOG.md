@@ -162,13 +162,17 @@ changes verdict; each line names the inputs that do.
   versions are never edited (§14.1) — status is derived from later events.
   An owner approval (`data_model:approved`, always witnessed; role and the
   approval text's sha256 only) is required before each of a lineage's first
-  three published versions; after that the gates decide. `pre_publish` gate
+  three published versions — the latest approval event before publication
+  decides, so a later reject overrides an earlier approve; after that the
+  gates decide. `pre_publish` gate
   runs are pinned to `trigger: build` and `target: fixture`. Every gate run
   carries `schema_fingerprints` (one `{source_id, sha256}` per source), and
   on `pre_publish` runs they must match that draft's schema pins exactly.
   Structured queries (`schemas/query.schema.json`) and golden questions admit
-  no free text. Fifteen PII-rejection cases and twenty-four gate-shape cases
-  (6 accept, 18 reject); signed examples round-trip. Profile registry README
+  no free text: a filter value is a number, a boolean or an opaque token with
+  no `@` or whitespace that is not shaped like an IP address or a `did:` key
+  id (a name written as one token is not detected). Nineteen PII-rejection
+  cases and twenty-five gate-shape cases (7 accept, 18 reject); signed examples round-trip. Profile registry README
   now also lists `tunnelmind:code_crew:v1`, which `registry.json` already
   carried.
 - Profile CI: `scripts/validate.mjs` runs every `tests/*-shapes.json` file, not
