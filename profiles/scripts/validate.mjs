@@ -44,6 +44,31 @@ const judge = (kind, c, v, input, field, mustAccept) => {
 };
 const report = ([ok, line]) => (ok ? pass(line) : fail(line));
 
+// approval-chain rule (data-model profile §9): for every data_model:published
+// event, the LAST data_model:approved event before it with the same
+// model_sha256 must say `approve`. ponytail: every published event is treated
+// as one of the lineage's first three versions — the cases only publish first
+// versions.
+const approvedOk = (events) => events.every((e, i) => e.event_type !== 'data_model:published'
+  || events.slice(0, i).filter((a) => a.event_type === 'data_model:approved'
+    && a.payload.model_sha256 === e.payload.model_sha256).at(-1)?.payload.decision === 'approve');
+// judge one approval-chain case → [ok, line]. A case with no events array is a
+// failure line (not a TypeError), and a must_pass chain with no published
+// event is a failure: `every` over nothing to check would pass having tested
+// nothing. (A must_fail chain with no published event already fails: it
+// passes the rule vacuously, so it reads "PASSED — must fail".)
+const judgeChain = (c, v, want) => {
+  if (!Array.isArray(c.events)) return [false, `approval chain "${c.name}" has no events array`];
+  if (want && !c.events.some((e) => e?.event_type === 'data_model:published')) {
+    return [false, `approval chain "${c.name}": must_pass chain has no data_model:published event`];
+  }
+  const bad = c.events.findIndex((e) => !v(e));
+  if (bad >= 0) return [false, `approval chain "${c.name}" event[${bad}] fails the profile schema: ${errs(v)}`];
+  return approvedOk(c.events) === want
+    ? [true, `approval chain "${c.name}" correctly ${want ? 'passes' : `fails (${c.reason})`}`]
+    : [false, `approval chain "${c.name}" ${want ? 'FAILED — must pass' : `PASSED — must fail (${c.reason})`}`];
+};
+
 // ── frozen ATAP v0.1 base schemas ────────────────────────────────────────────
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 addFormats(ajv);
@@ -63,12 +88,35 @@ const baseV02 = loadBase('atap-v0.2-schemas');
 
 const errs = (v) => ajv.errorsText(v.errors, { separator: '; ' });
 
+// resolve one added profile schema → [ok, line, validator]. A schema with no
+// $id is added under no key, so getSchema(undefined) returns undefined; without
+// this guard the loop printed "valid" and stored an undefined validator.
+const resolveSchema = (f, id) => {
+  const v = id === undefined ? undefined : ajv.getSchema(id);
+  return v ? [true, `schema ${f} is valid JSON Schema 2020-12`, v]
+    : [false, `schema ${f} has no $id / could not be resolved`];
+};
+// self-test: a schema with no $id is a reported failure, not "valid"
+resolveSchema('self-test.schema.json', undefined)[0]
+  ? fail('self-test: a schema with no $id was reported as valid')
+  : pass('self-test: a schema with no $id is a reported failure');
+
 // self-test: a malformed must_reject case (no doc, no event) against a schema
 // that rejects everything must come back as a failure, not "correctly rejected"
 {
   const [ok] = judge('self-test', { name: 'no input', reason: 'malformed' }, () => false, undefined, 'doc or event', false);
   ok ? fail('self-test: a case with no doc/event was reported as passing')
     : pass('self-test: a case with no doc/event is a reported failure');
+}
+// self-test: malformed approval chains (no events array; a must_pass chain
+// with no published event) are reported failures, never a throw or a pass
+{
+  const accept = () => true;
+  const okNoArray = judgeChain({ name: 'no events' }, accept, true)[0];
+  const okNoPub = judgeChain({ name: 'no published', events: [{ event_type: 'data_model:approved', payload: {} }] }, accept, true)[0];
+  okNoArray || okNoPub
+    ? fail('self-test: a malformed approval chain was reported as passing')
+    : pass('self-test: a malformed approval chain is a reported failure');
 }
 
 // ── per-profile validation ───────────────────────────────────────────────────
@@ -96,8 +144,9 @@ for (const profile of readdirSync(profilesDir)) {
   }
   for (const [f, id] of added) {
     try {
-      compiled[f.replace('.schema.json', '')] = ajv.getSchema(id);
-      pass(`schema ${f} is valid JSON Schema 2020-12`);
+      const [ok, line, v] = resolveSchema(f, id);
+      if (ok) compiled[f.replace('.schema.json', '')] = v;
+      report([ok, line]);
     } catch (e) {
       fail(`schema ${f} failed to compile: ${e.message}`);
     }
@@ -168,25 +217,15 @@ for (const profile of readdirSync(profilesDir)) {
   }
 
   // approval chains (data-model profile §9): multi-event cases for the
-  // latest-event rule, which no single-event schema can express. A chain
-  // passes when, for every data_model:published event, the LAST
-  // data_model:approved event before it with the same model_sha256 says
-  // `approve`. ponytail: every published event is treated as one of the
-  // lineage's first three versions — the cases only publish first versions.
+  // latest-event rule, which no single-event schema can express; the rule is
+  // approvedOk / judgeChain above.
   const chainsPath = join(pdir, 'tests', 'approval-chains.json');
   if (existsSync(chainsPath)) {
     const v = compiled['witness-events'];
-    const approvedOk = (events) => events.every((e, i) => e.event_type !== 'data_model:published'
-      || events.slice(0, i).filter((a) => a.event_type === 'data_model:approved'
-        && a.payload.model_sha256 === e.payload.model_sha256).at(-1)?.payload.decision === 'approve');
     const chains = readJson(chainsPath);
     for (const [key, want] of [['must_pass', true], ['must_fail', false]]) {
       for (const c of caseList(chains, key, chainsPath)) {
-        const bad = c.events.findIndex((e) => !v(e));
-        if (bad >= 0) { fail(`approval chain "${c.name}" event[${bad}] fails the profile schema: ${errs(v)}`); continue; }
-        approvedOk(c.events) === want
-          ? pass(`approval chain "${c.name}" correctly ${want ? 'passes' : `fails (${c.reason})`}`)
-          : fail(`approval chain "${c.name}" ${want ? 'FAILED — must pass' : `PASSED — must fail (${c.reason})`}`);
+        report(judgeChain(c, v, want));
       }
     }
   }
