@@ -136,6 +136,40 @@ for (const profile of readdirSync(profilesDir)) {
         ? fail(`PII case "${c.name}" was ACCEPTED — must be rejected (${c.reason})`)
         : pass(`PII case "${c.name}" correctly rejected (${c.reason})`);
     }
+    // optional must_accept: ordinary values a PII heuristic must leave alone
+    // (data-model: the query filter-value address/key pattern)
+    const pii = readJson(piiPath);
+    for (const c of pii.must_accept ? caseList(pii, 'must_accept', piiPath) : []) {
+      const v = compiled[c.schema || 'witness-events'];
+      if (!v) { fail(`PII case "${c.name}" names missing schema ${c.schema}`); continue; }
+      v(c.doc ?? c.event)
+        ? pass(`PII case "${c.name}" correctly accepted`)
+        : fail(`PII case "${c.name}" was REJECTED — must be accepted: ${errs(v)}`);
+    }
+  }
+
+  // approval chains (data-model profile §9): multi-event cases for the
+  // latest-event rule, which no single-event schema can express. A chain
+  // passes when, for every data_model:published event, the LAST
+  // data_model:approved event before it with the same model_sha256 says
+  // `approve`. ponytail: every published event is treated as one of the
+  // lineage's first three versions — the cases only publish first versions.
+  const chainsPath = join(pdir, 'tests', 'approval-chains.json');
+  if (existsSync(chainsPath)) {
+    const v = compiled['witness-events'];
+    const approvedOk = (events) => events.every((e, i) => e.event_type !== 'data_model:published'
+      || events.slice(0, i).filter((a) => a.event_type === 'data_model:approved'
+        && a.payload.model_sha256 === e.payload.model_sha256).at(-1)?.payload.decision === 'approve');
+    const chains = readJson(chainsPath);
+    for (const [key, want] of [['must_pass', true], ['must_fail', false]]) {
+      for (const c of caseList(chains, key, chainsPath)) {
+        const bad = c.events.findIndex((e) => !v(e));
+        if (bad >= 0) { fail(`approval chain "${c.name}" event[${bad}] fails the profile schema: ${errs(v)}`); continue; }
+        approvedOk(c.events) === want
+          ? pass(`approval chain "${c.name}" correctly ${want ? 'passes' : `fails (${c.reason})`}`)
+          : fail(`approval chain "${c.name}" ${want ? 'FAILED — must pass' : `PASSED — must fail (${c.reason})`}`);
+      }
+    }
   }
 
   // payload-shape cases (e.g. code_crew:merged PR vs local, data_model gate

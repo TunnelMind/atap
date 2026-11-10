@@ -247,9 +247,15 @@ bytes match the hash its event names.
   events; the structured query artifacts admit no free text:
   [`schemas/query.schema.json`](schemas/query.schema.json) takes metric and
   dimensions as `field_ref`s and a filter value only as a number, a boolean
-  or an opaque token with no `@` or whitespace that is not shaped like an
-  IPv4 or IPv6 address or a `did:` key id (an opaque token is not checked
-  for being a person's name: `jane.doe` has an enum member's shape), and
+  or an opaque token matching `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$` (so no
+  `@` or whitespace) that contains, anywhere, no dotted quad
+  (`[0-9]{1,3}(\.[0-9]{1,3}){3}`), no `::`, no hex group followed by two or
+  more `:`-separated hex groups (`[0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{0,4}){2,}`,
+  i.e. two or more colons between hex runs), no trailing CIDR suffix
+  (`/` and one to three digits at the end) and no `did:` in any case. This is
+  a shape heuristic, not proof that a token names no person, host or key:
+  `jane.doe` has an enum member's shape and passes, and so would an address
+  written in a form none of these shapes covers; and
   [`schemas/golden-questions.schema.json`](schemas/golden-questions.schema.json)
   holds only machine fields per golden question;
 - identifier fields (`model_id`, `source_id`) are opaque tokens with no `@`
@@ -260,13 +266,24 @@ bytes match the hash its event names.
   lower-case dotted identifiers only.
 
 [`tests/pii-rejection.json`](tests/pii-rejection.json) is the §9.4(2)
-evidence: nineteen cases — ten events smuggling a name, an email, a key id,
+evidence: twenty-four cases — ten events smuggling a name, an email, a key id,
 free-text question, a client IP, or an `ip:port` or `did:key` as a source
-version, eight structured queries carrying an email
+version, thirteen structured queries carrying an email
 filter value, an email filter object, a free-text filter string, an extra
-question key, an IPv4, IPv6 or `did:key` filter value, or an IPv4 inside an
-`in` list, and one golden entry with question text; CI confirms each is
-rejected.
+question key, an IPv4, IPv6 or `did:key` filter value, an IPv4 CIDR
+(`10.0.0.0/8`, `203.0.113.7/32`), an IPv6 prefix (`2001:db8::/32`), an IP
+inside a hostname (`203.0.113.7.nip.io`) or a range (`10.0.0.1-10.0.0.9`),
+or an IPv4 inside an `in` list, and one golden entry with question text; CI
+confirms each is rejected. Its `must_accept` list holds ordinary tokens
+(`site-a`, `vlan_20`, `ise:policy/guest`) the filter heuristic must leave
+alone; CI confirms each is accepted.
+
+[`tests/approval-chains.json`](tests/approval-chains.json) holds event chains
+for the §9 approval rule: approve → reject → `published` for the same
+`model_sha256`, no approval, an approval for another model, and an approval
+after publication must fail; approve → `published` and reject → approve →
+`published` must pass. `scripts/validate.mjs` schema-checks every event and
+evaluates the latest-event rule over each chain.
 
 ## 11. Conformance
 

@@ -1,0 +1,227 @@
+{
+  "description": "Profile §9 latest-event approval rule, as chains of Witness Events in chain order. For each data_model:published event among a lineage's first three versions, the LATEST data_model:approved event for the same model_sha256 earlier in the chain MUST have decision approve; a later reject overrides an earlier approve and no approval at all fails. scripts/validate.mjs validates every event against witness-events.schema.json and evaluates the rule: must_pass chains satisfy it, must_fail chains break it. Each chain here publishes one first version, so the rule applies to every published event.",
+  "must_pass": [
+    {
+      "name": "approve_then_published",
+      "events": [
+        {
+          "event_type": "data_model:approved",
+          "payload": {
+            "timestamp": "2026-11-03T12:01:00Z",
+            "evidence": "witnessed",
+            "role": "owner",
+            "decision": "approve",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+          }
+        },
+        {
+          "event_type": "data_model:published",
+          "payload": {
+            "timestamp": "2026-11-03T12:09:00Z",
+            "evidence": "anchored",
+            "model_id": "cisco-network",
+            "version": "0.3.1",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "supersedes_sha256": null,
+            "coverage": {
+              "observed_clean": 31,
+              "never_observed": 6,
+              "degraded": 0
+            },
+            "coverage_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+            "golden_count": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "reject_then_approve_then_published",
+      "note": "the later approve overrides the earlier reject",
+      "events": [
+        {
+          "event_type": "data_model:approved",
+          "payload": {
+            "timestamp": "2026-11-03T12:01:00Z",
+            "evidence": "witnessed",
+            "role": "owner",
+            "decision": "reject",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+          }
+        },
+        {
+          "event_type": "data_model:approved",
+          "payload": {
+            "timestamp": "2026-11-03T12:02:00Z",
+            "evidence": "witnessed",
+            "role": "owner",
+            "decision": "approve",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+          }
+        },
+        {
+          "event_type": "data_model:published",
+          "payload": {
+            "timestamp": "2026-11-03T12:09:00Z",
+            "evidence": "anchored",
+            "model_id": "cisco-network",
+            "version": "0.3.1",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "supersedes_sha256": null,
+            "coverage": {
+              "observed_clean": 31,
+              "never_observed": 6,
+              "degraded": 0
+            },
+            "coverage_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+            "golden_count": 40
+          }
+        }
+      ]
+    }
+  ],
+  "must_fail": [
+    {
+      "name": "approve_then_reject_then_published",
+      "reason": "the latest decision before publication is reject",
+      "events": [
+        {
+          "event_type": "data_model:approved",
+          "payload": {
+            "timestamp": "2026-11-03T12:01:00Z",
+            "evidence": "witnessed",
+            "role": "owner",
+            "decision": "approve",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+          }
+        },
+        {
+          "event_type": "data_model:approved",
+          "payload": {
+            "timestamp": "2026-11-03T12:02:00Z",
+            "evidence": "witnessed",
+            "role": "owner",
+            "decision": "reject",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+          }
+        },
+        {
+          "event_type": "data_model:published",
+          "payload": {
+            "timestamp": "2026-11-03T12:09:00Z",
+            "evidence": "anchored",
+            "model_id": "cisco-network",
+            "version": "0.3.1",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "supersedes_sha256": null,
+            "coverage": {
+              "observed_clean": 31,
+              "never_observed": 6,
+              "degraded": 0
+            },
+            "coverage_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+            "golden_count": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "no_approval_then_published",
+      "reason": "no approval event for the model_sha256",
+      "events": [
+        {
+          "event_type": "data_model:published",
+          "payload": {
+            "timestamp": "2026-11-03T12:09:00Z",
+            "evidence": "anchored",
+            "model_id": "cisco-network",
+            "version": "0.3.1",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "supersedes_sha256": null,
+            "coverage": {
+              "observed_clean": 31,
+              "never_observed": 6,
+              "degraded": 0
+            },
+            "coverage_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+            "golden_count": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "approve_other_model_then_published",
+      "reason": "the approval names a different model_sha256",
+      "events": [
+        {
+          "event_type": "data_model:approved",
+          "payload": {
+            "timestamp": "2026-11-03T12:01:00Z",
+            "evidence": "witnessed",
+            "role": "owner",
+            "decision": "approve",
+            "model_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+            "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+          }
+        },
+        {
+          "event_type": "data_model:published",
+          "payload": {
+            "timestamp": "2026-11-03T12:09:00Z",
+            "evidence": "anchored",
+            "model_id": "cisco-network",
+            "version": "0.3.1",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "supersedes_sha256": null,
+            "coverage": {
+              "observed_clean": 31,
+              "never_observed": 6,
+              "degraded": 0
+            },
+            "coverage_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+            "golden_count": 40
+          }
+        }
+      ]
+    },
+    {
+      "name": "published_then_approve",
+      "reason": "the approval comes after the published event",
+      "events": [
+        {
+          "event_type": "data_model:published",
+          "payload": {
+            "timestamp": "2026-11-03T12:09:00Z",
+            "evidence": "anchored",
+            "model_id": "cisco-network",
+            "version": "0.3.1",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "supersedes_sha256": null,
+            "coverage": {
+              "observed_clean": 31,
+              "never_observed": 6,
+              "degraded": 0
+            },
+            "coverage_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+            "golden_count": 40
+          }
+        },
+        {
+          "event_type": "data_model:approved",
+          "payload": {
+            "timestamp": "2026-11-03T12:09:00Z",
+            "evidence": "witnessed",
+            "role": "owner",
+            "decision": "approve",
+            "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+          }
+        }
+      ]
+    }
+  ]
+}

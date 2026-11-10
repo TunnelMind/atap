@@ -170,9 +170,12 @@ changes verdict; each line names the inputs that do.
   on `pre_publish` runs they must match that draft's schema pins exactly.
   Structured queries (`schemas/query.schema.json`) and golden questions admit
   no free text: a filter value is a number, a boolean or an opaque token with
-  no `@` or whitespace that is not shaped like an IP address or a `did:` key
-  id (a name written as one token is not detected). Nineteen PII-rejection
-  cases and twenty-five gate-shape cases (7 accept, 18 reject); signed examples round-trip. Profile registry README
+  no `@` or whitespace containing no dotted quad, `::`, colon-separated hex
+  run, trailing CIDR suffix or `did:` anywhere (a heuristic: a name written
+  as one token is not detected). Twenty-four PII-rejection cases (plus three
+  ordinary tokens that must be accepted), twenty-five gate-shape cases
+  (7 accept, 18 reject) and six approval-chain cases for the latest-event
+  rule (`tests/approval-chains.json`); signed examples round-trip. Profile registry README
   now also lists `tunnelmind:code_crew:v1`, which `registry.json` already
   carried.
 - Profile CI: `scripts/validate.mjs` runs every `tests/*-shapes.json` file, not
