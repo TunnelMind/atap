@@ -1,0 +1,17 @@
+{
+  "metric": "ise.auth_events.failure_rate",
+  "dimensions": [
+    "ise.auth_events.auth_method"
+  ],
+  "filters": [
+    {
+      "field_ref": "ise.auth_events.auth_method",
+      "op": "eq",
+      "value": "eap-tls"
+    }
+  ],
+  "time_range": {
+    "from": "2026-10-30T00:00:00Z",
+    "to": "2026-10-31T00:00:00Z"
+  }
+}

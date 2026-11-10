@@ -1,5 +1,5 @@
 {
-  "description": "ATAP v0.1 §9.4(2) acceptance evidence: each case is a Witness Event whose payload smuggles a person-resolvable or free-text field forbidden by ATAP §7.6 and §4. Every case MUST FAIL validation against witness-events.schema.json — every payload sets additionalProperties:false, assessors are recorded by kind, tier and nullifier only, identifiers are opaque tokens, and questions and queries are sha256 digests. A case that validates is a profile defect.",
+  "description": "ATAP v0.1 §9.4(2) acceptance evidence: each case is a Witness Event whose payload smuggles a person-resolvable or free-text field forbidden by ATAP §7.6 and §4. Every case MUST FAIL validation against witness-events.schema.json — every payload sets additionalProperties:false, assessors are recorded by kind, tier and nullifier only, identifiers are opaque tokens, and questions and queries are sha256 digests. Cases naming `schema` carry a `doc` checked against that schema instead (query: schemas/query.schema.json, golden-questions: schemas/golden-questions.schema.json), where the structured query artifacts admit no free text. A case that validates is a profile defect.",
   "must_reject": [
     {
       "name": "assessor_email",
@@ -125,6 +125,36 @@
             "sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c" }]
         }
       }
+    },
+    {
+      "name": "email_in_query_filter_value",
+      "reason": "email address as a filter value; values are numbers, booleans or opaque tokens with no `@` (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.user", "op": "eq", "value": "jane@example.com"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "email_as_query_filter_object",
+      "reason": "filter written as {\"user\":\"jane@example.com\"}; a filter is only field_ref, op, value (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"user": "jane@example.com"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "free_text_query_filter",
+      "reason": "free-text filter string that may name a person; whitespace is not permitted in a filter value (ATAP §7.6, §4)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.user", "op": "eq", "value": "failed logins for Jane Smith last week"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}
+    },
+    {
+      "name": "query_extra_key",
+      "reason": "natural-language question smuggled in as an extra key; additionalProperties:false (ATAP §7.6)",
+      "schema": "query",
+      "doc": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.auth_method", "op": "eq", "value": "eap-tls"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}, "question": "What was the EAP-TLS failure rate for jane@example.com?"}
+    },
+    {
+      "name": "golden_question_text",
+      "reason": "natural-language question text in a golden entry; only machine fields are permitted (ATAP §7.6)",
+      "schema": "golden-questions",
+      "doc": [{"query_sha256": "b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c", "query": {"metric": "ise.auth_events.failure_rate", "dimensions": ["ise.auth_events.auth_method"], "filters": [{"field_ref": "ise.auth_events.auth_method", "op": "eq", "value": "eap-tls"}], "time_range": {"from": "2026-10-30T00:00:00Z", "to": "2026-10-31T00:00:00Z"}}, "golden_source": "human_sql", "expected": 0.031, "tolerance": 0.001, "question": "What was the EAP-TLS failure rate for Jane Smith on Oct 30?"}]
     }
   ]
 }

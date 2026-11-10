@@ -1,7 +1,7 @@
 {
   "@context": "https://tunnelmind.ai/atap/context.jsonld",
   "@type": "AgentIdentityToken",
-  "id": "AIT-01a1a147-ce00-7c6f-8009-37d03c07e2c3",
+  "id": "AIT-01a1a147-ce00-7c76-87c0-438acacac0dd",
   "ait_version": "0.1",
   "issued_at": "2026-11-03T12:00:00.000Z",
   "expires_at": "2027-11-03T12:00:00.000Z",
@@ -38,5 +38,5 @@
     "block_interval_seconds": 3600,
     "receipt_generation": "on_demand"
   },
-  "witness_signature": "ed25519:0xa0ba22ea0d008772d99f9625a79b6be21899c50c8c2efbaf3c5baf814225c6bfca1d251432598a7f810e266e50e3f13895eccc3f0a764f27c375ac492a725703"
+  "witness_signature": "ed25519:0xfdb4b1be66ee0c702becf36feccd0701ed494ed24af0e648ac33b05abde2b32521f9b64196132c72612dc744dcbb721430f5d43bfcf4cd9859fcaf1fee46a70d"
 }

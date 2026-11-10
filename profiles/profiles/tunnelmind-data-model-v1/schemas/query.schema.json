@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tunnelmind.ai/atap/profiles/tunnelmind-data-model-v1/query.schema.json",
+  "title": "tunnelmind:data_model:v1 — structured query artifact",
+  "description": "profile_artifacts/queries/{query_sha256}.json: the structured query an assessment or golden question names by query_sha256 — metric, dimensions, filters, time range. No field admits free text (ATAP §7.6): metric and dimensions are field_refs, a filter value is only a number, a boolean or an opaque token (no `@`, no whitespace), and every object sets additionalProperties:false. A question in natural language, an email or a name typed with spaces has nowhere to go.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["metric", "dimensions", "filters", "time_range"],
+  "properties": {
+    "metric": { "$ref": "#/$defs/field_ref" },
+    "dimensions": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/$defs/field_ref" } },
+    "filters": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field_ref", "op", "value"],
+        "properties": {
+          "field_ref": { "$ref": "#/$defs/field_ref" },
+          "op": { "enum": ["eq", "ne", "lt", "le", "gt", "ge", "in"] },
+          "value": {
+            "anyOf": [
+              { "$ref": "#/$defs/scalar" },
+              { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/scalar" } }
+            ]
+          }
+        }
+      }
+    },
+    "time_range": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["from", "to"],
+          "properties": { "from": { "type": "string", "format": "date-time" }, "to": { "type": "string", "format": "date-time" } } },
+        { "type": "object", "additionalProperties": false, "required": ["last"],
+          "properties": { "last": { "enum": ["1h", "24h", "7d", "30d", "90d"] } } }
+      ]
+    }
+  },
+  "$defs": {
+    "field_ref": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}(\\.[a-z][a-z0-9_]{0,63}){0,7}$",
+      "description": "Same pattern as witness-events.schema.json field_ref: dotted lower-case identifiers only."
+    },
+    "scalar": {
+      "description": "A filter value: a number, a boolean, or an opaque token (an enum member such as `failure` or `eap-tls` is an opaque token). Same token pattern as witness-events.schema.json opaque_id: no `@`, no whitespace.",
+      "anyOf": [
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$" }
+      ]
+    }
+  }
+}

@@ -50,10 +50,23 @@ for (const profile of readdirSync(profilesDir)) {
 
   // (1) profile schemas compile as JSON Schema 2020-12
   const schemaDir = join(pdir, 'schemas');
+  // Two passes: register every schema first so one may $ref a sibling by
+  // relative $id (golden-questions → query) regardless of file order.
   const compiled = {};
-  for (const f of readdirSync(schemaDir).filter((x) => x.endsWith('.json'))) {
+  const files = readdirSync(schemaDir).filter((x) => x.endsWith('.json'));
+  const added = [];
+  for (const f of files) {
     try {
-      compiled[f.replace('.schema.json', '')] = ajv.compile(readJson(join(schemaDir, f)));
+      const schema = readJson(join(schemaDir, f));
+      ajv.addSchema(schema);
+      added.push([f, schema.$id]);
+    } catch (e) {
+      fail(`schema ${f} failed to compile: ${e.message}`);
+    }
+  }
+  for (const [f, id] of added) {
+    try {
+      compiled[f.replace('.schema.json', '')] = ajv.getSchema(id);
       pass(`schema ${f} is valid JSON Schema 2020-12`);
     } catch (e) {
       fail(`schema ${f} failed to compile: ${e.message}`);
@@ -90,6 +103,13 @@ for (const profile of readdirSync(profilesDir)) {
     validate(base['attestation-block'], block, 'example block validates against base v0.1 schema');
     validateProfile('period-summary', block.period_summary, 'example block period_summary validates against profile schema');
   }
+  // receipt artifacts with their own profile schema (data-model: query and
+  // golden suite); the example file is named after the schema
+  for (const name of ['query', 'golden-questions']) {
+    if (compiled[name] && existsSync(join(ex, `${name}.json`))) {
+      validateProfile(name, readJson(join(ex, `${name}.json`)), `example ${name}.json validates against profile schema`);
+    }
+  }
   if (existsSync(join(ex, 'receipt.json'))) {
     validate(base['receipt'], readJson(join(ex, 'receipt.json')), 'example receipt validates against base v0.1 schema');
   }
@@ -100,9 +120,12 @@ for (const profile of readdirSync(profilesDir)) {
   // (2) PII rejection — every must_reject case fails the profile schema
   const piiPath = join(pdir, 'tests', 'pii-rejection.json');
   if (existsSync(piiPath)) {
-    const v = compiled['witness-events'];
+    // a case names its schema (default witness-events) and carries `doc`
+    // instead of `event` when it is not a Witness Event
     for (const c of readJson(piiPath).must_reject) {
-      v(c.event)
+      const v = compiled[c.schema || 'witness-events'];
+      if (!v) { fail(`PII case "${c.name}" names missing schema ${c.schema}`); continue; }
+      v(c.doc ?? c.event)
         ? fail(`PII case "${c.name}" was ACCEPTED — must be rejected (${c.reason})`)
         : pass(`PII case "${c.name}" correctly rejected (${c.reason})`);
     }

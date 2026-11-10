@@ -4,7 +4,7 @@
       "witness": "OAI-2026-0010012",
       "key_id": "example-key-1",
       "algorithm": "ed25519",
-      "public_key": "0x014d0ab01dbadb9071479913bf898382e17df5b932fa00c79aef4a9427ad30ce",
+      "public_key": "0x6090e28ec462ba9d8ae67de76d926b89d558444d36df67b1bfdccb1c36c92ed9",
       "valid_from": "2026-11-03T00:00:00Z",
       "valid_until": "2027-11-03T00:00:00Z",
       "status": "active",

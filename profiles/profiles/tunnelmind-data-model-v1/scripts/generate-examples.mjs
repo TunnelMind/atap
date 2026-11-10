@@ -12,11 +12,25 @@
  * marked degraded, and the version retired because the re-run failed.
  * Every value is illustrative; no fixture contains real network data.
  */
+import { writeFileSync } from 'node:fs';
+import { canonicalizeBytes, sha256 as sha256Bytes } from '@tunnelmindai/atap';
 import { generateExamples } from '../../../scripts/example-generator.mjs';
 
 // The one place the profile name lives (it may be renamed before release).
 const PROFILE = 'tunnelmind:data_model:v1';
 const MODEL_ID = 'cisco-network';
+
+// The structured query behind the assessment (schemas/query.schema.json) and
+// its hash, which the assessment names as query_sha256 — so the example query
+// artifact and the event agree byte-for-byte (RFC 8785 canonical bytes).
+const QUERY = {
+  metric: 'ise.auth_events.failure_rate',
+  dimensions: ['ise.auth_events.auth_method'],
+  filters: [{ field_ref: 'ise.auth_events.auth_method', op: 'eq', value: 'eap-tls' }],
+  time_range: { from: '2026-10-30T00:00:00Z', to: '2026-10-31T00:00:00Z' },
+};
+// atap's sha256 is 0x-prefixed; profile sha256 fields are bare hex.
+const QUERY_SHA256 = sha256Bytes(canonicalizeBytes(QUERY)).slice(2);
 
 await generateExamples(import.meta.url, {
   witnessOAI:  'OAI-2026-0010012', // illustrative — the model registry witness operator OAI
@@ -91,7 +105,7 @@ await generateExamples(import.meta.url, {
       field_ref: 'ise.auth_events.failure_rate', verdict: 'inaccurate',
       assessor_kind: 'agent', assessor_tier: 'software',
       assessor_nullifier_sha256: sha256('assessor Ed25519 signature over ' + v1),
-      evidence_kind: 'reproducible', query_sha256: sha256('structured query'),
+      evidence_kind: 'reproducible', query_sha256: QUERY_SHA256,
       expected: 0.031, observed: 0,
     });
     out.push(assessment);
@@ -137,3 +151,14 @@ await generateExamples(import.meta.url, {
     'profile_artifacts/queries/',
   ],
 });
+
+// Receipt artifacts the generic generator does not write: the query and the
+// golden suite (schemas/golden-questions.schema.json). The confirmed
+// assessment above re-ran to 0.031, so its query is now a golden question.
+const examplesDir = new URL('../examples/', import.meta.url);
+const write = (name, obj) => writeFileSync(new URL(name, examplesDir), JSON.stringify(obj, null, 2) + '\n');
+write('query.json', QUERY);
+write('golden-questions.json', [{
+  query_sha256: QUERY_SHA256, query: QUERY,
+  golden_source: 'confirmed_assessment', expected: 0.031, tolerance: 0.001,
+}]);

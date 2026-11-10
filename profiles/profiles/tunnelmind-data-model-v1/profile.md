@@ -199,8 +199,8 @@ No field resolves to a natural person.
 |---|---|
 | `profile_artifacts/witness_events.json` | Every Witness Event the receipt's blocks cover, in chain order, as in `tunnelmind:code_crew:v1` §9. |
 | `profile_artifacts/models/{model_sha256}.yaml` | Each model version's Apache Ossie document. Its parsed RFC 8785 canonical bytes MUST hash to the file name. |
-| `profile_artifacts/golden_questions.json` | The golden suite: per question, `query_sha256`, the structured query, `golden_source`, expected value and tolerance. No natural-language text. |
-| `profile_artifacts/queries/{query_sha256}.json` | Structured queries referenced by assessments: metric, dimensions, filters, time range. Schema-constrained; no free text. |
+| `profile_artifacts/golden_questions.json` | The golden suite: per question, `query_sha256`, the structured query, `golden_source`, expected value and tolerance. No natural-language text. Validated by [`schemas/golden-questions.schema.json`](schemas/golden-questions.schema.json). |
+| `profile_artifacts/queries/{query_sha256}.json` | Structured queries referenced by assessments: metric, dimensions, filters, time range. Validated by [`schemas/query.schema.json`](schemas/query.schema.json); no free text. `query_sha256` is the SHA-256 of the query's RFC 8785 canonical bytes. |
 | `profile_artifacts/coverage/{model_sha256}.json` | Per-field coverage map at publication; MUST hash to the event's `coverage_sha256`. |
 | `profile_artifacts/diffs/{diff_sha256}.json` | Fields added, changed, removed and regressed between a version and the one it supersedes. |
 
@@ -228,14 +228,22 @@ bytes match the hash its event names.
 - the approving human appears only as the role `owner`, and the approval
   text only as `approval_text_sha256`;
 - questions, prompts, queries and outputs appear only as sha256 digests in
-  events; the structured query artifacts admit no free text;
+  events; the structured query artifacts admit no free text:
+  [`schemas/query.schema.json`](schemas/query.schema.json) takes metric and
+  dimensions as `field_ref`s and a filter value only as a number, a boolean
+  or an opaque token, and
+  [`schemas/golden-questions.schema.json`](schemas/golden-questions.schema.json)
+  holds only machine fields per golden question;
 - identifier fields (`model_id`, `source_id`, `source_version`,
   `format_version`) are opaque tokens with no `@` or whitespace, and
   `field_ref` is lower-case dotted identifiers only.
 
 [`tests/pii-rejection.json`](tests/pii-rejection.json) is the §9.4(2)
-evidence: eight events smuggling a name, an email, a key id, free-text
-question, or a client IP; CI confirms each is rejected.
+evidence: thirteen cases — eight events smuggling a name, an email, a key id,
+free-text question, or a client IP, four structured queries carrying an email
+filter value, an email filter object, a free-text filter string or an extra
+question key, and one golden entry with question text; CI confirms each is
+rejected.
 
 ## 11. Conformance
 
@@ -262,5 +270,7 @@ thirteen-event chain covering every event type — draft, schema pin, four
 passing gates, the owner's approval, publication, a reproducible assessment, its re-run against an
 independently recomputed answer (`human_sql`), its confirmation, the field
 degraded, and the version retired as `failed_rerun` — plus
-`attestation-block.json`, `receipt.json` and `public_keys.json`. Regenerate
+`attestation-block.json`, `receipt.json`, `public_keys.json`, the
+assessment's structured query `query.json` (its hash is the event's
+`query_sha256`) and the golden suite it joined, `golden-questions.json`. Regenerate
 with `node scripts/generate-examples.mjs`. All values are illustrative.
