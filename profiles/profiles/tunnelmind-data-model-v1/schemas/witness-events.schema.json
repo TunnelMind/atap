@@ -11,6 +11,7 @@
         "data_model:drafted",
         "data_model:schema_pinned",
         "data_model:gate_run",
+        "data_model:approved",
         "data_model:published",
         "data_model:coverage_changed",
         "data_model:assessment_received",
@@ -26,6 +27,8 @@
       "then": { "properties": { "payload": { "$ref": "#/$defs/schema_pinned" } } } },
     { "if": { "properties": { "event_type": { "const": "data_model:gate_run" } }, "required": ["event_type"] },
       "then": { "properties": { "payload": { "$ref": "#/$defs/gate_run" } } } },
+    { "if": { "properties": { "event_type": { "const": "data_model:approved" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/approved" } } } },
     { "if": { "properties": { "event_type": { "const": "data_model:published" } }, "required": ["event_type"] },
       "then": { "properties": { "payload": { "$ref": "#/$defs/published" } } } },
     { "if": { "properties": { "event_type": { "const": "data_model:coverage_changed" } }, "required": ["event_type"] },
@@ -156,6 +159,20 @@
           "then": { "properties": { "trigger": { "const": "build" }, "target": { "const": "fixture" } }, "required": ["target"] },
           "else": { "properties": { "trigger": { "enum": ["scheduled", "assessment"] } } } }
       ]
+    },
+
+    "approved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "evidence", "role", "decision", "model_sha256", "approval_text_sha256"],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "evidence": { "const": "witnessed", "description": "The registry records the owner's decision itself; there is no reporter to assert it." },
+        "role": { "const": "owner", "description": "A human approval records the role, never the person (ATAP §7.6)." },
+        "decision": { "enum": ["approve", "reject"] },
+        "model_sha256": { "$ref": "#/$defs/sha256", "description": "The exact model version the owner decided on." },
+        "approval_text_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the approval text; the text itself is a user communication and stays out of the payload." }
+      }
     },
 
     "published": {

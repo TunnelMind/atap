@@ -5,7 +5,8 @@
  * in profiles/scripts/example-generator.mjs.
  *
  * The chain is one model lineage's life story: drafted from hashed inputs, its
- * schema pinned, all four gates passed on a fixture, published, an agent's
+ * schema pinned, all four gates passed on a fixture, approved by the owner
+ * (versions 1-3 of a lineage need it, profile §9), published, an agent's
  * reproducible assessment received, re-run against an independently
  * recomputed answer, confirmed (its question becomes a golden), the field
  * marked degraded, and the version retired because the re-run failed.
@@ -72,6 +73,13 @@ await generateExamples(import.meta.url, {
     out.push(await gate('structural'));
     out.push(await gate('golden', { golden_source: 'human_sql' }));
     out.push(await gate('reconcile'));
+    // 0.3.1 is the lineage's first version, so the owner's approval of this
+    // exact model_sha256 must precede `published` (profile §9). Only the
+    // text's hash is recorded.
+    out.push(await witness('data_model:approved', {
+      timestamp: tick(), evidence: 'witnessed', role: 'owner', decision: 'approve',
+      model_sha256: v1, approval_text_sha256: sha256('approve model 0.3.1'),
+    }));
     out.push(await witness('data_model:published', {
       timestamp: tick(), evidence: 'anchored', model_id: MODEL_ID, version: '0.3.1',
       model_sha256: v1, supersedes_sha256: null,

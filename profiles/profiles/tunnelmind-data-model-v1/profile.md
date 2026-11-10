@@ -58,6 +58,8 @@ Tier rules for this profile:
 
 - `data_model:gate_run` and `data_model:schema_pinned` are `witnessed` only if
   the registry ran or read them itself; otherwise `asserted`.
+- `data_model:approved` is always `witnessed` — the schema pins it. The
+  registry records the owner's decision itself; nobody reports it.
 - `data_model:assessment_received` is always `asserted` — the schema pins it.
   An assessment is a claim until a resolution re-runs it.
 - `data_model:drafted`, `published` and `retired` are `anchored` once the
@@ -79,7 +81,7 @@ That is the whole vocabulary. Every other event type in §7 is witness-derived
 | Event | Emitted by |
 |---|---|
 | `drafted` | crew (submitted to the registry) |
-| `schema_pinned`, `gate_run`, `published`, `coverage_changed`, `assessment_received`, `assessment_resolved`, `retired` | registry, on its own account |
+| `schema_pinned`, `gate_run`, `approved`, `published`, `coverage_changed`, `assessment_received`, `assessment_resolved`, `retired` | registry, on its own account |
 
 ## 5. Constraints
 
@@ -134,6 +136,7 @@ Every payload requires `timestamp` and `evidence` and sets
 | `data_model:drafted` | `model_id`, `version` (semver), `model_sha256`, `format` (`apache-ossie`), `format_version`, `drafter_model`, `prompt_sha256`, `inputs[]` {`source_id`, `kind`, `sha256`} |
 | `data_model:schema_pinned` | `source_id`, `source_version`, `schema_fingerprint_sha256` |
 | `data_model:gate_run` | `model_sha256`, `gate`, `phase` (`pre_publish` \| `post_publish`), `trigger` (`build` \| `scheduled` \| `assessment`), `target` (`fixture` \| `live`), `schema_fingerprint_sha256`, `fixture_sha256` (fixture runs only), `golden_source` (golden runs only), `result`, `checks` {`total`, `passed`, `failed`, `refused`}, `output_sha256` |
+| `data_model:approved` | `role` (always `owner`), `decision` (`approve` \| `reject`), `model_sha256`, `approval_text_sha256`. The approval text is recorded only as its sha256, never the text; the person appears only as the role. |
 | `data_model:published` | `model_id`, `version`, `model_sha256`, `supersedes_sha256` (or null), `diff_sha256` (when superseding), `coverage` {counts per state}, `coverage_sha256`, `golden_count` |
 | `data_model:coverage_changed` | `model_sha256`, `field_ref`, `from`, `to`, `cause_event` |
 | `data_model:assessment_received` | `model_sha256`, `field_ref`, `verdict`, `assessor_kind` (`agent` \| `human`), `assessor_tier`, `assessor_nullifier_sha256`, `evidence_kind` (`bare` \| `reproducible`); when reproducible also `query_sha256`, `expected`, `observed` |
@@ -209,7 +212,12 @@ without exposing anyone's network.
 A profile-aware verifier checks, beyond `verify.sh`: the event-chain checks
 of `tunnelmind:code_crew:v1` §9; that each `published` version has a passing
 `pre_publish` run of every required gate on the same `model_sha256` and
-`schema_fingerprint_sha256`; that every `cause_event`, `assessment_event` and
+`schema_fingerprint_sha256`; that each of the first three versions of a
+lineage (same `model_id`, counted in `published` order) has a
+`data_model:approved` event with `decision: approve` for the same
+`model_sha256` earlier in the chain than its `published` event — version four
+onward needs no approval, the gates decide (spec AC-3.2 as settled in §9.4);
+that every `cause_event`, `assessment_event` and
 `rerun_event` names an earlier event in the chain; and that each artifact's
 bytes match the hash its event names.
 
@@ -217,6 +225,8 @@ bytes match the hash its event names.
 
 - every payload object and sub-object sets `additionalProperties: false`;
 - assessors appear only as kind, tier and a per-version nullifier digest;
+- the approving human appears only as the role `owner`, and the approval
+  text only as `approval_text_sha256`;
 - questions, prompts, queries and outputs appear only as sha256 digests in
   events; the structured query artifacts admit no free text;
 - identifier fields (`model_id`, `source_id`, `source_version`,
@@ -240,13 +250,16 @@ An implementation conforms to `tunnelmind:data_model:v1` if:
 4. no payload, summary or artifact contains PII (§10);
 5. every event's `evidence` follows §3;
 6. no version is published without passing every gate in `required_gates`
-   (§6), and no published version or event is edited (§7.1).
+   (§6), none of a lineage's first three versions is published without an
+   earlier owner `approved` event with `decision: approve` for the same
+   `model_sha256` (§9; version four onward needs none), and no published
+   version or event is edited (§7.1).
 
 ## 12. Examples
 
 [`examples/`](examples/) holds a signed, hash-chained set: `ait.json`, a
-twelve-event chain covering every event type — draft, schema pin, four
-passing gates, publication, a reproducible assessment, its re-run against an
+thirteen-event chain covering every event type — draft, schema pin, four
+passing gates, the owner's approval, publication, a reproducible assessment, its re-run against an
 independently recomputed answer (`human_sql`), its confirmation, the field
 degraded, and the version retired as `failed_rerun` — plus
 `attestation-block.json`, `receipt.json` and `public_keys.json`. Regenerate

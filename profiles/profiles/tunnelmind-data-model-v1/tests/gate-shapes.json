@@ -60,6 +60,18 @@
           "golden_count": 40
         }
       }
+    },
+    {
+      "name": "approved_owner_approve",
+      "event": {
+        "event_type": "data_model:approved",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "role": "owner", "decision": "approve",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+        }
+      }
     }
   ],
   "must_reject": [
@@ -213,6 +225,33 @@
           "timestamp": "2026-11-03T12:00:00Z", "evidence": "anchored",
           "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
           "reason": "superseded"
+        }
+      }
+    },
+    {
+      "name": "approved_role_not_owner",
+      "reason": "an approval records the owner role only, never another role or a person",
+      "event": {
+        "event_type": "data_model:approved",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "role": "admin", "decision": "approve",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"
+        }
+      }
+    },
+    {
+      "name": "approved_extra_free_text",
+      "reason": "the approval text is recorded by hash only; free text has no key",
+      "event": {
+        "event_type": "data_model:approved",
+        "payload": {
+          "timestamp": "2026-11-03T12:00:00Z", "evidence": "witnessed",
+          "role": "owner", "decision": "approve",
+          "model_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+          "approval_text_sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+          "note": "looks good"
         }
       }
     }
