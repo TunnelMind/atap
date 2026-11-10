@@ -23,7 +23,7 @@ event types, the payload shapes, the aggregation rules — lives in an
 | [`tunnelmind:code_crew:v1`](profiles/tunnelmind-code-crew-v1/profile.md) | A crew of role agents changing software under review | TunnelMind | Draft |
 | [`tunnelmind:crew_ops:v1`](profiles/tunnelmind-crew-ops-v1/profile.md) | An agent crew's own operations on one host | TunnelMind | Draft |
 | [`tunnelmind:agent_tools:v1`](profiles/tunnelmind-agent-tools-v1/profile.md) | Any agent's tool calls, model calls, handoffs and human decisions | TunnelMind | Draft |
-| [`tunnelmind:data_model:v1`](profiles/tunnelmind-data-model-v1/profile.md) | Semantic data models as code: build, gates, publication, assessments | TunnelMind | Draft |
+| [`tunnelmind:data_model:v1`](profiles/tunnelmind-data-model-v1/profile.md) | Semantic data models as code: build, schema pins, gates, owner approval, publication, assessments | TunnelMind | Draft |
 
 `sigil:ecommerce_buyer:v1` and `sigil:data_broker:v1` are reserved.
 

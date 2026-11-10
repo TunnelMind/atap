@@ -160,9 +160,17 @@ changes verdict; each line names the inputs that do.
   re-runs and resolutions. Golden answers cannot come from the drafting crew;
   assessors appear only as kind, tier and a per-version nullifier; published
   versions are never edited (§14.1) — status is derived from later events.
-  Eight PII-rejection cases and thirteen gate-shape cases; signed examples
-  round-trip. Profile registry README now also lists `tunnelmind:code_crew:v1`,
-  which `registry.json` already carried.
+  An owner approval (`data_model:approved`, always witnessed; role and the
+  approval text's sha256 only) is required before each of a lineage's first
+  three published versions; after that the gates decide. `pre_publish` gate
+  runs are pinned to `trigger: build` and `target: fixture`. Every gate run
+  carries `schema_fingerprints` (one `{source_id, sha256}` per source), and
+  on `pre_publish` runs they must match that draft's schema pins exactly.
+  Structured queries (`schemas/query.schema.json`) and golden questions admit
+  no free text. Fifteen PII-rejection cases and twenty-four gate-shape cases
+  (6 accept, 18 reject); signed examples round-trip. Profile registry README
+  now also lists `tunnelmind:code_crew:v1`, which `registry.json` already
+  carried.
 - Profile CI: `scripts/validate.mjs` runs every `tests/*-shapes.json` file, not
   only `merged-shapes.json`. Existing cases unchanged.
 - `atap-witness git sync` / `git restore [--into DIR]` / `init --git` — the
