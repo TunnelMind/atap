@@ -42,7 +42,7 @@ where untrusted input is checked. The spec is `ATAP-v0.1.md` (v0.2 draft:
   signed. A did:key witness is its own key.
 - **Canonical bytes.** Signers and verifiers share `canonicalize.ts`'s bytes,
   pinned by `packages/atap-js/test/vectors/jcs.json`, a verbatim copy of
-  receipt-verify's file (the origin: change it there first; tollbooth and
+  receipt-verify's file (the origin: change it there first; Fareseal and
   sdk-python carry the same copy). A lone UTF-16 surrogate is refused
   everywhere, so no two different string values sign as one byte string
   (JCS itself maps many JSON texts of one value to one). The CLI, the viewer
