@@ -57,6 +57,19 @@ All notable changes to ATAP are recorded here.
 
 ### Security
 
+- **All verifiers: a compromised key is refused for any time (A-1,
+  atap-scope-1).** ATAP-v0.1 §8.1 says signatures by a compromised key
+  SHOULD be marked unverified and MAY be treated differently before the
+  notice's `disclosed_at`. atap-js (`pickKey`, `pickDidKeyKey`), `verify.sh`
+  (its copy in atap-py) and the viewer took that MAY, comparing `disclosed_at`
+  with the record's `issued_at`, `period_end`, `generated_at` or `at`, but
+  those times are written by the signer: whoever holds the stolen key can
+  date a record before the disclosure. Any entry with `status: compromised`
+  now voids its key outright (an OAI entry is skipped, a did:key witness has
+  no key), whatever `disclosed_at` says or whether it parses. A receipt that
+  verified because its times preceded a later disclosure now fails
+  "no key for …".
+
 Verdict changes from the 2026-10-21/22 review. No receipt the witness writes
 changes verdict; each line names the inputs that do.
 

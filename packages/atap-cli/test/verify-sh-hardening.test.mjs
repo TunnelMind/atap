@@ -148,12 +148,31 @@ test('an unparsable key validity time is a rejection, not a pass', async () => {
   }
 })
 
-test('a compromise notice is compared by time too', async () => {
+// ATAP-v0.1 §8.1 (A-1): a compromised key is refused for any signer-written
+// time, whatever its disclosed_at says. The times are the signer's, so one
+// holding the stolen key can write any of them before the disclosure.
+test('a compromised key fails verify.sh and atap-witness verify, disclosed an hour after issued_at', async () => {
+  const active = await receiptDir()
+  assert.equal(verifySh(active.dir).status, 0, verifySh(active.dir).stderr)
+  assert.equal(cliVerify(active.dir).ok, true)
+  const { dir } = await receiptDir((k1, ait) => {
+    const disclosed_at = new Date(Date.parse(ait.issued_at) + 3600_000).toISOString()
+    return [{ ...k1, status: 'compromised', compromise_notice: { disclosed_at, detected_at: disclosed_at } }]
+  })
+  assertFails(verifySh(dir), /no key for AIT witness/)
+  const cli = cliVerify(dir)
+  assert.equal(cli.ok, false)
+  assert.equal(cli.status, 1)
+  assert.match(cli.reason, /^no key for AIT witness/)
+})
+
+test('a compromised key is refused whatever the disclosed_at offset', async () => {
   // Disclosed an hour after issued_at, written -05:00 so the string sorts
-  // before it: the key was still good at t.
+  // before it. That once verified (the instant is after t); now no time
+  // before or after the disclosure makes a compromised key good.
   const { dir } = await receiptDir((k1, ait) => [{ ...k1, status: 'compromised', compromise_notice: { disclosed_at: withOffset(Date.parse(ait.issued_at) + 3600_000, -300) } }])
-  assert.equal(verifySh(dir).status, 0, verifySh(dir).stderr)
-  assert.equal(lib(dir).ok, true)
+  assertFails(verifySh(dir), /no key for AIT witness/)
+  assert.match(lib(dir).reason, /^no key for AIT witness/)
 })
 
 // Each case lists a path whose hash matches a file outside the receipt, so

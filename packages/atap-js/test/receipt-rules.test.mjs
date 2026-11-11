@@ -178,3 +178,32 @@ test('checkWitnessEvents reports a lone surrogate in an event as its verdict', a
   events[0] = { ...events[0], payload: { i: '\udc00' } }
   assert.match(checkWitnessEvents(events, chain, ait, keys), /lone surrogate/)
 })
+
+// ATAP-v0.1 §8.1 (A-1): a compromised key is refused for every signer-written
+// time, whatever its disclosed_at. Disclosed an hour after issued_at, every
+// time in this receipt is before the disclosure, and the old rule took them on
+// the signer's word; the same receipt with the key active still verifies.
+test('verifyReceipt refuses a compromised key even for times before disclosed_at', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const svc = new WitnessService({ witnessOAI: 'OAI-2026-0010002', privateKey, storage: new InMemoryStorage() })
+  const ait = await svc.declareAit({
+    agentType: 'code-crew',
+    profile: 'tunnelmind:code_crew:v1',
+    operator: 'OAI-2026-0010001',
+    capabilities: ['code_crew:code'],
+    attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' },
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
+  })
+  await svc.witness(ait.id, 'code_crew:approval', {})
+  const chain = [await svc.rollUp(ait.id, {})]
+  const receipt = await svc.generateReceipt(ait.id, chain[0].period_start, chain[0].period_end)
+  const pub = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
+  const k1 = { witness: ait.witness, key_id: 'k1', algorithm: 'ed25519', public_key: '0x' + toHex(new Uint8Array(pub.subarray(pub.length - 32))), valid_from: '2000-01-01T00:00:00Z', valid_until: '2100-01-01T00:00:00Z', status: 'active', rotated_to: null, compromise_notice: null }
+  const active = verifyReceipt({ receipt, ait, chain, keys: { keys: [k1] } })
+  assert.equal(active.ok, true, active.reason)
+  const disclosed_at = new Date(Date.parse(ait.issued_at) + 3600_000).toISOString()
+  const compromised = { ...k1, status: 'compromised', compromise_notice: { disclosed_at, detected_at: disclosed_at } }
+  const r = verifyReceipt({ receipt, ait, chain, keys: { keys: [compromised] } })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /^no key for AIT witness/)
+})

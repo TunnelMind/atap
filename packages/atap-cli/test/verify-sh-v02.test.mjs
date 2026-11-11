@@ -268,67 +268,58 @@ test('the same receipt fails both verifiers once its key is disclosed compromise
   assert.match(cli.reason, /no key for/)
 })
 
-// A did:key compromise notice compares as instants (A103). The afterExpiry
-// receipt's last checked time is generated_at G, so the key is good only if
-// disclosed_at is after G. The offset forms are the same instants as the Z
-// ones but sort the other way as strings, so a string compare flips them.
+// ATAP-v0.1 §8.1 (A-1): a compromised did:key entry voids the key at every
+// time, whatever its disclosed_at. These were the instant-compare cases (A103):
+// the afterExpiry receipt's last checked time is generated_at G, and a
+// disclosed_at after G once verified, in Z or an offset form that sorts the
+// other way as a string. G is written by the signer, so it cannot show the
+// receipt predates the compromise: every row now fails both verifiers.
 function offsetIso(ms, minutes) {
   const a = Math.abs(minutes)
   const hhmm = `${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`
   return new Date(ms + minutes * 60_000).toISOString().slice(0, 23) + (minutes < 0 ? '-' : '+') + hhmm
 }
-for (const [what, disclosed, passes] of [
-  ['1s after generated_at, Z', G => new Date(G + 1000).toISOString(), true],
-  ['1s after generated_at, -05:00', G => offsetIso(G + 1000, -300), true],
-  ['1s after generated_at, +00:00 with extra fractional digits', G => new Date(G + 1000).toISOString().replace('Z', '000+00:00'), true],
-  ['at generated_at, Z', G => new Date(G).toISOString(), false],
-  ['at generated_at, +01:00', G => offsetIso(G, 60), false],
-  ['at generated_at, extra fractional digits', G => new Date(G).toISOString().replace('Z', '000Z'), false],
-  ['1s before generated_at, +01:00', G => offsetIso(G - 1000, 60), false],
+for (const [what, disclosed] of [
+  ['1s after generated_at, Z', G => new Date(G + 1000).toISOString()],
+  ['1s after generated_at, -05:00', G => offsetIso(G + 1000, -300)],
+  ['1s after generated_at, +00:00 with extra fractional digits', G => new Date(G + 1000).toISOString().replace('Z', '000+00:00')],
+  ['0.1 ms after generated_at', G => new Date(G).toISOString().replace('Z', '1Z')],
+  ['at generated_at, Z', G => new Date(G).toISOString()],
+  ['at generated_at, +01:00', G => offsetIso(G, 60)],
+  ['at generated_at, extra fractional digits', G => new Date(G).toISOString().replace('Z', '000Z')],
+  ['1s before generated_at, +01:00', G => offsetIso(G - 1000, 60)],
 ]) {
-  test(`a did:key compromise notice disclosed ${what} ${passes ? 'verifies' : 'fails'}`, async () => {
+  test(`a did:key compromise notice disclosed ${what} fails both verifiers`, async () => {
     const { dir, receipt } = await didReceiptDir(undefined, { afterExpiry: true })
     const disclosed_at = disclosed(Date.parse(receipt.generated_at))
     edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at } }] }))
-    const r = verifySh(dir)
-    if (passes) assert.equal(r.status, 0, r.stderr)
-    else assertFails(r, /no key for/)
+    assertFails(verifySh(dir), /no key for/)
+    const cli = cliVerify(dir)
+    assert.equal(cli.ok, false, disclosed_at)
+    assert.match(cli.reason, /no key for/)
   })
 }
 
-test('a did:key compromise notice with an unparseable time fails closed', async () => {
-  const bad = await didReceiptDir(undefined, { afterExpiry: true })
-  edit(bad.dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: '2100-01-01 00:00:00' } }] }))
-  assertFails(verifySh(bad.dir), /RFC 3339/)
-  // An unparseable time on the receipt's side: the AIT's issued_at (its key
-  // lookup runs before its signature check, so only the compare can object).
+// A disclosed_at verify.sh's RFC 3339 grammar refuses (a leap second, 24:00,
+// an offset past 23:59, a day the month lacks, a space for the T) is no
+// longer parsed at all: the compromised entry voids the key either way, in
+// both verifiers alike.
+test('a did:key compromise notice with an unparseable time fails both verifiers', async () => {
+  for (const bad of ['2100-01-01 00:00:00', '2099-12-31T23:59:60Z', '2099-12-31T24:00:00Z', '2099-12-31T00:00:00+99:99', '2099-02-30T00:00:00Z']) {
+    const { dir } = await didReceiptDir(undefined, { afterExpiry: true })
+    edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: bad } }] }))
+    assertFails(verifySh(dir), /no key for/)
+    const cli = cliVerify(dir)
+    assert.equal(cli.ok, false, bad)
+    assert.match(cli.reason, /no key for/)
+  }
+  // An unparseable time on the receipt's side, the AIT's issued_at, with the
+  // key compromised: no key at any time, so still "no key for".
   const { dir } = await didReceiptDir(undefined, { afterExpiry: true })
   edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: '2100-01-01T00:00:00Z' } }] }))
   edit(dir, 'ait.json', a => ({ ...a, issued_at: 'yesterday' }))
-  assertFails(verifySh(dir), /RFC 3339/)
-})
-
-// One RFC 3339 grammar in verify.sh and atap-js: a disclosed_at written as a
-// leap second, as 24:00, with an offset past 23:59 or on a day the month
-// lacks fails both (each passed one verifier and failed the other, or both);
-// a fraction finer than a millisecond is compared exactly (atap-js cut it to
-// milliseconds and voided a key that was still good at generated_at).
-test('a did:key compromise notice gets one time grammar in verify.sh and the CLI', async () => {
-  for (const bad of ['2099-12-31T23:59:60Z', '2099-12-31T24:00:00Z', '2099-12-31T00:00:00+99:99', '2099-02-30T00:00:00Z']) {
-    const { dir } = await didReceiptDir(undefined, { afterExpiry: true })
-    edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at: bad } }] }))
-    assertFails(verifySh(dir), /RFC 3339/)
-    const cli = cliVerify(dir)
-    assert.equal(cli.ok, false, bad)
-    assert.match(cli.reason, /cannot compare the compromise notice/)
-  }
-  const { dir, receipt } = await didReceiptDir(undefined, { afterExpiry: true })
-  const disclosed_at = receipt.generated_at.replace('Z', '1Z') // 0.1 ms after generated_at
-  edit(dir, 'public_keys.json', k => ({ ...k, keys: [{ ...k.keys[0], status: 'compromised', compromise_notice: { disclosed_at } }] }))
-  const sh = verifySh(dir)
-  assert.equal(sh.status, 0, sh.stderr)
-  const cli = cliVerify(dir)
-  assert.equal(cli.ok, true, cli.reason)
+  assertFails(verifySh(dir), /no key for AIT witness .* at yesterday/)
+  assert.match(cliVerify(dir).reason, /^no key for AIT witness .* at yesterday/)
 })
 
 // §3.1: the manifest's own witness_signature binds it to the did:key.

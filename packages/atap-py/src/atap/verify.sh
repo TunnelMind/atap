@@ -223,8 +223,10 @@ JQ_INSTANT='
 
 # The OAI key entries for witness $1 in force at RFC 3339 time $2, as a JSON
 # array of at most one (ATAP §8.2): valid_from <= t < valid_until, and not
-# compromised unless t is before the notice's disclosed_at. Times compare as
-# instants, not strings, so "+00:00" vs "Z" or fractional seconds cannot flip
+# compromised. ATAP-v0.1 §8.1: signatures by a compromised key SHOULD be marked
+# unverified; one made before disclosed_at MAY be treated differently, and is
+# not here: t is written by the signer, and whoever holds the stolen key can
+# date a record before the disclosure. Validity times compare as instants, not strings, so "+00:00" vs "Z" or fractional seconds cannot flip
 # the verdict; a time that does not parse is a failure. Two entries in force
 # at once is a failure too: taking the first would let file order pick the key.
 oai_keys_at() {
@@ -233,7 +235,7 @@ oai_keys_at() {
     ($t | instant) as $at |
     [ .keys[] |
       select(.witness == $w and (.valid_from | instant) <= $at and $at < (.valid_until | instant)) |
-      select(.status != "compromised" or (.compromise_notice and $at < (.compromise_notice.disclosed_at | instant))) ]
+      select(.status != "compromised") ]
   ' "$KEYS_FILE" 2>/dev/null) || err "cannot compare key validity for $1 at $2 as RFC 3339 times"
   n=$(jq length <<<"$out")
   [ "$n" -le 1 ] || err "ambiguous: $n keys for $1 valid at $2 (ATAP §8.2)"
@@ -259,9 +261,11 @@ lookup_key() {
 # A did:key witness's key is the one its identifier encodes (ATAP-v0.2 §3.1), so
 # it has no validity window: valid_from/valid_until are ignored. An entry is
 # still required (the did:key alone does not replace it), every entry for the
-# witness must carry that same key and declare 'self-asserted' (§3.2), and a
-# compromise notice on any of them in force at $t voids the key. Mirrors
-# pickDidKeyKey in packages/atap-js/src/verify.ts.
+# witness must carry that same key and declare 'self-asserted' (§3.2), and any
+# of them marked compromised voids the key at every $t (ATAP-v0.1 §8.1: SHOULD
+# be marked unverified; the before-disclosed_at carve-out is a MAY, not taken,
+# since $t is written by the signer). Mirrors pickDidKeyKey in
+# packages/atap-js/src/verify.ts.
 lookup_did_key() {
   local witness="$1" t="$2" did_hex pk strength first=""
   did_hex=$(didkey_to_hex "$witness") || err "witness $witness is not an Ed25519 did:key (ATAP-v0.2 §3)"
@@ -275,17 +279,16 @@ lookup_did_key() {
     .keys[] | select(.witness == $w) |
     [(.public_key | sub("^0x"; "")), (.attestation_strength // "absent")] | @tsv
   ' "$RECEIPT_DIR/public_keys.json")
-  # jq -e exits 0 if a notice voids the key, 1 if none does, and 5 on a time
-  # that does not parse: that must fail, not pass as "no notice".
+  # jq -e exits 0 if an entry is compromised, 1 if none is; anything else is
+  # a keys file jq cannot read, which must fail, not pass as "not compromised".
   local rc=0
-  jq -e --arg w "$witness" --arg t "$t" "$JQ_INSTANT"'
-    any(.keys[]; .witness == $w and .status == "compromised"
-      and ((.compromise_notice and ($t | instant) < (.compromise_notice.disclosed_at | instant)) | not))
+  jq -e --arg w "$witness" '
+    any(.keys[]; .witness == $w and .status == "compromised")
   ' "$RECEIPT_DIR/public_keys.json" >/dev/null 2>&1 || rc=$?
   case $rc in
     0) first="" ;;
     1) ;;
-    *) err "cannot compare the compromise notice for $witness at $t as RFC 3339 times" ;;
+    *) err "cannot read the key entries for $witness" ;;
   esac
   printf '%s\n' "$first"
 }
@@ -503,14 +506,17 @@ case "$RCPT_STRENGTH" in
 esac
 # Cross-check against the matching key entry, if the key declares a strength.
 if [[ "$WITNESS" =~ ^did:key: ]]; then
-  # No validity window for a did:key's key (ATAP-v0.2 §3.1, as lookup_did_key).
-  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" --arg t "$AIT_TS" "$JQ_INSTANT$JQ_STRENGTH"'
+  # No validity window for a did:key's key (ATAP-v0.2 §3.1, as lookup_did_key),
+  # and no compromised entry at any time (ATAP-v0.1 §8.1, as lookup_did_key:
+  # SHOULD be marked unverified; the MAY for times before disclosed_at is not
+  # taken, those times being the signer's).
+  KEY_STRENGTH=$(jq -r --arg w "$WITNESS" "$JQ_STRENGTH"'
     .keys[] |
     select(.witness == $w) |
-    select(.status != "compromised" or (.compromise_notice and ($t | instant) < (.compromise_notice.disclosed_at | instant))) |
+    select(.status != "compromised") |
     .attestation_strength // empty | strength
   ' "$RECEIPT_DIR/public_keys.json" 2>/dev/null | head -1) \
-    || err "cannot compare the compromise notice for $WITNESS at $AIT_TS as RFC 3339 times"
+    || err "cannot read the key entries for $WITNESS"
 else
   # No entry at all is a failure, not the "omits the field" WARN below: a
   # witness with no key at the AIT's issue time attests nothing about it.
