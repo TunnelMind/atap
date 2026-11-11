@@ -4,6 +4,13 @@ All notable changes to ATAP are recorded here.
 
 ## Unreleased
 
+### Changed
+
+- Vendored `packages/atap-js/test/vectors/jcs.json` re-synced from
+  receipt-verify 1b6edd2 (Tollbooth was renamed Fareseal on 2026-11-10); the
+  pinned sha256 is now `b294a60b…82cad3a2d`. Only the `about` text changed; no
+  vector changed.
+
 ### Added
 
 - **Operator-signed constraints** (`tunnelmind:code_crew:v1` §5.1). The

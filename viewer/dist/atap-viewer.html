@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- No network at all. The inline script and style are allowed by their
      sha256 hashes, which build.mjs fills in; nothing else may run or load. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-pDFZDN6XFLdr+eTu/caU+3f+nzAbXvu1nq7BQUN0wao='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-w59hhOaFOSwVtpYrhFR4NtvzT852zNWWnANcVLzXNpM='; style-src 'sha256-gIoZoePMmq7Mc5mulHihOVMi/vK6ygtdZJ0dJbK6bWY='; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>ATAP receipt viewer</title>
 <style>
 body { margin: 0; background: #fff; color: #000; font: 16px/1.4 system-ui, sans-serif; }
@@ -158,7 +158,7 @@ __mods["atap/canonicalize"] = (function () {
 // every signer and verifier. ATAP artifacts use a constrained subset of JSON
 // (no NaN/Infinity, no extreme floats) so this implementation stays short and
 // auditable; the frozen vectors in test/vectors/jcs.json (shared verbatim with
-// receipt-verify and tollbooth) pin its bytes. A lone UTF-16 surrogate is
+// receipt-verify and Fareseal) pin its bytes. A lone UTF-16 surrogate is
 // refused rather than mapped to U+FFFD, so two strings can never sign to one
 // byte string. Input is untrusted parsed JSON: throws on a lone surrogate, a
 // non-finite number or a non-JSON type; `undefined` members are dropped.

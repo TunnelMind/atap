@@ -1,6 +1,7 @@
 // The frozen JCS wire vectors (test/vectors/jcs.json), byte-identical to
-// receipt-verify's test/vectors/jcs.json; the sha256 pin test below enforces
-// it. tollbooth carries the same copy. A change starts in receipt-verify and is
+// receipt-verify's test/vectors/jcs.json at 1b6edd2 (sha256 recorded in its
+// CHANGELOG, rv-strict-1); the sha256 pin test below enforces it. Fareseal
+// carries the same copy. A change starts in receipt-verify and is
 // mirrored here, pin included. verify.sh's python canonicalizer
 // runs the same file in atap-cli's verify-sh-canon.test.mjs.
 import { test } from 'node:test'
@@ -14,10 +15,10 @@ const { vectors } = JSON.parse(raw.toString('utf8'))
 
 // Hash the raw bytes, not the parsed JSON: whitespace or key-order drift from
 // receipt-verify's copy must fail too.
-test("jcs.json is byte-identical to receipt-verify's copy (sha256 pin)", () => {
+test("jcs.json is byte-identical to receipt-verify's test/vectors/jcs.json at 1b6edd2 (sha256 pin)", () => {
   assert.equal(
     createHash('sha256').update(raw).digest('hex'),
-    '81a79410874c5ed24ea0468a3d684e3a03111dc0a2fd2e8317ed3e3dfb978cdd',
+    'b294a60b53b743eedb6f77c2473abe9e1b1f1d2eec631ad8a36018a82cad3a2d',
   )
 })
 

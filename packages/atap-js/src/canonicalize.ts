@@ -4,7 +4,7 @@
 // every signer and verifier. ATAP artifacts use a constrained subset of JSON
 // (no NaN/Infinity, no extreme floats) so this implementation stays short and
 // auditable; the frozen vectors in test/vectors/jcs.json (shared verbatim with
-// receipt-verify and tollbooth) pin its bytes. A lone UTF-16 surrogate is
+// receipt-verify and Fareseal) pin its bytes. A lone UTF-16 surrogate is
 // refused rather than mapped to U+FFFD, so two strings can never sign to one
 // byte string. Input is untrusted parsed JSON: throws on a lone surrogate, a
 // non-finite number or a non-JSON type; `undefined` members are dropped.

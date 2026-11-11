@@ -123,11 +123,11 @@ root [`verify.sh`](../../verify.sh). Both run the same frozen vectors,
 [`../atap-cli/test/verify-sh-canon.test.mjs`](../atap-cli/test/verify-sh-canon.test.mjs)
 — and that file is byte-identical to receipt-verify's copy, so both match
 receipt-verify's canonicalizer. `jcs-vectors.test.mjs` pins the file's sha256
-(`81a79410…3dfb978cdd`); flipping one byte breaks the pin:
+(`b294a60b…82cad3a2d`); flipping one byte breaks the pin:
 
 ```bash
 cp test/vectors/jcs.json /tmp/jcs.json && printf 'X' | dd of=/tmp/jcs.json bs=1 seek=0 conv=notrunc
-sha256sum /tmp/jcs.json   # no longer 81a79410…, so the pin test would fail
+sha256sum /tmp/jcs.json   # no longer b294a60b…, so the pin test would fail
 ```
 
 atap-js does not import receipt-verify's canonicalizer because it would be

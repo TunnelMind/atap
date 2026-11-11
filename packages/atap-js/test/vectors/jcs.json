@@ -1,6 +1,6 @@
 {
   "source": "TunnelMind/receipt-verify test/vectors/jcs.json",
-  "about": "RFC 8785 (JCS) wire vectors shared by every TunnelMind canonicalizer: receipt-verify (src/jcs.ts, scripts/verdict-lib/jcs.js, scripts/verify-log.mjs), tollbooth core, atap-js and atap verify.sh. Each vector is canonicalize(input) === canonical, or throws: true (a lone surrogate is refused, never mapped to U+FFFD). Other repos vendor this file verbatim: change it here first.",
+  "about": "RFC 8785 (JCS) wire vectors shared by every TunnelMind canonicalizer: receipt-verify (src/jcs.ts, scripts/verdict-lib/jcs.js, scripts/verify-log.mjs), Fareseal core, atap-js and atap verify.sh. Each vector is canonicalize(input) === canonical, or throws: true (a lone surrogate is refused, never mapped to U+FFFD). Other repos vendor this file verbatim: change it here first.",
   "vectors": [
     {
       "name": "rfc8785-3.2.2-sample",

@@ -58,7 +58,7 @@ for (const [text, expected] of VECTORS) {
   })
 }
 
-// The frozen JCS vectors shared with receipt-verify and tollbooth (the copy in
+// The frozen JCS vectors shared with receipt-verify and Fareseal (the copy in
 // packages/atap-js/test/vectors/jcs.json): both canonicalizers agree on every
 // one, and both refuse a lone surrogate (python: UnicodeEncodeError, exit 1),
 // so `atap-witness verify` and verify.sh cannot split on such a receipt.
