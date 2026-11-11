@@ -251,7 +251,7 @@ test("the strength ceiling is the receipt witness's key, not the AIT witness's",
 })
 
 // Review 2026-10-21 C1: no key for the receipt witness at the AIT's issue time
-// is a failure, not the "key omits attestation_strength" warning.
+// is a failure, not a key that omits attestation_strength (now self-asserted, A-3).
 test("a receipt witness with no key at the AIT's issued_at fails, warning or not", async () => {
   const storage = new InMemoryStorage()
   const { privateKey } = generateKeyPairSync('ed25519')

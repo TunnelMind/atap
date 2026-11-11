@@ -5,10 +5,11 @@
 > This repo serves: **the open protocol layer.** ATAP is Apache-2.0 / CC-BY-4.0; its witness-signed hash chains are a dialect of their own, beside Receipt v1, and back the cross-lens verdicts the Data API emits. See [tunnelmind.ai](https://tunnelmind.ai).
 
 **ATAP v0.1** is an open protocol for **agent behavioral attestation**: a
-canonical receipt format that lets the principal of an agentic system —
-the advertiser, the compliance officer, the regulator, the auditor —
-cryptographically verify what an agent actually did, in chronological
-order, without trusting the agent's self-report.
+witness-signed hash-chain protocol for recording what agents did, so that
+the principal of an agentic system — the operator, the compliance officer,
+the auditor — can verify that record in chronological order without
+trusting the agent's self-report. It is not TunnelMind's product receipt;
+that is Receipt v1.0 (see [What ATAP is for](#what-atap-is-for)).
 
 - **Standard:** [`ATAP-v0.1.md`](./ATAP-v0.1.md) in this repo is the canonical text. The site's spec pages were retired on 2026-08-02 (`tunnelmind.ai/atap/standard` now redirects to `/standards`); `tunnelmind.ai/atap/keys`, the schemas, `context.jsonld` and `verify.sh` stay served so issued receipts verify forever.
 - **Status:** v0.1 in force. The public comment window closed **2026-08-12**.
@@ -30,6 +31,57 @@ order, without trusting the agent's self-report.
 | [`plugins/claude-code/`](./plugins/claude-code/) | Claude Code plugin that records commits and test runs as witness events. |
 | [`actions/witness/`](./actions/witness/) | GitHub Action that witnesses a CI test run under an ephemeral did:key and uploads its Receipt (self-asserted: integrity only). |
 | [`viewer/`](./viewer/) | One-file receipt viewer (`dist/atap-viewer.html`): open it, drop a Receipt ZIP, it verifies in the browser. Nothing is uploaded. |
+
+## What ATAP is for
+
+ATAP is the crew's **conduct ledger**: the hash-chained, witness-signed
+record of what the crew's agents did. It records:
+
+- **events** — one Witness Event per action (commits, test runs, tool calls), rolled up into Attestation Blocks and exported as a Receipt ZIP;
+- **owner approvals** — the owner's yes on a gated step, recorded as a `code_crew:approval` event on the same chain ([code_crew profile](./profiles/profiles/tunnelmind-code-crew-v1/profile.md));
+- **operator-signed constraints** — limits the operator signs and the harness checks before each tool call (`atap-witness constraints check`). They are a guard rail against accidents and drift, **not a sandbox**: they do not confine an agent or a process that bypasses them (review A-4);
+- the **`data_model:v1` profile** — a draft in [`profiles/profiles/tunnelmind-data-model-v1`](./profiles/profiles/tunnelmind-data-model-v1/profile.md), registered as `tunnelmind:data_model:v1`, merged in PR #26.
+
+**Receipt v1.0 is the product receipt.** ATAP defines no competing product
+receipt. ATAP's signatures are its own shapes (AIT and manifest: Ed25519
+over JCS of the document minus `witness_signature`; blocks and events:
+Ed25519 over the raw 32-byte `self_hash`), and they share only three
+building blocks with Receipt v1.0: **Ed25519**, **RFC 8785 JCS**, and the
+frozen JCS vectors [`packages/atap-js/test/vectors/jcs.json`](./packages/atap-js/test/vectors/jcs.json)
+(byte-identical to receipt-verify's copy, sha256-pinned).
+
+```mermaid
+flowchart LR
+  subgraph ATAP["ATAP chain (this repo)"]
+    AIT["AIT"] --> EV["Witness Events"] --> AB["Attestation Blocks"] --> ZIP["Receipt ZIP"]
+  end
+  subgraph RV1["Receipt v1.0 (product receipt)"]
+    ENV["Receipt v1.0 envelope"] --> PAY["payload"]
+  end
+  SHARED["Shared parts: Ed25519 · RFC 8785 JCS · jcs.json vectors"]
+  SHARED --- ATAP
+  SHARED --- RV1
+  EV -.->|proposal| PAY
+```
+
+The dashed edge is a proposal only (below): today no witness event is a
+Receipt v1.0 payload.
+
+## Proposal: remove or freeze if unused (not done)
+
+A proposal, **not acted on**: nothing is removed, frozen or merged by
+this change. Each item lists its current users, measured on this branch
+with `grep -rn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git --exclude-dir=specs`
+(and the item's own directory excluded).
+
+| Item | Proposal | Current users (measured) |
+|---|---|---|
+| `eat/` + `packages/eat-js` | Remove or freeze: unpublished JWS draft. | Pattern `eat-js\|eat/\|EAT-PROFILE`: `.github/workflows/publish.yml:39` (`working-directory: packages/eat-js`); docs only otherwise — this README's Profiles section (the `eat/` row and its note), `ARCHITECTURE.md:16,66`, `CHANGELOG.md:115`, `docs/RETIREMENT-R-06.md:13,32`. No code imports it. |
+| `profiles/profiles/sigil-media-buyer-v1` | Remove or freeze: pre-pivot profile. | Pattern `sigil-media-buyer`: `profiles/registry.json:12`, `profiles/package.json:8` (the `generate` script), `profiles/README.md:22`. |
+| SCITT export (`packages/atap-js/src/scitt.ts`, `atap-witness scitt export\|verify\|register`) | Remove unless a consumer exists. | Pattern `scitt\|toSignedStatement\|verifySignedStatement`, tests excluded: only its own wiring — `packages/atap-js/src/index.ts:37` (re-export), `packages/atap-cli/src/cli.ts:47,49,114-116,541-667,941-993` (the CLI path), `packages/atap-cli/README.md:77-320`, `ARCHITECTURE.md:11`, `CHANGELOG.md:212-220`; plus `scitt/` skip rules in `verify.sh:568-597`, `packages/atap-js/src/verify.ts:546`, `packages/atap-cli/src/cli.ts:388-395`, `viewer/src/main.js:62-64`. No caller outside this repo's own code and tests found. |
+| `profiles/.github/workflows/validate.yml` | Remove: dead subtree workflow (GitHub never runs it). | Pattern `validate\.yml\|profiles/.github`: `.github/workflows/profiles-validate.yml:5` and `docs/RETIREMENT-R-06.md:22` (both say it never runs). Nothing invokes it. |
+| `verify.sh` inside every Receipt ZIP (A-10) | Stop bundling it; verify with a trusted copy. | Pattern `verify\.sh` (69 files hit with `grep -rln`, this README included, mostly docs and tests; these are the ones that bundle or require it): **`ATAP-v0.1.md:424` — normative MUST** ("Receipts MUST contain … `verify.sh`"), so dropping it is a spec change, not only a code change; `ATAP-v0.1.md:366` (manifest example); `packages/atap-cli/src/cli.ts:96,318,339` (writes it into the ZIP); `packages/atap-js/src/verify.ts:539,568`, `verify.sh:589` and its atap-py copy `packages/atap-py/src/atap/verify.sh:589` (require it as a mandatory file); `profiles/scripts/example-generator.mjs:22` (writes it into example receipts). |
+| Witness events as Receipt v1.0 payloads | Make events Receipt v1.0 payloads so `receipt-verify` checks the crew record. | Pattern `receipt v1(\.0)? payload\|payload.*receipt v1` (case-insensitive): nothing found. Not built. |
 
 ## What ATAP solves
 

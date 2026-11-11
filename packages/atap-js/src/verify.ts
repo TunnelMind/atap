@@ -59,8 +59,8 @@ export interface VerifyResult {
   reason?: string
 }
 
-// An RFC 3339 time as epoch seconds, NaN if it is not one. Key validity and
-// compromise notices are compared as instants, not strings, so "+00:00" vs
+// An RFC 3339 time as epoch seconds, NaN if it is not one. Key validity
+// windows are compared as instants, not strings, so "+00:00" vs
 // "Z" or an offset cannot flip the verdict. One grammar with verify.sh's
 // JQ_INSTANT, which must not drift from this: upper-case T and Z; a real
 // calendar day; hour 00-23, minute and second 00-59 (no leap second, no
@@ -87,7 +87,7 @@ function instant(s: unknown): number {
 }
 
 // ATAP §8.2 key lookup for an OAI witness: the one entry with valid_from <= at
-// < valid_until that is not compromised before `at`. Returns the entry, null
+// < valid_until that is not compromised (ATAP-v0.1 §8.1). Returns the entry, null
 // for none, or the reason it is refused: a time that does not parse, or more
 // than one entry in force (taking the first would let file order pick the key).
 function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | string | null {
@@ -100,12 +100,11 @@ function pickKey(doc: KeysDocument, witness: string, at: string): PublicKey | st
     const until = instant(k.valid_until)
     if (Number.isNaN(from) || Number.isNaN(until)) return `key ${k.key_id} validity is not an RFC 3339 time`
     if (from > t || until <= t) continue
-    if (k.status === 'compromised') {
-      if (!k.compromise_notice) continue
-      const disclosed = instant(k.compromise_notice.disclosed_at)
-      if (Number.isNaN(disclosed)) return `key ${k.key_id} disclosed_at is not an RFC 3339 time`
-      if (t >= disclosed) continue
-    }
+    // ATAP-v0.1 §8.1: signatures by a compromised key SHOULD be marked
+    // unverified; a verifier MAY treat ones made before disclosed_at
+    // differently, and this one does not: `at` is written by the signer, and
+    // whoever holds the stolen key can date a record before the disclosure.
+    if (k.status === 'compromised') continue
     hits.push(k)
   }
   if (hits.length > 1) return `ambiguous: ${hits.length} keys for ${witness} valid at ${at} (ATAP §8.2)`
@@ -143,24 +142,21 @@ function didKeyEntryProblem(k: PublicKey, didRaw: Uint8Array): string | null {
 // Key lookup for a did:key witness (ATAP-v0.2 §3.1). The key is the one the
 // did:key encodes, so it has no validity window: valid_from/valid_until are
 // ignored. An entry is still required, every entry for the witness must pass
-// didKeyEntryProblem (they all describe the one key), and a compromise notice
-// on any of them in force at `at` voids the key. Returns the entry, null for
-// no usable entry, or the reason an entry is refused.
-export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8Array, at: string): PublicKey | string | null {
+// didKeyEntryProblem (they all describe the one key), and any of them marked
+// compromised voids the key for every time (ATAP-v0.1 §8.1, as pickKey).
+// Returns the entry, null for no usable entry, or the reason an entry is refused.
+// `_at` (the time the key is looked up for) no longer decides anything; it
+// stays so this exported signature and its callers are unchanged.
+export function pickDidKeyKey(doc: KeysDocument, witness: string, didRaw: Uint8Array, _at: string): PublicKey | string | null {
   const entries = doc.keys.filter(k => isObject(k) && k.witness === witness)
   for (const k of entries) {
     const problem = didKeyEntryProblem(k, didRaw)
     if (problem) return problem
-    if (k.status === 'compromised') {
-      if (!k.compromise_notice) return null
-      // Instants, as pickKey and verify.sh's lookup_did_key: `at` is written by
-      // the key holder, and a string compare would let "…T20:00:00-05:00" sort
-      // before a disclosed_at of the next UTC day it actually follows.
-      const t = instant(at)
-      const disclosed = instant(k.compromise_notice.disclosed_at)
-      if (Number.isNaN(t) || Number.isNaN(disclosed)) return `cannot compare the compromise notice for ${witness} at ${at} as RFC 3339 times`
-      if (t >= disclosed) return null
-    }
+    // ATAP-v0.1 §8.1: signatures by a compromised key SHOULD be marked
+    // unverified (the "before disclosed_at" carve-out is a MAY, not taken):
+    // `at` is written by the key holder, so it cannot show the record predates
+    // the compromise. Same rule as pickKey and verify.sh's lookup_did_key.
+    if (k.status === 'compromised') return null
   }
   return entries[0] ?? null
 }
@@ -416,38 +412,38 @@ function verifyReceiptRaw(opts: VerifyOptions): VerifyResult {
   // self-asserted witness over a silicon-root AIT would inherit silicon-root.
   const aitPeriodKey = didRaw || receipt.witness === ait.witness ? aitKey : pickKey(keys, receipt.witness, ait.issued_at)
   if (typeof aitPeriodKey === 'string') return { ok: false, blocks: chain.length, reason: aitPeriodKey }
-  // No entry at all is a failure, not the "omits the field" warning below: a
-  // witness with no key at the AIT's issue time attests nothing about it.
+  // No entry at all is a failure, not a strength-less key: a witness with no
+  // key at the AIT's issue time attests nothing about it.
   if (!aitPeriodKey) return { ok: false, blocks: chain.length, reason: `no key for receipt witness ${receipt.witness} at ${ait.issued_at}` }
   // A key that omits its strength is undefined, null, false or "", as
-  // verify.sh's jq `// empty` plus its `-n` test; anything else must be a
-  // tier string, as verify.sh's rank -1 fails everything else. Typed, not
-  // truthy: Object.hasOwn coerces ["self-asserted"] to its string, so an
-  // array would pass as that tier, and 0 would read as missing.
-  const keyStrength: unknown = aitPeriodKey.attestation_strength
-  if (keyStrength !== undefined && keyStrength !== null && keyStrength !== false && keyStrength !== '') {
-    // A typo in a trusted bundle ("silicon_root") has no rank, and
-    // `rank > undefined` is false, so without this any claim would pass.
-    if (typeof keyStrength !== 'string' || !Object.hasOwn(ATTESTATION_STRENGTH_RANK, keyStrength)) {
-      return {
-        ok: false,
-        blocks: chain.length,
-        reason: `key ${aitPeriodKey.key_id} has unrecognized attestation_strength '${typeof keyStrength === 'string' ? keyStrength : JSON.stringify(keyStrength)}'`,
-      }
+  // verify.sh's jq `// empty`, and ranks as self-asserted (ATAP-v0.1 §8.1:
+  // "missing values are treated as self-asserted"), so it caps the claim
+  // there (review A-3; it used to pass any claim with a warning). Anything
+  // else must be a tier string, as verify.sh's rank -1 fails everything else.
+  // Typed, not truthy: Object.hasOwn coerces ["self-asserted"] to its string,
+  // so an array would pass as that tier, and 0 would read as missing.
+  const rawKeyStrength: unknown = aitPeriodKey.attestation_strength
+  const keyStrength: unknown =
+    rawKeyStrength === undefined || rawKeyStrength === null || rawKeyStrength === false || rawKeyStrength === ''
+      ? 'self-asserted'
+      : rawKeyStrength
+  // A typo in a trusted bundle ("silicon_root") has no rank, and
+  // `rank > undefined` is false, so without this any claim would pass.
+  if (typeof keyStrength !== 'string' || !Object.hasOwn(ATTESTATION_STRENGTH_RANK, keyStrength)) {
+    return {
+      ok: false,
+      blocks: chain.length,
+      reason: `key ${aitPeriodKey.key_id} has unrecognized attestation_strength '${typeof keyStrength === 'string' ? keyStrength : JSON.stringify(keyStrength)}'`,
     }
-    const keyRank = ATTESTATION_STRENGTH_RANK[keyStrength as AttestationStrength]
-    const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]
-    if (rcptRank > keyRank) {
-      return {
-        ok: false,
-        blocks: chain.length,
-        reason: `attestation_strength=${effectiveStrength} exceeds key attestation_strength=${aitPeriodKey.attestation_strength}`,
-      }
+  }
+  const keyRank = ATTESTATION_STRENGTH_RANK[keyStrength as AttestationStrength]
+  const rcptRank = ATTESTATION_STRENGTH_RANK[effectiveStrength]
+  if (rcptRank > keyRank) {
+    return {
+      ok: false,
+      blocks: chain.length,
+      reason: `attestation_strength=${effectiveStrength} exceeds key attestation_strength=${keyStrength}`,
     }
-  } else if (receipt.attestation_strength) {
-    warnings.push(
-      "matching key entry omits attestation_strength — receipt's claim is not key-attested (ATAP §8.1). Required at v0.2.",
-    )
   }
 
   return {

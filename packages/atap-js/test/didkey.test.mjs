@@ -314,32 +314,25 @@ test('a block or receipt bound to another AIT or profile fails', async () => {
   assert.deepEqual([r.ok, r.reason], [false, `receipt ait AIT-00000000-0000-7000-8000-000000000000 != AIT id ${c.ait.id}`])
 })
 
-// A compromise notice voids a key from its disclosed_at instant on, compared as
-// instants (as verify.sh's lookup_did_key): a later disclosure written with a
-// -05:00 offset sorts before the records' "…Z" times as a string, and a string
-// compare voided the key for records signed before the disclosure.
-test('a compromise notice compares as an instant, not a string', async () => {
+// ATAP-v0.1 §8.1 (A-1): a compromised did:key entry voids the key for every
+// record, whatever its disclosed_at (as verify.sh's lookup_did_key). These
+// were the instant-compare cases: a later disclosure in a -05:00 offset (once
+// verified), 0.1 ms after generated_at (once verified) and times outside
+// verify.sh's grammar (once "cannot compare"). The records' times are the
+// signer's, so none of them can show a record predates the compromise.
+test('a compromise notice voids the key whatever its disclosed_at', async () => {
   const c = await didChain()
+  assert.equal(verifyReceipt(c).ok, true)
   const inAnHour = new Date(Date.now() + 3600_000)
   const local = new Date(inAnHour.getTime() - 5 * 3600_000).toISOString().replace(/\.\d+Z$/, '-05:00')
   assert.ok(local < c.ait.issued_at, 'the offset form must sort before the AIT time as a string')
   const notice = disclosed_at => ({ ...c.keys.keys[0], status: 'compromised', compromise_notice: { disclosed_at } })
-  const later = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(local)] } })
-  assert.equal(later.ok, true, later.reason)
-  const garbled = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice('yesterday')] } })
-  assert.equal(garbled.ok, false)
-  assert.match(garbled.reason, /cannot compare the compromise notice/)
-  // verify.sh's grammar: no leap second, no 24:00, no offset past 23:59, no
-  // day the month lacks. Date.parse took 24:00 and Feb 30 (rolled over).
-  for (const bad of ['2099-12-31T23:59:60Z', '2099-12-31T24:00:00Z', '2099-12-31T00:00:00+99:99', '2099-02-30T00:00:00Z']) {
-    const r = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(bad)] } })
-    assert.equal(r.ok, false, bad)
-    assert.match(r.reason, /cannot compare the compromise notice/)
+  for (const disclosed of [local, c.receipt.generated_at.replace('Z', '1Z'), 'yesterday',
+    '2099-12-31T23:59:60Z', '2099-12-31T24:00:00Z', '2099-12-31T00:00:00+99:99', '2099-02-30T00:00:00Z']) {
+    const r = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(disclosed)] } })
+    assert.equal(r.ok, false, disclosed)
+    assert.match(r.reason, /no key for/, disclosed)
   }
-  // A fraction finer than a millisecond counts: 0.1 ms after generated_at the
-  // key was still good (Date.parse cut it to generated_at and voided it).
-  const justAfter = verifyReceipt({ ...c, keys: { ...c.keys, keys: [notice(c.receipt.generated_at.replace('Z', '1Z'))] } })
-  assert.equal(justAfter.ok, true, justAfter.reason)
 })
 
 // verifyReceipt takes parsed JSON straight from a receipt: a wrong shape is a
@@ -378,12 +371,38 @@ test('a key attestation_strength that is not a tier fails the ceiling', async ()
     assert.equal(r.ok, false, JSON.stringify(bad))
     assert.match(r.reason, /unrecognized attestation_strength/)
   }
-  // Omitted is undefined, null, false or "" (verify.sh's `// empty` and -n):
-  // the receipt passes with the not-key-attested warning.
+  // Omitted is undefined, null, false or "" (verify.sh's `// empty`), and
+  // ranks as self-asserted (ATAP-v0.1 §8.1): the self-asserted receipt passes.
   for (const omitted of [undefined, null, false, '']) {
     const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: omitted }] }
     const r = verifyReceipt({ ...c, keys })
     assert.equal(r.ok, true, `${JSON.stringify(omitted)}: ${r.reason}`)
+    assert.ok(!(r.warnings ?? []).some(w => /key entry omits/.test(w)), JSON.stringify(omitted))
+  }
+})
+
+// ATAP-v0.1 §8.1 (review A-3): "missing values are treated as self-asserted",
+// so a key entry that omits attestation_strength caps the receipt's claim at
+// self-asserted. It used to pass any claim with a "not key-attested" warning.
+test('a key that omits attestation_strength caps the claim at self-asserted', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  for (const omitted of [undefined, null, false, '']) {
+    const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: omitted }] }
+    for (const claim of ['software', 'tee-tpm', 'silicon-root']) {
+      const receipt = resignReceipt({ ...c.receipt, attestation_strength: claim }, privateKey)
+      const r = verifyReceipt({ ...c, receipt, keys })
+      assert.equal(r.ok, false, `${claim} / ${JSON.stringify(omitted)}`)
+      assert.match(r.reason, new RegExp(`attestation_strength=${claim} exceeds key attestation_strength=self-asserted`))
+    }
+    // Claiming self-asserted, or nothing (read as self-asserted), stays ok.
+    const { attestation_strength: _, ...unclaimed } = c.receipt
+    for (const claim of ['self-asserted', undefined]) {
+      const receipt = resignReceipt(claim ? { ...c.receipt, attestation_strength: claim } : unclaimed, privateKey)
+      const r = verifyReceipt({ ...c, receipt, keys })
+      assert.equal(r.ok, true, `${claim} / ${JSON.stringify(omitted)}: ${r.reason}`)
+      assert.equal(r.attestation_strength, 'self-asserted')
+    }
   }
 })
 

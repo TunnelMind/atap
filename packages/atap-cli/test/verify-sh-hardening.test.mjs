@@ -148,12 +148,53 @@ test('an unparsable key validity time is a rejection, not a pass', async () => {
   }
 })
 
-test('a compromise notice is compared by time too', async () => {
+// ATAP-v0.1 §8.1 (A-1): a compromised key is refused for any signer-written
+// time, whatever its disclosed_at says. The times are the signer's, so one
+// holding the stolen key can write any of them before the disclosure.
+test('a compromised key fails verify.sh and atap-witness verify, disclosed an hour after issued_at', async () => {
+  const active = await receiptDir()
+  assert.equal(verifySh(active.dir).status, 0, verifySh(active.dir).stderr)
+  assert.equal(cliVerify(active.dir).ok, true)
+  const { dir } = await receiptDir((k1, ait) => {
+    const disclosed_at = new Date(Date.parse(ait.issued_at) + 3600_000).toISOString()
+    return [{ ...k1, status: 'compromised', compromise_notice: { disclosed_at, detected_at: disclosed_at } }]
+  })
+  assertFails(verifySh(dir), /no key for AIT witness/)
+  const cli = cliVerify(dir)
+  assert.equal(cli.ok, false)
+  assert.equal(cli.status, 1)
+  assert.match(cli.reason, /^no key for AIT witness/)
+})
+
+test('a compromised key is refused whatever the disclosed_at offset', async () => {
   // Disclosed an hour after issued_at, written -05:00 so the string sorts
-  // before it: the key was still good at t.
+  // before it. That once verified (the instant is after t); now no time
+  // before or after the disclosure makes a compromised key good.
   const { dir } = await receiptDir((k1, ait) => [{ ...k1, status: 'compromised', compromise_notice: { disclosed_at: withOffset(Date.parse(ait.issued_at) + 3600_000, -300) } }])
-  assert.equal(verifySh(dir).status, 0, verifySh(dir).stderr)
-  assert.equal(lib(dir).ok, true)
+  assertFails(verifySh(dir), /no key for AIT witness/)
+  assert.match(lib(dir).reason, /^no key for AIT witness/)
+})
+
+// ATAP-v0.1 §8.1 (review A-3): "missing values are treated as self-asserted".
+// A key entry without attestation_strength caps the claim at self-asserted in
+// both verifiers; both used to pass a higher claim with a warning.
+test('a key that omits attestation_strength fails a software or silicon-root claim in both verifiers', async () => {
+  for (const claim of ['software', 'silicon-root', 'self-asserted']) {
+    const r = await receiptDir(k1 => { const { attestation_strength: _, ...k } = k1; return [k] })
+    editManifest(r, m => ({ ...m, attestation_strength: claim }))
+    const sh = verifySh(r.dir)
+    const cli = cliVerify(r.dir)
+    if (claim === 'self-asserted') {
+      assert.equal(sh.status, 0, sh.stderr)
+      assert.doesNotMatch(sh.stderr, /WARN: matching key entry/)
+      assert.equal(cli.ok, true, cli.reason)
+      continue
+    }
+    assertFails(sh, new RegExp(`manifest\\.attestation_strength=${claim} exceeds key\\.attestation_strength=self-asserted`))
+    assert.equal(cli.ok, false, claim)
+    assert.equal(cli.status, 1)
+    assert.match(cli.reason, new RegExp(`attestation_strength=${claim} exceeds key attestation_strength=self-asserted`))
+  }
 })
 
 // Each case lists a path whose hash matches a file outside the receipt, so
