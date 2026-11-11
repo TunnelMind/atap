@@ -113,6 +113,27 @@ The package enforces v0.1 limits at signing time:
 
 These match §6.3, §7.1, §7.1.1, and §7.2 of the standard.
 
+## Canonicalization
+
+ATAP has exactly two JCS canonicalizers: the JS one in
+[`src/canonicalize.ts`](src/canonicalize.ts) and the Python one inside the
+root [`verify.sh`](../../verify.sh). Both run the same frozen vectors,
+`test/vectors/jcs.json` — JS in
+[`test/jcs-vectors.test.mjs`](test/jcs-vectors.test.mjs), Python in
+[`../atap-cli/test/verify-sh-canon.test.mjs`](../atap-cli/test/verify-sh-canon.test.mjs)
+— and that file is byte-identical to receipt-verify's copy, so both match
+receipt-verify's canonicalizer. `jcs-vectors.test.mjs` pins the file's sha256
+(`81a79410…3dfb978cdd`); flipping one byte breaks the pin:
+
+```bash
+cp test/vectors/jcs.json /tmp/jcs.json && printf 'X' | dd of=/tmp/jcs.json bs=1 seek=0 conv=notrunc
+sha256sum /tmp/jcs.json   # no longer 81a79410…, so the pin test would fail
+```
+
+atap-js does not import receipt-verify's canonicalizer because it would be
+the package's first runtime dependency, the viewer's bundler resolves only
+relative imports, and verify.sh's Python cannot import JS anyway.
+
 ## License
 
 Apache-2.0.
