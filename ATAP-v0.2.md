@@ -2,6 +2,7 @@
 
 > **DRAFT for Josh.** Not published. Normative once approved; until then, ATAP v0.1 is the
 > standard in force.
+> Scope note (non-normative): what ATAP is for, and its relation to Receipt v1.0, is in the [README, "What ATAP is for"](README.md#what-atap-is-for).
 
 | | |
 |---|---|
