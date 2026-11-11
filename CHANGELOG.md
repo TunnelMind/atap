@@ -69,6 +69,17 @@ All notable changes to ATAP are recorded here.
   no key), whatever `disclosed_at` says or whether it parses. A receipt that
   verified because its times preceded a later disclosure now fails
   "no key for …".
+- **All verifiers: a key without `attestation_strength` is self-asserted
+  (A-3, atap-scope-1).** ATAP-v0.1 §8.1 says "missing values are treated as
+  self-asserted", but atap-js, `verify.sh` (its copy in atap-py) and the
+  viewer passed any receipt claim over such a key with a "not key-attested"
+  warning, so a receipt could claim `software` or `silicon-root` on a key
+  that declared nothing. A key entry whose strength is absent, null, false
+  or `""` now ranks as `self-asserted`: a higher claim fails
+  `attestation_strength=<claim> exceeds key attestation_strength=self-asserted`
+  (verify.sh: `manifest.attestation_strength=… exceeds
+  key.attestation_strength=self-asserted`), and the warning is gone. A
+  self-asserted or absent claim verifies as before.
 
 Verdict changes from the 2026-10-21/22 review. No receipt the witness writes
 changes verdict; each line names the inputs that do.

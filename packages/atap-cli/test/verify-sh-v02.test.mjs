@@ -664,7 +664,7 @@ test("a receipt re-signed by a weaker OAI witness fails the strength ceiling in 
 })
 
 // Review 2026-10-21 C1: with no key for the manifest's witness at the AIT's
-// issued_at both verifiers fell into the "key omits the field" warning and
+// issued_at both verifiers fell into the then "key omits the field" warning and
 // passed the inflated claim. Now a failure in both.
 test("a weaker OAI witness whose key starts after the AIT's issue fails in both verifiers", async () => {
   const { dir, ait, privateKey } = await didReceiptDir('OAI-2026-0010002', { late: true })
@@ -680,4 +680,23 @@ test("a weaker OAI witness whose key starts after the AIT's issue fails in both 
   const js = cliVerify(dir)
   assert.notEqual(js.status, 0)
   assert.match(js.reason, /no key for receipt witness OAI-2026-0010003 at/)
+})
+
+// Review A-3 (ATAP-v0.1 §8.1 "missing values are treated as self-asserted"):
+// the manifest's witness has a key at the AIT's issued_at that omits
+// attestation_strength. Both verifiers used to pass the silicon-root claim
+// with the "key omits the field" warning; now it caps at self-asserted.
+test("a weaker OAI witness whose key omits attestation_strength fails the ceiling in both verifiers", async () => {
+  const { dir, privateKey } = await didReceiptDir('OAI-2026-0010002')
+  const OTHER = 'OAI-2026-0010003'
+  const keys = readJson(dir, 'public_keys.json')
+  const { attestation_strength: _s, ...k } = keys.keys[0]
+  put(dir, 'public_keys.json', JSON.stringify({ ...keys, keys: [{ ...k, attestation_strength: 'silicon-root' }, { ...k, witness: OTHER, key_id: 'k2' }] }))
+  const { witness_signature: _, ...m } = readJson(dir, 'manifest.json')
+  const asOther = { ...m, witness: OTHER, attestation_strength: 'silicon-root' }
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ ...asOther, witness_signature: ed25519Sign(canonicalizeBytes(asOther), privateKey) }))
+  assertFails(verifySh(dir), /attestation_strength=silicon-root exceeds key\.attestation_strength=self-asserted/)
+  const js = cliVerify(dir)
+  assert.notEqual(js.status, 0)
+  assert.match(js.reason, /attestation_strength=silicon-root exceeds key attestation_strength=self-asserted/)
 })

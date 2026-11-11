@@ -22,7 +22,8 @@
 #   JSON texts of one value to one).
 # Ceiling: manifest.attestation_strength must be one of the four tiers
 #   (missing reads as self-asserted, with a WARN) and at most the strength the
-#   receipt witness's key declares at the AIT's issue time; no key for that
+#   receipt witness's key declares at the AIT's issue time (a key that
+#   declares none is self-asserted, ATAP-v0.1 §8.1); no key for that
 #   witness then, or a key strength that is not a tier, fails.
 # Fails closed: the first failed check prints `FAIL: <reason>` and exits 1;
 #   exit 0 means every check passed (WARN lines go to stderr).
@@ -504,7 +505,7 @@ case "$RCPT_STRENGTH" in
   self-asserted|software|tee-tpm|silicon-root) ;;
   *) err "manifest.attestation_strength has unrecognized value '$RCPT_STRENGTH' (expected self-asserted | software | tee-tpm | silicon-root)";;
 esac
-# Cross-check against the matching key entry, if the key declares a strength.
+# Cross-check against the matching key entry (a missing strength is self-asserted).
 if [[ "$WITNESS" =~ ^did:key: ]]; then
   # No validity window for a did:key's key (ATAP-v0.2 §3.1, as lookup_did_key),
   # and no compromised entry at any time (ATAP-v0.1 §8.1, as lookup_did_key:
@@ -518,23 +519,22 @@ if [[ "$WITNESS" =~ ^did:key: ]]; then
   ' "$RECEIPT_DIR/public_keys.json" 2>/dev/null | head -1) \
     || err "cannot read the key entries for $WITNESS"
 else
-  # No entry at all is a failure, not the "omits the field" WARN below: a
-  # witness with no key at the AIT's issue time attests nothing about it.
+  # No entry at all is a failure, not a strength-less key: a witness with no
+  # key at the AIT's issue time attests nothing about it.
   KEY_AT_AIT=$(oai_keys_at "$WITNESS" "$AIT_TS")
   [ "$(jq length <<<"$KEY_AT_AIT")" -eq 1 ] || err "no key for receipt witness $WITNESS at $AIT_TS"
-  # Omitted is absent, null, false or "" (`// empty`, then -n below).
+  # Omitted is absent, null, false or "" (`// empty`, then the default below).
   KEY_STRENGTH=$(jq -r "$JQ_STRENGTH"'.[0].attestation_strength // empty | strength' <<<"$KEY_AT_AIT")
 fi
-if [ -n "$KEY_STRENGTH" ]; then
-  STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }
-  R_RANK=$(STRENGTH_RANK "$RCPT_STRENGTH")
-  K_RANK=$(STRENGTH_RANK "$KEY_STRENGTH")
-  [ "$R_RANK" -le "$K_RANK" ] || err "manifest.attestation_strength=$RCPT_STRENGTH exceeds key.attestation_strength=$KEY_STRENGTH"
-  ok "attestation_strength=$RCPT_STRENGTH (key-attested)"
-else
-  echo "WARN: matching key entry omits attestation_strength — receipt's $RCPT_STRENGTH claim is not key-attested (ATAP §8.1). Required at v0.2." >&2
-  ok "attestation_strength=$RCPT_STRENGTH (self-attested by receipt)"
-fi
+# A key that omits its strength is self-asserted (ATAP-v0.1 §8.1: "missing
+# values are treated as self-asserted"), so it caps the claim there (review
+# A-3; it used to pass any claim with a WARN), as atap-js.
+[ -n "$KEY_STRENGTH" ] || KEY_STRENGTH="self-asserted"
+STRENGTH_RANK() { case "$1" in self-asserted) echo 0;; software) echo 1;; tee-tpm) echo 2;; silicon-root) echo 3;; *) echo -1;; esac; }
+R_RANK=$(STRENGTH_RANK "$RCPT_STRENGTH")
+K_RANK=$(STRENGTH_RANK "$KEY_STRENGTH")
+[ "$R_RANK" -le "$K_RANK" ] || err "manifest.attestation_strength=$RCPT_STRENGTH exceeds key.attestation_strength=$KEY_STRENGTH"
+ok "attestation_strength=$RCPT_STRENGTH (key-attested)"
 
 ##############################################################################
 # 6. Manifest signature

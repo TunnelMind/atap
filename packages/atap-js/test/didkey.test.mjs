@@ -371,12 +371,38 @@ test('a key attestation_strength that is not a tier fails the ceiling', async ()
     assert.equal(r.ok, false, JSON.stringify(bad))
     assert.match(r.reason, /unrecognized attestation_strength/)
   }
-  // Omitted is undefined, null, false or "" (verify.sh's `// empty` and -n):
-  // the receipt passes with the not-key-attested warning.
+  // Omitted is undefined, null, false or "" (verify.sh's `// empty`), and
+  // ranks as self-asserted (ATAP-v0.1 §8.1): the self-asserted receipt passes.
   for (const omitted of [undefined, null, false, '']) {
     const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: omitted }] }
     const r = verifyReceipt({ ...c, keys })
     assert.equal(r.ok, true, `${JSON.stringify(omitted)}: ${r.reason}`)
+    assert.ok(!(r.warnings ?? []).some(w => /key entry omits/.test(w)), JSON.stringify(omitted))
+  }
+})
+
+// ATAP-v0.1 §8.1 (review A-3): "missing values are treated as self-asserted",
+// so a key entry that omits attestation_strength caps the receipt's claim at
+// self-asserted. It used to pass any claim with a "not key-attested" warning.
+test('a key that omits attestation_strength caps the claim at self-asserted', async () => {
+  const { privateKey } = generateKeyPairSync('ed25519')
+  const c = await chain({ witness: 'OAI-2026-0010002', privateKey })
+  for (const omitted of [undefined, null, false, '']) {
+    const keys = { ...c.keys, keys: [{ ...c.keys.keys[0], attestation_strength: omitted }] }
+    for (const claim of ['software', 'tee-tpm', 'silicon-root']) {
+      const receipt = resignReceipt({ ...c.receipt, attestation_strength: claim }, privateKey)
+      const r = verifyReceipt({ ...c, receipt, keys })
+      assert.equal(r.ok, false, `${claim} / ${JSON.stringify(omitted)}`)
+      assert.match(r.reason, new RegExp(`attestation_strength=${claim} exceeds key attestation_strength=self-asserted`))
+    }
+    // Claiming self-asserted, or nothing (read as self-asserted), stays ok.
+    const { attestation_strength: _, ...unclaimed } = c.receipt
+    for (const claim of ['self-asserted', undefined]) {
+      const receipt = resignReceipt(claim ? { ...c.receipt, attestation_strength: claim } : unclaimed, privateKey)
+      const r = verifyReceipt({ ...c, receipt, keys })
+      assert.equal(r.ok, true, `${claim} / ${JSON.stringify(omitted)}: ${r.reason}`)
+      assert.equal(r.attestation_strength, 'self-asserted')
+    }
   }
 })
 

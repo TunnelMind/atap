@@ -22,15 +22,17 @@ CLI = REPO_ROOT / "packages/atap-cli/dist/cli.js"
 
 # An OAI receipt dir, as atap-witness receipt lays it out, whose one key is
 # argv[3] ('active' or 'compromised', disclosed an hour after the AIT's
-# issued_at, so every signer-written time is before the disclosure).
+# issued_at, so every signer-written time is before the disclosure). Optional
+# argv[4] is the receipt's attestation_strength claim; with it the key entry
+# omits attestation_strength (review A-3).
 RECEIPT_JS = """
 import { WitnessService, InMemoryStorage, toHex, sha256 } from '%s'
 import { createPublicKey, generateKeyPairSync } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-const [dir, verifySh, status] = process.argv.slice(1)
+const [dir, verifySh, status, claim] = process.argv.slice(1)
 const { privateKey } = generateKeyPairSync('ed25519')
-const svc = new WitnessService({ witnessOAI: 'OAI-2026-0010002', privateKey, storage: new InMemoryStorage() })
+const svc = new WitnessService({ witnessOAI: 'OAI-2026-0010002', privateKey, storage: new InMemoryStorage(), ...(claim ? { attestationStrength: claim } : {}) })
 const ait = await svc.declareAit({ agentType: 'crew-ops', profile: 'tunnelmind:crew_ops:v1', operator: 'OAI-2026-0010002',
   capabilities: ['crew_ops:ratify'], expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
   attestationPolicy: { witness_granularity: 'per_action', block_interval_seconds: 3600, receipt_generation: 'on_demand' } })
@@ -41,6 +43,7 @@ const disclosed_at = new Date(Date.parse(ait.issued_at) + 3600_000).toISOString(
 const key = { witness: ait.witness, key_id: 'k1', algorithm: 'ed25519', public_key: '0x' + toHex(new Uint8Array(der.subarray(der.length - 32))),
   valid_from: '2000-01-01T00:00:00Z', valid_until: '2100-01-01T00:00:00Z', status, attestation_strength: 'self-asserted', rotated_to: null,
   compromise_notice: status === 'compromised' ? { disclosed_at, detected_at: disclosed_at } : null }
+if (claim) delete key.attestation_strength
 const bodies = { 'ait.json': JSON.stringify(ait), 'attestation_chain.json': JSON.stringify([block]),
   'public_keys.json': JSON.stringify({ keys: [key], updated_at: new Date().toISOString() }), 'verify.sh': readFileSync(verifySh) }
 for (const [f, b] of Object.entries(bodies)) writeFileSync(join(dir, f), b)
@@ -135,6 +138,22 @@ class TrustTest(unittest.TestCase):
             d.mkdir()
             subprocess.run(["node", "--input-type=module", "-e", RECEIPT_JS, str(d), str(PACKAGED), status], check=True)
             self.assertEqual(atap.verify(d), {"ok": ok, "cli": ok, "verify_sh": ok}, status)
+
+    @unittest.skipUnless(ATAP_JS.is_file() and CLI.is_file() and all(shutil.which(b) for b in ("node", "bash", "jq")),
+                         "needs packages/atap-js and packages/atap-cli built, node, bash and jq")
+    def test_verify_caps_a_strengthless_key_at_self_asserted(self):
+        # ATAP-v0.1 §8.1 (A-3): a key entry that omits attestation_strength is
+        # self-asserted, so a software claim on it fails both verifiers.
+        os.environ.pop("ATAP_VERIFY_SH", None)  # the packaged copy
+        wrapper = self.root / "atap-witness-real"
+        wrapper.write_text(f'#!/bin/sh\nexec node "{CLI}" "$@"\n')
+        wrapper.chmod(0o755)
+        os.environ["ATAP_WITNESS"] = str(wrapper)
+        for claim, ok in (("self-asserted", True), ("software", False)):
+            d = self.root / claim
+            d.mkdir()
+            subprocess.run(["node", "--input-type=module", "-e", RECEIPT_JS, str(d), str(PACKAGED), "active", claim], check=True)
+            self.assertEqual(atap.verify(d), {"ok": ok, "cli": ok, "verify_sh": ok}, claim)
 
 
 if __name__ == "__main__":

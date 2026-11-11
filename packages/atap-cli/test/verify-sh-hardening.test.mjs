@@ -175,6 +175,28 @@ test('a compromised key is refused whatever the disclosed_at offset', async () =
   assert.match(lib(dir).reason, /^no key for AIT witness/)
 })
 
+// ATAP-v0.1 §8.1 (review A-3): "missing values are treated as self-asserted".
+// A key entry without attestation_strength caps the claim at self-asserted in
+// both verifiers; both used to pass a higher claim with a warning.
+test('a key that omits attestation_strength fails a software or silicon-root claim in both verifiers', async () => {
+  for (const claim of ['software', 'silicon-root', 'self-asserted']) {
+    const r = await receiptDir(k1 => { const { attestation_strength: _, ...k } = k1; return [k] })
+    editManifest(r, m => ({ ...m, attestation_strength: claim }))
+    const sh = verifySh(r.dir)
+    const cli = cliVerify(r.dir)
+    if (claim === 'self-asserted') {
+      assert.equal(sh.status, 0, sh.stderr)
+      assert.doesNotMatch(sh.stderr, /WARN: matching key entry/)
+      assert.equal(cli.ok, true, cli.reason)
+      continue
+    }
+    assertFails(sh, new RegExp(`manifest\\.attestation_strength=${claim} exceeds key\\.attestation_strength=self-asserted`))
+    assert.equal(cli.ok, false, claim)
+    assert.equal(cli.status, 1)
+    assert.match(cli.reason, new RegExp(`attestation_strength=${claim} exceeds key attestation_strength=self-asserted`))
+  }
+})
+
 // Each case lists a path whose hash matches a file outside the receipt, so
 // only the containment checks can refuse it.
 const outside = mkdtempSync(join(tmpdir(), 'atap-outside-'))
