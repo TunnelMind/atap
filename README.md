@@ -177,8 +177,8 @@ R-06).
 
 | Tree | Origin repo | Contents |
 |---|---|---|
-| [`profiles/`](./profiles) | [`github.com/TunnelMind/atap-profiles`](https://github.com/TunnelMind/atap-profiles) | ATAP application-profile registry. See [`profiles/README.md`](./profiles/README.md). |
-| [`eat/`](./eat) | [`github.com/TunnelMind/eat-profile`](https://github.com/TunnelMind/eat-profile) | EAT profile v0.1. See [`eat/README.md`](./eat/README.md) and [`eat/EAT-PROFILE-v0.1.md`](./eat/EAT-PROFILE-v0.1.md). |
+| [`profiles/`](./profiles) | `TunnelMind/atap-profiles` (archived; see [R-06](./docs/RETIREMENT-R-06.md)) | ATAP application-profile registry. See [`profiles/README.md`](./profiles/README.md). |
+| [`eat/`](./eat) | `TunnelMind/eat-profile` (archived; see [R-06](./docs/RETIREMENT-R-06.md)) | EAT profile v0.1. See [`eat/README.md`](./eat/README.md) and [`eat/EAT-PROFILE-v0.1.md`](./eat/EAT-PROFILE-v0.1.md). |
 
 The registry's own check is `cd profiles && npm ci && npm test` (Node 20+;
 needs network once to install its dev dependencies). `eat/` has no checks.
